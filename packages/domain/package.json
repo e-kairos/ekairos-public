@@ -1,15 +1,33 @@
 {
   "name": "@ekairos/domain",
   "version": "1.21.100-beta.0",
-  "description": "Pulzar Domain Utilities",
+  "description": "Domain-first TypeScript primitives for InstantDB: schema composition, typed actions, and runtime execution.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "sideEffects": false,
   "files": [
     "dist"
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "homepage": "https://github.com/e-kairos/ekairos-public/tree/main/packages/domain",
+  "bugs": {
+    "url": "https://github.com/e-kairos/ekairos-public/issues"
+  },
+  "keywords": [
+    "ekairos",
+    "domain",
+    "instantdb",
+    "typescript",
+    "ai",
+    "mcp",
+    "nextjs",
+    "workflow"
+  ],
+  "engines": {
+    "node": ">=20"
   },
   "license": "MIT",
   "repository": {
@@ -40,6 +58,8 @@
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run -c vitest.config.ts src/tests/runtime.actions.unit.test.ts",
     "test:conflicts": "node dist/__type_tests__/conflict-validation.test.js",
     "test:context": "node dist/context.test-runner.js",
     "test:e2e": "vitest run -c vitest.config.ts src/tests/domain.context.e2e.test.ts"

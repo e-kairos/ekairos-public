@@ -1,31 +1,24 @@
 # @ekairos/domain
 
-Domain-first foundation for Ekairos applications.
+[![npm version](https://img.shields.io/npm/v/@ekairos/domain)](https://www.npmjs.com/package/@ekairos/domain)
+[![npm downloads](https://img.shields.io/npm/dm/@ekairos/domain)](https://www.npmjs.com/package/@ekairos/domain)
 
-`@ekairos/domain` is the canonical primitive for:
+Domain-first TypeScript primitives for InstantDB applications.
 
-1. schema composition,
-2. runtime resolution,
-3. domain context for AI,
-4. domain actions (typed mutations/commands).
+`@ekairos/domain` gives you one source of truth for:
+
+- Schema composition.
+- Runtime resolution.
+- Typed domain actions.
+- AI-ready domain context.
 
 If `@ekairos/thread` is execution, `@ekairos/domain` is system truth.
-
-## Core idea
-
-A domain is no longer only `toInstantSchema()`.  
-A domain is:
-
-- structural contract (entities, links, rooms),
-- execution contract (runtime),
-- mutation contract (actions).
-
-This keeps web, MCP, and internal APIs aligned to one domain interface.
 
 ## Install
 
 ```bash
-pnpm add @ekairos/domain
+pnpm add @ekairos/domain @instantdb/core
+pnpm add -D @instantdb/admin
 ```
 
 Exports:
@@ -36,176 +29,132 @@ Exports:
 
 ## Quick start
 
-### 1) Define schema
+### 1. Define a domain schema
 
 ```ts
 import { domain } from "@ekairos/domain";
 import { i } from "@instantdb/core";
 
-const managementSchema = domain("management")
-  .schema({
-    entities: {
-      management_tasks: i.entity({
-        title: i.string(),
-        status: i.string().indexed(),
-        createdAt: i.date().indexed(),
-        updatedAt: i.date().optional(),
-      }),
-    },
-    links: {},
-    rooms: {},
-  });
+export const managementDomain = domain("management").schema({
+  entities: {
+    management_tasks: i.entity({
+      title: i.string(),
+      status: i.string().indexed(),
+      createdAt: i.date().indexed(),
+    }),
+  },
+  links: {},
+  rooms: {},
+});
 ```
 
-### 2) Attach domain actions
+### 2. Add typed actions
 
 ```ts
 import { defineDomainAction } from "@ekairos/domain";
 
-const managementDomain = managementSchema.actions({
-  "management.task.create": defineDomainAction({
-    description: "Create a management task",
-    inputSchema: {
-      type: "object",
-      properties: {
-        title: { type: "string" },
-      },
-      required: ["title"],
-    },
-    requiredScopes: ["management.task.write"],
-    async execute({ env, input, runtime }) {
-      // env is adapter-defined and opaque here.
-      // runtime is domain-bound runtime for this domain.
-      const title = String(input?.title ?? "").trim();
-      if (!title) throw new Error("title_required");
-      // mutate runtime.db...
-      return { ok: true };
-    },
-  }),
+const createTask = defineDomainAction<
+  { orgId: string; actorId: string },
+  { title: string },
+  { ok: true; taskId: string },
+  { db: any }
+>({
+  name: "management.task.create",
+  description: "Create a management task",
+  async execute({ env, input, runtime }) {
+    const title = String(input.title ?? "").trim();
+    if (!title) throw new Error("title_required");
+
+    // use runtime.db here
+    return { ok: true, taskId: `task_${env.orgId}` };
+  },
 });
+
+export const appDomain = managementDomain.actions([createTask]);
 ```
 
-Key rules:
-
-1. Actions are explicit (`.actions(...)`).
-2. Included subdomains do not auto-export actions to parent domains.
-3. Action naming should be stable and namespaced (example: `management.task.update`).
-
-## Action model (env-first)
-
-`@ekairos/domain` does not assume `orgId`, Clerk, tenant, or provider.
-
-Actions receive:
-
-- `env`: adapter-owned execution environment (opaque in domain package),
-- `input`: typed action input,
-- `runtime`: resolved runtime for the action domain,
-- `call`: helper for nested explicit actions.
-
-Type surface:
-
-```ts
-type DomainActionExecuteParams<Env, Input, Runtime> = {
-  env: Env;
-  input: Input;
-  runtime: Runtime;
-  call: <NestedInput, NestedOutput>(action, input) => Promise<NestedOutput>;
-};
-```
-
-## Runtime configuration
-
-Use `configureRuntime` once in app bootstrap:
+### 3. Configure runtime once
 
 ```ts
 import { configureRuntime } from "@ekairos/domain/runtime";
-import appDomain from "./domain";
+import { appDomain } from "./domain";
 
-export const runtimeConfig = configureRuntime({
-  domain: {
-    domain: appDomain,
-    // optional explicit actions in addition to domain.actions()
-    actions: [],
-  },
+configureRuntime({
+  domain: { domain: appDomain },
   runtime: async (env) => {
-    // resolve db by env
-    return { db: /* ... */ };
+    // Resolve DB by env (org, actor, tenant, etc.)
+    return { db: { orgId: env.orgId } };
   },
 });
 ```
 
-## Runtime action APIs
+### 4. Execute actions
 
-From `@ekairos/domain/runtime`:
+```ts
+import { executeRuntimeAction } from "@ekairos/domain/runtime";
 
-- `getRuntimeActions()`
-- `getRuntimeAction(name)`
-- `executeRuntimeAction({ action, env, input })`
+const output = await executeRuntimeAction({
+  action: "management.task.create",
+  env: { orgId: "org_123", actorId: "user_1" },
+  input: { title: "Ship domain action runtime" },
+});
+```
 
-`executeRuntimeAction` guarantees:
+## Action model
 
-1. runtime resolved from action domain,
-2. env propagated as-is,
-3. nested `call(...)` support,
-4. cycle protection for recursive action chains.
+Actions are explicit and portable:
+
+- Domain package owns contracts.
+- Adapters own environment (`env`).
+- Runtime is resolved per action domain.
+- Nested action calls are supported with cycle protection.
+
+This keeps Web/API/MCP integrations aligned without duplicating mutation logic.
+
+## Domain context for AI
+
+Every domain can produce structured context:
+
+- `domain.context()` returns a machine-friendly context object.
+- `domain.contextString()` returns a prompt-friendly string.
+
+Use this to ground coding agents and domain assistants with current entities, links, docs, and subdomains.
 
 ## Adapter pattern (recommended)
 
-### Web/API adapter
+### Web/API
 
-1. UI calls API route.
-2. API route resolves auth and builds `env`.
-3. API route imports typed action and executes it directly.
+- UI calls API route.
+- API route resolves auth and builds `env`.
+- API route executes typed domain action.
 
-No string dispatcher required in web routes.
+### MCP
 
-### MCP adapter
+- Expose one MCP tool per action (or a thin action dispatcher).
+- Resolve transport auth to `env`.
+- Execute the same domain actions used by Web/API.
 
-MCP can expose one tool per action (by name).  
-At transport boundary, string-to-action resolution is acceptable.
+## Design rules
 
-Recommended MCP tools:
+- Domain defines truth.
+- Runtime is explicit.
+- Actions are explicit.
+- `env` is adapter-defined and opaque to the package.
+- Included subdomains do not auto-export actions.
 
-1. `domain.query`
-2. `domain.actions.list`
-3. each registered action (example: `management.task.update`)
+## Testing
 
-## Domain composition and action boundaries
+```bash
+pnpm run test:unit   # runtime and action behavior
+pnpm run test:e2e    # InstantDB temp app flow (requires INSTANT_CLI_AUTH_TOKEN)
+```
 
-Schema composition uses `.includes(...)`.
+## Links
 
-Action composition is explicit:
+- npm: https://www.npmjs.com/package/@ekairos/domain
+- source: https://github.com/e-kairos/ekairos-public/tree/main/packages/domain
+- issues: https://github.com/e-kairos/ekairos-public/issues
 
-1. parent domain does not inherit child actions automatically,
-2. parent can call child actions explicitly via `call(...)` or direct imports,
-3. this avoids accidental action surface inflation.
+## License
 
-## Next.js integration
-
-Use `withRuntime(...)` in Next config to ensure runtime bootstrap in server bundles and generated `.well-known` routes.
-
-## Design principles
-
-1. Domain first.
-2. Runtime explicit.
-3. Actions explicit.
-4. Env opaque and adapter-defined.
-5. No implicit cross-domain mutation surfaces.
-
-## Migration notes
-
-If you already use `domain(...).schema(...)`:
-
-1. no breaking change required,
-2. incrementally add `.actions(...)`,
-3. move mutable business logic from routes/services into domain actions,
-4. keep adapters thin.
-
-## Why this matters for AI
-
-With domain actions:
-
-1. AI tools mutate through typed contracts,
-2. web/API/MCP share one mutation semantics,
-3. schema and mutation drift are reduced,
-4. runtime isolation stays explicit and auditable.
+MIT
