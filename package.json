@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "",
   "packageManager": "pnpm@10.15.1",
   "scripts": {
