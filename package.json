@@ -3,13 +3,13 @@
   "version": "1.21.100-beta.0",
   "private": true,
   "description": "Pulzar Lib Core - Monorepo",
-  "homepage": "https://github.com/pulz-ar/pulzar-lib-core#readme",
+  "homepage": "https://github.com/e-kairos/ekairos-public#readme",
   "bugs": {
-    "url": "https://github.com/pulz-ar/pulzar-lib-core/issues"
+    "url": "https://github.com/e-kairos/ekairos-public/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git"
+    "url": "git+https://github.com/e-kairos/ekairos-public.git"
   },
   "license": "Apache-2.0",
   "author": "",

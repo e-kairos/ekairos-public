@@ -14,7 +14,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "url": "git+https://github.com/e-kairos/ekairos-public.git",
     "directory": "packages/thread"
   },
   "exports": {
