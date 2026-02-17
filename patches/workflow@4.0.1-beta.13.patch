@@ -1,0 +1,9 @@
+diff --git a/dist/stdlib.js b/dist/stdlib.js
+--- a/dist/stdlib.js
++++ b/dist/stdlib.js
+@@ -13,5 +13,4 @@
+ export async function fetch(...args) {
+     'use step';
+     return globalThis.fetch(...args);
+ }
+-//# sourceMappingURL=stdlib.js.map

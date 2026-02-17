@@ -1,0 +1,59 @@
+{
+  "thread_threads": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "contexts": {}
+  },
+  "thread_contexts": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "thread": {},
+    "items": {},
+    "executions": {}
+  },
+  "thread_items": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "context": {},
+    "thread": {},
+    "execution": {}
+  },
+  "thread_executions": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "context": {},
+    "thread": {},
+    "trigger": {},
+    "reaction": {},
+    "steps": {}
+  },
+  "thread_steps": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "execution": {},
+    "parts": {}
+  },
+  "thread_parts": {
+    "$": {
+      "order": {
+        "idx": "asc"
+      }
+    },
+    "step": {}
+  }
+}

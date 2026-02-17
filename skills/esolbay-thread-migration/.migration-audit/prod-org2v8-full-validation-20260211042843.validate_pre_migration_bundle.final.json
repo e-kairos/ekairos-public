@@ -1,0 +1,14 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211042843",
+  "script": "validate_pre_migration_bundle",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:28:54.179Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "ok": false,
+    "reportFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pre-migration-validation.prod-org2v8-full-validation-20260211042843.org_2v8Ttz9gYqhI68RSlz7e9BoVzwd.json",
+    "artifactsRoot": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\runs\\prod-org2v8-full-validation-20260211042843",
+    "targetAppId": "806acdde-44e1-40f4-b942-d83bd89d6fd3"
+  }
+}

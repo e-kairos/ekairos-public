@@ -1,0 +1,49 @@
+{
+  "name": "@ekairos/documents",
+  "version": "1.21.83-beta.0",
+  "description": "Pulzar Documents domain utilities",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "directory": "packages/documents"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ekairos/domain": "workspace:*",
+    "@instantdb/admin": "0.22.126",
+    "@instantdb/core": "0.22.126",
+    "formdata-node": "^6.0.3"
+  },
+  "devDependencies": {
+    "@ekairos/tsconfig": "workspace:*",
+    "@types/node": "^24.5.0",
+    "typescript": "^5.9.2"
+  }
+}
+
+
+
+
+

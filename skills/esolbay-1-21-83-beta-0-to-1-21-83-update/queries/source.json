@@ -1,0 +1,48 @@
+{
+  "context_contexts": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "events": {}
+  },
+  "context_events": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "context": {},
+    "emails": {},
+    "whatsappMessages": {}
+  },
+  "story_executions": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "context": {},
+    "trigger": {},
+    "reaction": {},
+    "steps": {}
+  },
+  "story_steps": {
+    "$": {
+      "order": {
+        "createdAt": "asc"
+      }
+    },
+    "execution": {},
+    "parts": {}
+  },
+  "story_parts": {
+    "$": {
+      "order": {
+        "idx": "asc"
+      }
+    },
+    "step": {}
+  }
+}

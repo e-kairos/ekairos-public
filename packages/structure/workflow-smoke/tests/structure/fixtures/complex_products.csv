@@ -1,0 +1,5 @@
+code,description,price,categoryId,notes
+P-001,"Widget, Deluxe","$1,200.50",C-1,"promo, hot"
+P-002,"Gadget ""Pro""",20,C-2,
+P-003,Thing," 30.25 ",C-1," spaced "
+

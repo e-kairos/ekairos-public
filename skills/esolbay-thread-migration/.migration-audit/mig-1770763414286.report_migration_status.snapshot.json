@@ -1,0 +1,13 @@
+{
+  "runId": "mig-1770763414286",
+  "script": "report_migration_status",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T22:44:01.269Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "matrixPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "auditDir": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\.migration-audit",
+    "totalRows": 12
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "name": "pulzar-workspace",
+  "version": "1.21.99-beta.0",
+  "private": true,
+  "description": "Pulzar Lib Core - Monorepo",
+  "homepage": "https://github.com/pulz-ar/pulzar-lib-core#readme",
+  "bugs": {
+    "url": "https://github.com/pulz-ar/pulzar-lib-core/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git"
+  },
+  "license": "MIT",
+  "author": "",
+  "packageManager": "pnpm@10.15.1",
+  "scripts": {
+    "build": "node ./scripts/run-build.cjs",
+    "build:publish-packages": "pnpm --filter @ekairos/domain run build && pnpm --filter @ekairos/sandbox run build && pnpm --filter @ekairos/thread run build && pnpm --filter @ekairos/dataset run build && pnpm --filter @ekairos/structure run build && pnpm --filter @ekairos/story-react run build && pnpm --filter @ekairos/openai-reactor run build && pnpm --filter @ekairos/testing run build && pnpm --filter ekairos-cli run build && pnpm --filter ekairos run build",
+    "dev": "turbo dev",
+    "clean": "turbo clean",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "prepare-publish": "node scripts/prepare-publish.js",
+    "check-auth": "node scripts/check-npm-auth.js",
+    "publish:latest": "node scripts/publish-channel.mjs --tag latest",
+    "publish:beta": "node scripts/publish-channel.mjs --tag beta",
+    "publish:rc": "node scripts/publish-channel.mjs --tag rc",
+    "publish:next": "node scripts/publish-channel.mjs --tag next",
+    "publish:dry-run:latest": "node scripts/publish-channel.mjs --tag latest --dry-run",
+    "publish:dry-run:beta": "node scripts/publish-channel.mjs --tag beta --dry-run",
+    "publish:dry-run:rc": "node scripts/publish-channel.mjs --tag rc --dry-run",
+    "publish:dry-run:next": "node scripts/publish-channel.mjs --tag next --dry-run",
+    "release": "node scripts/release-prepare.mjs",
+    "release:beta": "node scripts/release-prepare.mjs --channel beta",
+    "release:rc": "node scripts/release-prepare.mjs --channel rc",
+    "release:next": "node scripts/release-prepare.mjs --channel next",
+    "release:latest": "node scripts/release-prepare.mjs --channel latest",
+    "release:check": "node scripts/release-check.mjs",
+    "release:prepare": "node scripts/release-prepare.mjs",
+    "release:prepare:latest": "node scripts/release-prepare.mjs --channel latest",
+    "release:prepare:beta": "node scripts/release-prepare.mjs --channel beta",
+    "release:prepare:rc": "node scripts/release-prepare.mjs --channel rc",
+    "release:prepare:next": "node scripts/release-prepare.mjs --channel next",
+    "ship:major": "npm version major && pnpm run build:publish-packages && pnpm run prepare-publish && git add . && git commit -m \"chore: prepare packages for publication\" && pnpm run publish:latest",
+    "ship:minor": "npm version minor && pnpm run build:publish-packages && pnpm run prepare-publish && git add . && git commit -m \"chore: prepare packages for publication\" && pnpm run publish:latest",
+    "ship:patch": "npm version patch && pnpm run build:publish-packages && pnpm run prepare-publish && git add . && git commit -m \"chore: prepare packages for publication\" && pnpm run publish:latest",
+    "ship:beta": "npm version prepatch --preid beta && pnpm run build:publish-packages && pnpm run prepare-publish && git add . && git commit -m \"chore: prepare beta packages for publication\" && pnpm run publish:beta"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@semantic-release/commit-analyzer": "^10.0.1",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/npm": "^10.0.3",
+    "@semantic-release/release-notes-generator": "^11.0.3",
+    "@types/node": "catalog:",
+    "dotenv": "^17.2.3",
+    "semantic-release": "^23.0.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.5.4",
+    "typescript": "catalog:",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "instant-cli": "latest",
+    "svix": "^1.81.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@ekairos/sandbox": "workspace:*",
+      "next@15.5.x": "15.5.7",
+      "react@19.2.0": "19.2.1",
+      "react-dom@19.2.0": "19.2.1"
+    }
+  }
+}

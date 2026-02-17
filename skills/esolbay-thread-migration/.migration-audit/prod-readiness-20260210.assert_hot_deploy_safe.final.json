@@ -1,0 +1,14 @@
+{
+  "runId": "prod-readiness-20260210",
+  "script": "assert_hot_deploy_safe",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:22:38.323Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "allowUnsafe": false,
+    "outPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\hot-deploy-gates.prod-readiness-20260210.json",
+    "failedGates": 10
+  }
+}

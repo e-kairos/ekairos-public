@@ -1,0 +1,76 @@
+{
+  "name": "@ekairos/testing",
+  "version": "1.21.99-beta.0",
+  "description": "Ekairos test reporting and trace capture",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./playwright": {
+      "types": "./dist/playwright.d.ts",
+      "import": "./dist/playwright.js",
+      "default": "./dist/playwright.js"
+    },
+    "./vitest": {
+      "types": "./dist/vitest.d.ts",
+      "import": "./dist/vitest.js",
+      "default": "./dist/vitest.js"
+    },
+    "./story": {
+      "types": "./dist/story.d.ts",
+      "import": "./dist/story.js",
+      "default": "./dist/story.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "import": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./provision": {
+      "types": "./dist/provision.d.ts",
+      "import": "./dist/provision.js",
+      "default": "./dist/provision.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@ekairos/domain": "*",
+    "@instantdb/core": "*",
+    "@playwright/test": "*",
+    "vitest": "*",
+    "workflow": "4.1.0-beta.55"
+  },
+  "dependencies": {
+    "@instantdb/core": "0.22.126",
+    "@instantdb/platform": "0.22.126"
+  },
+  "devDependencies": {
+    "@ekairos/domain": "workspace:*",
+    "@ekairos/tsconfig": "workspace:*",
+    "@types/node": "^24.5.0",
+    "typescript": "^5.9.2"
+  }
+}

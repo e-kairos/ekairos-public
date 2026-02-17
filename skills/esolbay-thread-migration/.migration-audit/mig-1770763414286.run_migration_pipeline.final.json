@@ -1,0 +1,17 @@
+{
+  "runId": "mig-1770763414286",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T22:44:01.307Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 5,
+      "ok": 4,
+      "failed": 1
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.mig-1770763414286.json"
+  }
+}

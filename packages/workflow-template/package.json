@@ -1,0 +1,22 @@
+{
+  "name": "@ekairos/workflow-template",
+  "version": "1.21.83-beta.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/run.mjs",
+    "run:local": "node scripts/run.mjs",
+    "test": "vitest run -c vitest.config.mts"
+  },
+  "dependencies": {
+    "@instantdb/admin": "0.22.126",
+    "@swc/core": "1.15.3",
+    "@workflow/swc-plugin": "4.1.0-beta.18",
+    "@workflow/world-local": "4.1.0-beta.31",
+    "esbuild": "^0.25.11",
+    "workflow": "4.1.0-beta.55"
+  },
+  "optionalDependencies": {
+    "@swc/core-win32-x64-msvc": "1.15.3"
+  }
+}

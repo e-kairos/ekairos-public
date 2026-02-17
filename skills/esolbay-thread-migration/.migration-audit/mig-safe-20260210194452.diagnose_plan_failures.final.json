@@ -1,0 +1,16 @@
+{
+  "runId": "mig-safe-20260210194452",
+  "script": "diagnose_plan_failures",
+  "stage": "final",
+  "createdAt": "2026-02-10T22:45:14.064Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.md",
+    "summary": {
+      "totalFailures": 0,
+      "countByIssue": {}
+    }
+  }
+}

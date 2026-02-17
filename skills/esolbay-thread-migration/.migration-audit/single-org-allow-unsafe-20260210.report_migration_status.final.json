@@ -1,0 +1,18 @@
+{
+  "runId": "single-org-allow-unsafe-20260210",
+  "script": "report_migration_status",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:44:32.036Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "outPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\migration-status.json",
+    "summary": {
+      "total": 1,
+      "blocked_plan": 0,
+      "planned_only": 1,
+      "applied_unverified": 0,
+      "migrated_verified": 0
+    }
+  }
+}

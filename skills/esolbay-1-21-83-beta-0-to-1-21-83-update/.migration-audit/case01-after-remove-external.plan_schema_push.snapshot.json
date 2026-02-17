@@ -1,0 +1,16 @@
+{
+  "runId": "case01-after-remove-external",
+  "script": "plan_schema_push",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T20:53:59.669Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "appId": "55863498-f919-4ff3-b388-3a40e0e87348",
+    "apiUri": "https://api.instantdb.com",
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\cases\\case-01-org-39kwg80hd0uevjuau7mvrn3wujr\\full-plan.after-remove-external.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\cases\\case-01-org-39kwg80hd0uevjuau7mvrn3wujr\\full-plan.after-remove-external.md"
+  }
+}

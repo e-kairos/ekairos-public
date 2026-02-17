@@ -1,0 +1,17 @@
+{
+  "runId": "total-readiness-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:54:43.252Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 8,
+      "ok": 6,
+      "failed": 2
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.total-readiness-20260210.json"
+  }
+}

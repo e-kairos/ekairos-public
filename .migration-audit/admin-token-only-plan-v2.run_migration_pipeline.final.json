@@ -1,0 +1,17 @@
+{
+  "runId": "admin-token-only-plan-v2",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T20:09:30.965Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": true,
+    "summary": {
+      "total": 4,
+      "ok": 4,
+      "failed": 0
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\pipeline.admin-token-only-plan-v2.json"
+  }
+}

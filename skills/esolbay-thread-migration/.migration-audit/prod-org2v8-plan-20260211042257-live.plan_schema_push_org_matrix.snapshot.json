@@ -1,0 +1,15 @@
+{
+  "runId": "prod-org2v8-plan-20260211042257-live",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T07:23:00.317Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.md",
+    "orgFilterSize": 1
+  }
+}

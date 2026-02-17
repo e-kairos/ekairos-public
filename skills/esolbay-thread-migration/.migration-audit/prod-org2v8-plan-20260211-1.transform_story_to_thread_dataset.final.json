@@ -1,0 +1,14 @@
+{
+  "runId": "prod-org2v8-plan-20260211-1",
+  "script": "transform_story_to_thread_dataset",
+  "stage": "final",
+  "createdAt": "2026-02-11T06:53:10.476Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "output": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\transformed\\story-thread-target.prod-org2v8-plan-20260211-1.org_2v8Ttz9gYqhI68RSlz7e9BoVzwd.json",
+    "records": 1737,
+    "linkIntents": 1535,
+    "warnings": 12
+  }
+}

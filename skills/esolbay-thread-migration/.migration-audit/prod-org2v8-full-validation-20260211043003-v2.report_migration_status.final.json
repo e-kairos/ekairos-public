@@ -1,0 +1,18 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211043003-v2",
+  "script": "report_migration_status",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:30:10.411Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "outPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\migration-status.json",
+    "summary": {
+      "total": 1,
+      "blocked_plan": 0,
+      "planned_only": 1,
+      "applied_unverified": 0,
+      "migrated_verified": 0
+    }
+  }
+}

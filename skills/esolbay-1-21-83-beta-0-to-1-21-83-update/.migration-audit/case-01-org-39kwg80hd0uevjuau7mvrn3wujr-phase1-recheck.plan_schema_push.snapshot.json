@@ -1,0 +1,16 @@
+{
+  "runId": "case-01-org-39kwg80hd0uevjuau7mvrn3wujr-phase1-recheck",
+  "script": "plan_schema_push",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T20:42:27.866Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "appId": "55863498-f919-4ff3-b388-3a40e0e87348",
+    "apiUri": "https://api.instantdb.com",
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\cases\\case-01-org-39kwg80hd0uevjuau7mvrn3wujr\\schema-phase1.json",
+    "schemaType": "json:wrapped",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\cases\\case-01-org-39kwg80hd0uevjuau7mvrn3wujr\\phase1-plan.recheck.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\cases\\case-01-org-39kwg80hd0uevjuau7mvrn3wujr\\phase1-plan.recheck.md"
+  }
+}

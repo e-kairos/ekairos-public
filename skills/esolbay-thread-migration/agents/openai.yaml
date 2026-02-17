@@ -1,0 +1,4 @@
+interface:
+  display_name: "Esolbay Thread Migration"
+  short_description: "Hot-safe story to thread migration"
+  default_prompt: "Use $esolbay-thread-migration to run planning gates and produce migration-status evidence before production rollout."

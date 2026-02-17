@@ -1,0 +1,15 @@
+{
+  "runId": "org39-postpush",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T05:56:53.107Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.postpush.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.postpush.md",
+    "orgFilterSize": 1
+  }
+}

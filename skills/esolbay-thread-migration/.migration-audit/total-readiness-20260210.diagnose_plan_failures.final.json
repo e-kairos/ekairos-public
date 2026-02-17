@@ -1,0 +1,16 @@
+{
+  "runId": "total-readiness-20260210",
+  "script": "diagnose_plan_failures",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:54:42.707Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.md",
+    "summary": {
+      "totalFailures": 0,
+      "countByIssue": {}
+    }
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "name": "ekairos",
+  "version": "1.21.99-beta.0",
+  "description": "Ekairos - AI Stories and Workflows Runtime",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "ekairos": "./bin/cli.js"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "directory": "packages/ekairos"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./dataset": {
+      "types": "./dist/dataset.d.ts",
+      "import": "./dist/dataset.js",
+      "require": "./dist/dataset.js",
+      "default": "./dist/dataset.js"
+    },
+    "./thread": {
+      "types": "./dist/thread.d.ts",
+      "import": "./dist/thread.js",
+      "require": "./dist/thread.js",
+      "default": "./dist/thread.js"
+    },
+    "./domain": {
+      "types": "./dist/domain.d.ts",
+      "import": "./dist/domain.js",
+      "require": "./dist/domain.js",
+      "default": "./dist/domain.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "import": "./dist/agent.js",
+      "require": "./dist/agent.js",
+      "default": "./dist/agent.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "require": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "require": "./dist/next.js",
+      "default": "./dist/next.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ekairos/dataset": "^1.21.85-beta.0",
+    "@ekairos/domain": "^1.21.99-beta.0",
+    "@ekairos/thread": "^1.21.99-beta.0",
+    "@instantdb/admin": "0.22.126",
+    "ekairos-cli": "^1.21.99-beta.0"
+  },
+  "devDependencies": {
+    "@ekairos/tsconfig": "workspace:*",
+    "@types/node": "^24.5.0",
+    "typescript": "^5.9.2"
+  }
+}

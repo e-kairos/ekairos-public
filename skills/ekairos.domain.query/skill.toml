@@ -1,0 +1,20 @@
+name = "ekairos.domain.query"
+version = "0.1.0"
+description = "Query an Ekairos domain via the app's well-known endpoint."
+kind = "action"
+namespace = "ekairos"
+tags = ["domain", "instantdb", "instaql", "query", "ekairos"]
+
+[runtime]
+language = "python"
+entrypoint = "code/main.py"
+export = "main"
+
+[inputs]
+org_id = { type = "string", description = "Clerk organization id. If omitted, uses EKAIROS_ORG_ID." }
+query = { type = "object|string", description = "InstaQL query object or JSON string." }
+base_url = { type = "string", description = "Optional override for EKAIROS_DOMAIN_BASE_URL." }
+
+[permissions]
+network = ["https://*", "http://localhost:*"]
+secrets = ["EKAIROS_DOMAIN_OIDC_TOKEN", "EKAIROS_DOMAIN_TOKEN"]

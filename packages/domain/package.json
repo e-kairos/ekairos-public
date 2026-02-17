@@ -1,0 +1,62 @@
+{
+  "name": "@ekairos/domain",
+  "version": "1.21.99-beta.0",
+  "description": "Pulzar Domain Utilities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "directory": "packages/domain"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js",
+      "default": "./dist/runtime.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
+    "test:conflicts": "node dist/__type_tests__/conflict-validation.test.js",
+    "test:context": "node dist/context.test-runner.js",
+    "test:e2e": "vitest run -c vitest.config.ts src/tests/domain.context.e2e.test.ts"
+  },
+  "dependencies": {
+    "@instantdb/core": "0.22.126",
+    "yaml": "^2.8.2"
+  },
+  "peerDependencies": {
+    "@instantdb/admin": "0.22.126"
+  },
+  "devDependencies": {
+    "@ekairos/tsconfig": "workspace:*",
+    "@instantdb/admin": "0.22.126",
+    "@types/node": "^24.5.0",
+    "dotenv": "^17.2.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "runId": "admin-token-diagnostics-v1",
+  "script": "diagnose_plan_failures",
+  "stage": "final",
+  "createdAt": "2026-02-10T20:25:05.469Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.md",
+    "summary": {
+      "totalFailures": 23,
+      "countByIssue": {
+        "schema_duplicate_link": 21,
+        "invalid_admin_token": 2
+      }
+    }
+  }
+}

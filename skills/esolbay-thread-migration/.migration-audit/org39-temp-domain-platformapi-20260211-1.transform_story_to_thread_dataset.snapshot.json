@@ -1,0 +1,11 @@
+{
+  "runId": "org39-temp-domain-platformapi-20260211-1",
+  "script": "transform_story_to_thread_dataset",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T06:10:10.781Z",
+  "orgId": "org_39G6NR9bwctS1YiAB17rVjmFQZk",
+  "envName": "production",
+  "payload": {
+    "input": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\datasets\\source.org39-temp-domain-platformapi-20260211-1.json"
+  }
+}

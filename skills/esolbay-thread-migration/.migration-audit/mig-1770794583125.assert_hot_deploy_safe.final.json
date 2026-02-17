@@ -1,0 +1,14 @@
+{
+  "runId": "mig-1770794583125",
+  "script": "assert_hot_deploy_safe",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:23:03.131Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": true,
+    "allowUnsafe": false,
+    "outPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\hot-deploy-gates.json",
+    "failedGates": 0
+  }
+}

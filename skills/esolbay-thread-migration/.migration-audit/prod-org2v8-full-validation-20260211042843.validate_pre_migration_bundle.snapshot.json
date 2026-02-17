@@ -1,0 +1,22 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211042843",
+  "script": "validate_pre_migration_bundle",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T07:28:49.852Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "repoPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform",
+    "schemaPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "sourceQueryFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\queries\\source.json",
+    "verifyQueryFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\queries\\verify.json",
+    "envFilesLoaded": [
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-core\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\.env.local"
+    ],
+    "envFilesFailed": [],
+    "envAliasesApplied": []
+  }
+}

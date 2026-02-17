@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/.idea/ekairos-workspace.iml" filepath="$PROJECT_DIR$/.idea/ekairos-workspace.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../esolbay-platform/.idea/esolbay-platform.iml" filepath="$PROJECT_DIR$/../esolbay-platform/.idea/esolbay-platform.iml" />
+    </modules>
+  </component>
+</project>

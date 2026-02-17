@@ -1,0 +1,28 @@
+{
+  "name": "@ekairos/thread-workflow-smoke",
+  "private": true,
+  "version": "1.21.83-beta.0",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --port 3012",
+    "build": "node scripts/clean-next-workflow-data.mjs && next build",
+    "start": "next start --port 3012",
+    "test": "pnpm run test:e2e",
+    "test:e2e": "node scripts/test-e2e.mjs"
+  },
+  "dependencies": {
+    "@ekairos/domain": "workspace:*",
+    "@ekairos/thread": "workspace:*",
+    "@instantdb/admin": "0.22.126",
+    "dotenv": "^17.2.3",
+    "next": "16.0.7",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "workflow": "4.1.0-beta.55"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

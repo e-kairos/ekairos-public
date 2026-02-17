@@ -1,0 +1,17 @@
+{
+  "runId": "unify-check-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:15:15.154Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 4,
+      "ok": 3,
+      "failed": 1
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.unify-check-20260210.json"
+  }
+}

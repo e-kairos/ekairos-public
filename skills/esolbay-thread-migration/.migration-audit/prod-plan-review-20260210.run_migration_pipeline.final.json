@@ -1,0 +1,17 @@
+{
+  "runId": "prod-plan-review-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:47:00.198Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 5,
+      "ok": 4,
+      "failed": 1
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.prod-plan-review-20260210.json"
+  }
+}

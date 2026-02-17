@@ -1,0 +1,68 @@
+{
+  "name": "@ekairos/dataset",
+  "version": "1.21.99-beta.0",
+  "description": "Pulzar Dataset Tools",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "file/scripts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "directory": "packages/dataset"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./query": {
+      "types": "./dist/query/index.d.ts",
+      "require": "./dist/query/index.js",
+      "default": "./dist/query/index.js"
+    },
+    "./transform": {
+      "types": "./dist/transform/index.d.ts",
+      "require": "./dist/transform/index.js",
+      "default": "./dist/transform/index.js"
+    },
+    "./file/scripts": {
+      "default": "./dist/file/scripts"
+    },
+    "./file/scripts/*": {
+      "default": "./dist/file/scripts/*"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-python-scripts.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run -c vitest.config.mts"
+  },
+  "dependencies": {
+    "@ekairos/domain": "^1.21.99-beta.0",
+    "@ekairos/sandbox": "^1.21.99-beta.0",
+    "@ekairos/thread": "^1.21.99-beta.0",
+    "@instantdb/admin": "0.22.126",
+    "@instantdb/core": "0.22.126",
+    "ai": "^5.0.44",
+    "ajv": "^8.17.1",
+    "xmlbuilder2": "^3.1.1",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@ekairos/tsconfig": "workspace:*",
+    "@types/node": "^24.5.0",
+    "dotenv": "^17.2.3",
+    "typescript": "^5.9.2"
+  }
+}

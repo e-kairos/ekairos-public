@@ -1,0 +1,17 @@
+{
+  "runId": "env-minimal-validation",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T19:06:58.424Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 4,
+      "ok": 3,
+      "failed": 1
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\pipeline.env-minimal-validation.json"
+  }
+}

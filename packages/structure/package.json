@@ -1,0 +1,60 @@
+{
+  "name": "@ekairos/structure",
+  "version": "1.21.99-beta.0",
+  "description": "Ekairos Structure - Unified structured extraction (rows or object) from file/text/dataset inputs",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pulz-ar/pulzar-lib-core.git",
+    "directory": "packages/structure"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ekairos/domain": "^1.21.99-beta.0",
+    "@ekairos/sandbox": "^1.21.99-beta.0",
+    "@instantdb/admin": "0.22.126",
+    "@instantdb/core": "0.22.126",
+    "ai": "^5.0.95",
+    "ajv": "^8.17.1",
+    "workflow": "4.1.0-beta.55",
+    "zod": "^4.1.8"
+  },
+  "peerDependencies": {
+    "@ekairos/thread": "workspace:*"
+  },
+  "devDependencies": {
+    "@ekairos/sandbox": "workspace:*",
+    "@ekairos/thread": "workspace:*",
+    "@ekairos/tsconfig": "workspace:*",
+    "@types/node": "^24.5.0",
+    "dotenv": "^17.2.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "runId": "single-org-allow-unsafe-20260210",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T21:44:28.404Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.md",
+    "orgFilterSize": 1
+  }
+}

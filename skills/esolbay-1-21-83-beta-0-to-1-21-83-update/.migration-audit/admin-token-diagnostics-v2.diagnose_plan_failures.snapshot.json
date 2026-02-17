@@ -1,0 +1,16 @@
+{
+  "runId": "admin-token-diagnostics-v2",
+  "script": "diagnose_plan_failures",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T20:32:02.587Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "matrixFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "failedRows": 23,
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.md"
+  }
+}

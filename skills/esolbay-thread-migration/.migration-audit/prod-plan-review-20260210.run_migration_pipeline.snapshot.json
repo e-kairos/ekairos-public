@@ -1,0 +1,24 @@
+{
+  "runId": "prod-plan-review-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T21:46:40.931Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "mode": "planning",
+    "repoPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform",
+    "schemaPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "orgIds": "",
+    "allowUnsafe": false,
+    "requireAllSafe": true,
+    "envFilesLoaded": [
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-core\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\.env.local"
+    ],
+    "envFilesFailed": [],
+    "envAliasesApplied": []
+  }
+}

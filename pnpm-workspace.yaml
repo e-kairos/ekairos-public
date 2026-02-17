@@ -1,0 +1,19 @@
+packages:
+  - packages/*
+  - packages/reactors/*
+  - packages/structure/*
+  - packages/thread/tests/playwright/server
+  - '!packages/documents'
+
+catalog:
+  '@ai-sdk/openai': ^2.0.68
+  '@instantdb/admin': ^0.22.57
+  '@instantdb/core': ^0.22.44
+  '@types/node': ^24.5.0
+  '@vercel/sandbox': ^0.0.23
+  ai: ^5.0.97
+  typescript: ^5.9.2
+  zod: ^4.1.8
+
+overrides:
+  '@excalidraw/excalidraw': link:../ekairos-drawer/packages/excalidraw

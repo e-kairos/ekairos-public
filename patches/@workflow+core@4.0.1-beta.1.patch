@@ -1,0 +1,16 @@
+diff --git a/dist/runtime/start.js b/dist/runtime/start.js
+--- a/dist/runtime/start.js
++++ b/dist/runtime/start.js
+@@
+-//# sourceMappingURL=start.js.map
+diff --git a/dist/create-hook.js b/dist/create-hook.js
+--- a/dist/create-hook.js
++++ b/dist/create-hook.js
+@@
+-//# sourceMappingURL=create-hook.js.map
+diff --git a/dist/define-hook.js b/dist/define-hook.js
+--- a/dist/define-hook.js
++++ b/dist/define-hook.js
+@@
+-//# sourceMappingURL=define-hook.js.map
+

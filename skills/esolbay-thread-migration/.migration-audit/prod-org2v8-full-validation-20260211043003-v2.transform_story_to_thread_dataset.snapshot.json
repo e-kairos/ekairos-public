@@ -1,0 +1,11 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211043003-v2",
+  "script": "transform_story_to_thread_dataset",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T07:30:31.266Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "input": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\runs\\prod-org2v8-full-validation-20260211043003-v2\\02-transform\\source.for-transform.json"
+  }
+}

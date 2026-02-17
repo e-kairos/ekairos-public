@@ -1,0 +1,37 @@
+{
+  "publishablePackages": [
+    { "name": "@ekairos/domain", "dir": "packages/domain", "publicAccess": true },
+    { "name": "@ekairos/sandbox", "dir": "packages/sandbox", "publicAccess": true },
+    { "name": "@ekairos/dataset", "dir": "packages/dataset", "publicAccess": true },
+    { "name": "@ekairos/structure", "dir": "packages/structure", "publicAccess": true },
+    { "name": "@ekairos/story-react", "dir": "packages/story-react", "publicAccess": true },
+    { "name": "@ekairos/thread", "dir": "packages/thread", "publicAccess": true },
+    { "name": "@ekairos/openai-reactor", "dir": "packages/reactors/openai-reactor", "publicAccess": true },
+    { "name": "@ekairos/testing", "dir": "packages/ekairos-test", "publicAccess": true },
+    { "name": "ekairos-cli", "dir": "packages/cli", "publicAccess": false },
+    { "name": "ekairos", "dir": "packages/ekairos", "publicAccess": false }
+  ],
+  "preparePackages": [
+    "packages/domain",
+    "packages/sandbox",
+    "packages/dataset",
+    "packages/structure",
+    "packages/story-react",
+    "packages/thread",
+    "packages/reactors/openai-reactor",
+    "packages/ekairos-test",
+    "packages/cli",
+    "packages/ekairos"
+  ],
+  "linkedPackages": {
+    "@ekairos/domain": "packages/domain",
+    "@ekairos/sandbox": "packages/sandbox",
+    "@ekairos/structure": "packages/structure",
+    "@ekairos/testing": "packages/ekairos-test",
+    "@ekairos/thread": "packages/thread",
+    "@ekairos/story-react": "packages/story-react",
+    "@ekairos/openai-reactor": "packages/reactors/openai-reactor",
+    "ekairos": "packages/ekairos",
+    "ekairos-cli": "packages/cli"
+  }
+}

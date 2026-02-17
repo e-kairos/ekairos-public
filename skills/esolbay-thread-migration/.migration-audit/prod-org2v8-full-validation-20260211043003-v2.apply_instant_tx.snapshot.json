@@ -1,0 +1,16 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211043003-v2",
+  "script": "apply_instant_tx",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T07:30:32.112Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "input": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\runs\\prod-org2v8-full-validation-20260211043003-v2\\03-apply\\transformed.with-tx.json",
+    "records": 1737,
+    "providedTx": 3272,
+    "linkIntents": 1535,
+    "dryRun": true,
+    "txSource": "input.tx"
+  }
+}

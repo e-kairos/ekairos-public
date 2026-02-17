@@ -1,0 +1,17 @@
+{
+  "runId": "admin-token-diagnostics-v1",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T20:25:05.488Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": true,
+    "summary": {
+      "total": 5,
+      "ok": 5,
+      "failed": 0
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\pipeline.admin-token-diagnostics-v1.json"
+  }
+}

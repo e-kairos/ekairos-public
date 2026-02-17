@@ -1,0 +1,18 @@
+{
+  "runId": "mig-safe-20260210194452",
+  "script": "report_migration_status",
+  "stage": "final",
+  "createdAt": "2026-02-10T22:45:14.622Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "outPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\migration-status.json",
+    "summary": {
+      "total": 11,
+      "blocked_plan": 0,
+      "planned_only": 11,
+      "applied_unverified": 0,
+      "migrated_verified": 0
+    }
+  }
+}

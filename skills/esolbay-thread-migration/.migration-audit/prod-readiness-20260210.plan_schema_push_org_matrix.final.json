@@ -1,0 +1,29 @@
+{
+  "runId": "prod-readiness-20260210",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:21:52.141Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.md",
+    "summary": {
+      "totalOrgs": 23,
+      "withInstantCredentials": 23,
+      "missingInstantCredentials": 0,
+      "plannedOk": 21,
+      "plannedFailed": 2,
+      "safe": 21,
+      "reviewRequired": 0,
+      "blocked": 2,
+      "totalSteps": 11858,
+      "totalCritical": 0,
+      "totalWarning": 0,
+      "accountMismatchRows": 0,
+      "accountMismatchCount": 0,
+      "accountMismatchAppIds": []
+    },
+    "requireAllSafe": true
+  }
+}

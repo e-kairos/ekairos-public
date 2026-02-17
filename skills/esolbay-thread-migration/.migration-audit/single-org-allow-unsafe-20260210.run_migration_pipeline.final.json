@@ -1,0 +1,17 @@
+{
+  "runId": "single-org-allow-unsafe-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:44:32.052Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": true,
+    "summary": {
+      "total": 8,
+      "ok": 8,
+      "failed": 0
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.single-org-allow-unsafe-20260210.json"
+  }
+}

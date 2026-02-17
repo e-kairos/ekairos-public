@@ -1,0 +1,16 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211042843",
+  "script": "apply_instant_tx",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:28:53.950Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "mode": "dry-run",
+    "txCount": 0,
+    "txSource": "input.tx",
+    "linkIntents": 0,
+    "destructiveOps": 0,
+    "allowDestructive": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "runId": "mig-1770795010301",
+  "script": "assert_hot_deploy_safe",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T07:30:10.303Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "preflightPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\preflight\\scan.json",
+    "modelPlanPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\story-thread-model-plan.json",
+    "matrixPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "allowUnsafe": false
+  }
+}

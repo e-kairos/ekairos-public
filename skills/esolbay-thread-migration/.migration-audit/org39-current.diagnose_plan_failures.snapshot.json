@@ -1,0 +1,16 @@
+{
+  "runId": "org39-current",
+  "script": "diagnose_plan_failures",
+  "stage": "snapshot",
+  "createdAt": "2026-02-11T05:52:01.715Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "matrixFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.current.json",
+    "schemaSource": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "schemaType": "typescript:tsx",
+    "failedRows": 1,
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.current.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.current.md"
+  }
+}

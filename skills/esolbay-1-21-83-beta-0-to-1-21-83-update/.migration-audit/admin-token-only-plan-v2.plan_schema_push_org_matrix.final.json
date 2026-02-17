@@ -1,0 +1,29 @@
+{
+  "runId": "admin-token-only-plan-v2",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "final",
+  "createdAt": "2026-02-10T20:09:30.951Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-org-matrix.md",
+    "summary": {
+      "totalOrgs": 23,
+      "withInstantCredentials": 23,
+      "missingInstantCredentials": 0,
+      "plannedOk": 0,
+      "plannedFailed": 23,
+      "safe": 0,
+      "reviewRequired": 0,
+      "blocked": 23,
+      "totalSteps": 0,
+      "totalCritical": 0,
+      "totalWarning": 0,
+      "accountMismatchRows": 0,
+      "accountMismatchCount": 0,
+      "accountMismatchAppIds": []
+    },
+    "requireAllSafe": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "runId": "prod-org2v8-plan-20260211-3-single",
+  "script": "plan_schema_push",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:00:12.274Z",
+  "orgId": "org_2v8Ttz9gYqhI68RSlz7e9BoVzwd",
+  "envName": "production",
+  "payload": {
+    "appId": "806acdde-44e1-40f4-b942-d83bd89d6fd3",
+    "endpoint": "https://api.instantdb.com/dash/apps/806acdde-44e1-40f4-b942-d83bd89d6fd3/schema/plan",
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan.prod-org2v8-plan-20260211-3.org_2v8Ttz9gYqhI68RSlz7e9BoVzwd.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan.prod-org2v8-plan-20260211-3.org_2v8Ttz9gYqhI68RSlz7e9BoVzwd.md",
+    "totalSteps": 0,
+    "criticalSteps": 0,
+    "warningSteps": 0
+  }
+}

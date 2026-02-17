@@ -1,0 +1,50 @@
+{
+  "name": "ekairos-cli",
+  "version": "1.21.99-beta.0",
+  "description": "CLI for Ekairos components",
+  "type": "module",
+  "bin": {
+    "ekairos": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "cli",
+    "ink",
+    "ekairos",
+    "shadcn"
+  ],
+  "dependencies": {
+    "@ekairos/dataset": "^1.21.96",
+    "@instantdb/admin": "0.22.126",
+    "chalk": "^5.3.0",
+    "execa": "^8.0.0",
+    "fs-extra": "^11.2.0",
+    "ink": "^5.0.0",
+    "ink-select-input": "^6.0.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0",
+    "meow": "^13.2.0",
+    "node-fetch": "^3.3.2",
+    "react": "^18.2.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "eslint": "^8.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

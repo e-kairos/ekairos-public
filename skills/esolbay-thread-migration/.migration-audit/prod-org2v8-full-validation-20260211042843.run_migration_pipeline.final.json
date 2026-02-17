@@ -1,0 +1,17 @@
+{
+  "runId": "prod-org2v8-full-validation-20260211042843",
+  "script": "run_migration_pipeline",
+  "stage": "final",
+  "createdAt": "2026-02-11T07:28:54.193Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "ok": false,
+    "summary": {
+      "total": 9,
+      "ok": 8,
+      "failed": 1
+    },
+    "pipelineJson": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\pipeline.prod-org2v8-full-validation-20260211042843.json"
+  }
+}

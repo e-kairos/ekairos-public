@@ -1,0 +1,23 @@
+{
+  "runId": "single-org-allow-unsafe-20260210",
+  "script": "run_migration_pipeline",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T21:44:24.804Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "mode": "planning",
+    "repoPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform",
+    "schemaPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "orgIds": "org_39KWg80hD0uEVJuAu7mVRn3wUJr",
+    "allowUnsafe": true,
+    "requireAllSafe": false,
+    "envFilesLoaded": [
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-core\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\.env.local"
+    ],
+    "envFilesFailed": [],
+    "envAliasesApplied": []
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "extends": "@ekairos/tsconfig/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": ["ES2020", "DOM"],
+    "module": "ES2020",
+    "moduleResolution": "Bundler",
+    "sourceMap": false,
+    "declarationMap": false,
+    "inlineSourceMap": false,
+    "inlineSources": false
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "**/*.test.ts", "**/tests/**"]
+}
+

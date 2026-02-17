@@ -1,0 +1,25 @@
+{
+  "name": "@ekairos/workflow-compiler",
+  "version": "1.21.83-beta.0",
+  "description": "Compile workflows and steps using the Workflow SWC plugin",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@swc/core": "1.15.3",
+    "@workflow/swc-plugin": "4.1.0-beta.18",
+    "esbuild": "^0.25.11"
+  },
+  "optionalDependencies": {
+    "@swc/core-win32-x64-msvc": "1.15.3"
+  }
+}

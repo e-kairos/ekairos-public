@@ -1,0 +1,18 @@
+{
+  "runId": "post-remove-external-v1",
+  "script": "diagnose_plan_failures",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:01:27.395Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-1-21-83-beta-0-to-1-21-83-update\\artifacts\\reports\\schema-plan-diagnostics.md",
+    "summary": {
+      "totalFailures": 2,
+      "countByIssue": {
+        "invalid_admin_token": 2
+      }
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "runId": "mig-safe-20260210194452",
+  "script": "run_migration_pipeline",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T22:44:52.598Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "mode": "planning",
+    "repoPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform",
+    "schemaPath": "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\instant.schema.ts",
+    "orgIds": "org_38yzrIfBLZGElNQZ8T4pb9vCV3b,org_38wSgxlCYJRJifTCNH5Y37z4nNJ,org_37uEXj39Oci4sDC78RGXNnS9IIz,org_36QsDDwM1wPdv0OdcS3ENUi8GoL,org_36Qs7j9XsRlL914wZBjurPUFp3o,org_36Qs0WFl7mxB8cctWioid2M33nN,org_35NpHQHf9CGXqk1bG1BUUy0jp72,org_356MD7nmZEybbfABJbln43CbV79,org_341PO9QvlukorUAroYglAuSGobS,org_2v8Ttz9gYqhI68RSlz7e9BoVzwd,org_2v4hpEkMnajpuwO0apNEiqfEEMH",
+    "allowUnsafe": false,
+    "requireAllSafe": true,
+    "envFilesLoaded": [
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\ekairos-core\\.env.local",
+      "C:\\Users\\aleja\\WebstormProjects\\esolbay-platform\\.env.local"
+    ],
+    "envFilesFailed": [],
+    "envAliasesApplied": []
+  }
+}

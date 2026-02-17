@@ -1,0 +1,29 @@
+{
+  "runId": "single-org-allow-unsafe-20260210",
+  "script": "plan_schema_push_org_matrix",
+  "stage": "final",
+  "createdAt": "2026-02-10T21:44:30.708Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "instructionsOut": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.md",
+    "summary": {
+      "totalOrgs": 1,
+      "withInstantCredentials": 1,
+      "missingInstantCredentials": 0,
+      "plannedOk": 1,
+      "plannedFailed": 0,
+      "safe": 1,
+      "reviewRequired": 0,
+      "blocked": 0,
+      "totalSteps": 573,
+      "totalCritical": 0,
+      "totalWarning": 0,
+      "accountMismatchRows": 0,
+      "accountMismatchCount": 0,
+      "accountMismatchAppIds": []
+    },
+    "requireAllSafe": true
+  }
+}

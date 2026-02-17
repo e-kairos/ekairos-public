@@ -1,0 +1,14 @@
+{
+  "runId": "prod-readiness-20260210",
+  "script": "assert_hot_deploy_safe",
+  "stage": "snapshot",
+  "createdAt": "2026-02-10T21:22:38.319Z",
+  "orgId": "",
+  "envName": "",
+  "payload": {
+    "preflightPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\preflight\\scan.json",
+    "modelPlanPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\story-thread-model-plan.json",
+    "matrixPath": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-org-matrix.json",
+    "allowUnsafe": false
+  }
+}

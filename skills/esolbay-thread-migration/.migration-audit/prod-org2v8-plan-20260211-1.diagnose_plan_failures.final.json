@@ -1,0 +1,18 @@
+{
+  "runId": "prod-org2v8-plan-20260211-1",
+  "script": "diagnose_plan_failures",
+  "stage": "final",
+  "createdAt": "2026-02-11T06:50:14.361Z",
+  "orgId": "",
+  "envName": "production",
+  "payload": {
+    "outFile": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.json",
+    "outMd": "C:\\Users\\aleja\\WebstormProjects\\ekairos-workspace\\skills\\esolbay-thread-migration\\artifacts\\reports\\schema-plan-diagnostics.md",
+    "summary": {
+      "totalFailures": 1,
+      "countByIssue": {
+        "schema_duplicate_link": 1
+      }
+    }
+  }
+}
