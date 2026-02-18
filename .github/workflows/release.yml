@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 30
     needs:
       - release-required-checks
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -88,7 +88,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set CI beta version
+      - name: Resolve release channel and version
         shell: bash
         run: |
           base_version="$(node -p "require('./package.json').version")"
@@ -99,17 +99,32 @@ jobs:
             exit 1
           fi
 
-          next_patch=$((base_patch + 1))
-          latest_beta="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
+          branch_name="${GITHUB_REF_NAME}"
+          branch_slug="$(echo "${branch_name}" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+          if [ -z "${branch_slug}" ]; then
+            branch_slug="branch"
+          fi
 
-          if [ -n "${latest_beta}" ]; then
-            latest_core="${latest_beta%%-*}"
-            if [[ "${latest_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              latest_major="${BASH_REMATCH[1]}"
-              latest_minor="${BASH_REMATCH[2]}"
-              latest_patch="${BASH_REMATCH[3]}"
-              if [ "${latest_major}" = "${base_major}" ] && [ "${latest_minor}" = "${base_minor}" ]; then
-                candidate_patch=$((latest_patch + 1))
+          next_patch=$((base_patch + 1))
+
+          if [ "${branch_name}" = "main" ]; then
+            release_channel="latest"
+            reference_version="$(npm view @ekairos/domain@latest version 2>/dev/null || true)"
+            version_suffix=""
+          else
+            release_channel="beta"
+            reference_version="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
+            version_suffix="-beta.${branch_slug}.0"
+          fi
+
+          if [ -n "${reference_version}" ]; then
+            reference_core="${reference_version%%-*}"
+            if [[ "${reference_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              ref_major="${BASH_REMATCH[1]}"
+              ref_minor="${BASH_REMATCH[2]}"
+              ref_patch="${BASH_REMATCH[3]}"
+              if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ]; then
+                candidate_patch=$((ref_patch + 1))
                 if [ "${candidate_patch}" -gt "${next_patch}" ]; then
                   next_patch="${candidate_patch}"
                 fi
@@ -117,22 +132,26 @@ jobs:
             fi
           fi
 
-          beta_version="${base_major}.${base_minor}.${next_patch}-beta.0"
-          while npm view "@ekairos/domain@${beta_version}" version >/dev/null 2>&1; do
+          release_version="${base_major}.${base_minor}.${next_patch}${version_suffix}"
+          while npm view "@ekairos/domain@${release_version}" version >/dev/null 2>&1; do
             next_patch=$((next_patch + 1))
-            beta_version="${base_major}.${base_minor}.${next_patch}-beta.0"
+            release_version="${base_major}.${base_minor}.${next_patch}${version_suffix}"
           done
 
-          echo "Publishing beta version: ${beta_version}"
-          export BETA_VERSION="${beta_version}"
+          echo "Release channel: ${release_channel}"
+          echo "Publishing version: ${release_version}"
+          echo "RELEASE_CHANNEL=${release_channel}" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${release_version}" >> "$GITHUB_ENV"
+
+          export RELEASE_VERSION="${release_version}"
           node - <<'NODE'
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = process.env.BETA_VERSION;
+          pkg.version = process.env.RELEASE_VERSION;
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
-      - name: Publish beta
+      - name: Publish channel
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         shell: bash
@@ -145,4 +164,4 @@ jobs:
           NPMRC_PATH="${NPM_CONFIG_USERCONFIG:-${HOME}/.npmrc}"
           printf "//registry.npmjs.org/:_authToken=%s\n" "${NPM_TOKEN}" > "${NPMRC_PATH}"
           export NODE_AUTH_TOKEN="${NPM_TOKEN}"
-          pnpm run publish:beta
+          pnpm run "publish:${RELEASE_CHANNEL}"

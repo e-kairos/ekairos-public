@@ -43,10 +43,10 @@ pnpm test
 ## Publishing model
 
 - `main` is the release branch.
-- Every push to `main` triggers CI beta publishing.
-- CI computes the next semantic beta version (`x.y.z-beta.0`) and publishes with provenance.
+- Every push triggers CI publish with provenance.
+- `main` publishes stable versions to `latest`.
+- Non-main branches publish branch-scoped beta versions (`x.y.z-beta.<branch>.0`) to `beta`.
 - Publish is gated by required checks (`release-required-checks`) before npm steps run.
-- Pushes to feature branches also run `release-required-checks` (no publish outside `main`).
 
 Manual channel publishing (maintainers):
 
@@ -54,10 +54,10 @@ Manual channel publishing (maintainers):
 # 1) local preflight
 pnpm run release:required-checks
 
-# 2) branch validation (CI, no publish)
-# push your branch or open a PR to main
+# 2) branch validation + beta publish (CI)
+# push your branch
 
-# 3) publish on main (after merge)
+# 3) publish stable on main (after merge)
 pnpm run publish:beta
 pnpm run publish:rc
 pnpm run publish:latest
