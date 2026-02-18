@@ -88,6 +88,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate root version format by branch
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          branch_name="${GITHUB_REF_NAME}"
+
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ "${branch_name}" = "main" ]; then
+              echo "Invalid package.json version for main: ${version}"
+              echo "main requires stable semver (x.y.z) with no prerelease suffix."
+            else
+              echo "Invalid package.json version for branch ${branch_name}: ${version}"
+              echo "non-main branches must keep stable semver (x.y.z); CI generates -beta.<branch>.0 automatically."
+            fi
+            exit 1
+          fi
+
       - name: Resolve release channel and version
         shell: bash
         run: |
@@ -107,25 +124,53 @@ jobs:
 
           if [ "${branch_name}" = "main" ]; then
             release_channel="latest"
-            reference_version="$(npm view @ekairos/domain@latest version 2>/dev/null || true)"
             version_suffix=""
             next_patch="${base_patch}"
+            latest_reference="$(npm view @ekairos/domain@latest version 2>/dev/null || true)"
+            if [ -n "${latest_reference}" ]; then
+              latest_core="${latest_reference%%-*}"
+              if [[ "${latest_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                ref_major="${BASH_REMATCH[1]}"
+                ref_minor="${BASH_REMATCH[2]}"
+                ref_patch="${BASH_REMATCH[3]}"
+                if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ] && [ "${ref_patch}" -ge "${next_patch}" ]; then
+                  next_patch=$((ref_patch + 1))
+                fi
+              fi
+            fi
           else
             release_channel="beta"
-            reference_version="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
             version_suffix="-beta.${branch_slug}.0"
             next_patch="${base_patch}"
-          fi
 
-          if [ -n "${reference_version}" ]; then
-            reference_core="${reference_version%%-*}"
-            if [[ "${reference_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              ref_major="${BASH_REMATCH[1]}"
-              ref_minor="${BASH_REMATCH[2]}"
-              ref_patch="${BASH_REMATCH[3]}"
-              if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ]; then
-                if [ "${ref_patch}" -ge "${next_patch}" ]; then
-                  next_patch=$((ref_patch + 1))
+            latest_reference="$(npm view @ekairos/domain@latest version 2>/dev/null || true)"
+            if [ -n "${latest_reference}" ]; then
+              latest_core="${latest_reference%%-*}"
+              if [[ "${latest_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                ref_major="${BASH_REMATCH[1]}"
+                ref_minor="${BASH_REMATCH[2]}"
+                ref_patch="${BASH_REMATCH[3]}"
+                if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ]; then
+                  stable_min_patch=$((ref_patch + 1))
+                  if [ "${stable_min_patch}" -gt "${next_patch}" ]; then
+                    next_patch="${stable_min_patch}"
+                  fi
+                fi
+              fi
+            fi
+
+            beta_reference="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
+            if [ -n "${beta_reference}" ]; then
+              beta_core="${beta_reference%%-*}"
+              if [[ "${beta_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+                ref_major="${BASH_REMATCH[1]}"
+                ref_minor="${BASH_REMATCH[2]}"
+                ref_patch="${BASH_REMATCH[3]}"
+                if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ]; then
+                  beta_min_patch=$((ref_patch + 1))
+                  if [ "${beta_min_patch}" -gt "${next_patch}" ]; then
+                    next_patch="${beta_min_patch}"
+                  fi
                 fi
               fi
             fi

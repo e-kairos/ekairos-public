@@ -35,6 +35,12 @@ function inferTagFromVersion(version) {
   return 'latest';
 }
 
+function assertStableCoreSemver(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    fail(`Stable core version required (x.y.z), received "${version}".`);
+  }
+}
+
 function assertVersionTagCompatibility(version, distTag) {
   if (distTag === 'latest') {
     if (version.includes('-')) {
@@ -54,6 +60,10 @@ function main() {
   const rootVersion = rootPackage.version;
   if (!rootVersion || typeof rootVersion !== 'string') {
     fail('Root package.json version is missing.');
+  }
+
+  if (process.env.RELEASE_ENFORCE_STABLE_ONLY === '1') {
+    assertStableCoreSemver(rootVersion);
   }
 
   const inferredTag = inferTagFromVersion(rootVersion);

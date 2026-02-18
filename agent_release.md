@@ -7,6 +7,8 @@ This repository publishes npm packages through GitHub Actions.
 - Push to `main` -> stable publish to `latest`.
 - Push to any other branch -> beta publish to `beta` with branch suffix.
 - Required checks run before publish (`release-required-checks` job).
+- Root `package.json` must be stable semver (`x.y.z`) on all branches.
+- Prerelease suffixes are CI-generated only (never committed manually).
 
 ## Version resolution
 
@@ -17,7 +19,8 @@ CI computes the publish version from root `package.json`:
   - If that exact version already exists in npm, patch is incremented (`x.y.(z+1)`).
 - non-main branch
   - Uses `x.y.z-beta.<branch>.0`.
-  - Increments patch only if needed for uniqueness.
+  - Chooses patch so it stays ahead of both `latest` and `beta` in the same major/minor lane.
+  - Example: if `latest` is `1.1.1` and base is `1.1.1`, branch beta starts at `1.1.2-beta.<branch>.0`.
 
 This lets you force a minor stable release by setting the base version to `x.(y+1).0`.
 
