@@ -454,6 +454,72 @@ function attachMeta(target: object, meta: DomainMeta) {
   });
 }
 
+function freezeMeta(meta: DomainMeta): DomainMeta {
+  return Object.freeze({
+    ...meta,
+    includes: Object.freeze([...(meta.includes ?? [])]),
+  });
+}
+
+function appendMetaInclude(meta: DomainMeta, include: DomainIncludeRef): DomainMeta {
+  return {
+    ...meta,
+    includes: [...(meta.includes ?? []), include],
+  };
+}
+
+function cloneRoomsDef<R extends RoomsDef>(rooms: R): R {
+  return { ...(rooms as Record<string, unknown>) } as R;
+}
+
+function cloneLinksDef<L extends LinksDef<any>>(links: L): L {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries((links ?? {}) as Record<string, any>)) {
+    out[key] = {
+      ...(value ?? {}),
+      forward: { ...(value?.forward ?? {}) },
+      reverse: { ...(value?.reverse ?? {}) },
+    };
+  }
+  return out as L;
+}
+
+function assertNoDuplicateLinkAttributes(links: LinksDef<any>) {
+  const ownership = new Map<string, string>();
+  const duplicates: Array<{ attribute: string; first: string; second: string }> = [];
+
+  for (const [linkKey, linkValue] of Object.entries((links ?? {}) as Record<string, any>)) {
+    const forward = linkValue?.forward;
+    if (forward?.on && forward?.label) {
+      const attribute = `${String(forward.on)}->${String(forward.label)}`;
+      const first = ownership.get(attribute);
+      if (first && first !== linkKey) {
+        duplicates.push({ attribute, first, second: linkKey });
+      } else {
+        ownership.set(attribute, linkKey);
+      }
+    }
+
+    const reverse = linkValue?.reverse;
+    if (reverse?.on && reverse?.label) {
+      const attribute = `${String(reverse.on)}->${String(reverse.label)}`;
+      const first = ownership.get(attribute);
+      if (first && first !== linkKey) {
+        duplicates.push({ attribute, first, second: linkKey });
+      } else {
+        ownership.set(attribute, linkKey);
+      }
+    }
+  }
+
+  if (duplicates.length === 0) return;
+
+  const detail = duplicates
+    .map((entry) => `${entry.attribute} (${entry.first} vs ${entry.second})`)
+    .join(", ");
+  throw new Error(`duplicate_link_attribute:${detail}`);
+}
+
 function listKeys(value: unknown): string[] {
   if (!value || typeof value !== "object") return [];
   return Object.keys(value as object).filter((key) => !key.startsWith("$"));
@@ -706,13 +772,14 @@ function resolveIncludeNames(meta: DomainMeta | null): string[] {
 }
 
 function makeInstance<E extends EntitiesDef, L extends LinksDef<E>, R extends RoomsDef>(
-  def: DomainDefinition<E, L, R>
+  def: DomainDefinition<E, L, R>,
+  metaIncludes: DomainIncludeRef[] = [],
 ): DomainInstance<E, L, R> {
   const meta: DomainMeta = {
     name: def.name,
     rootDir: def.rootDir,
     packageName: def.packageName,
-    includes: [],
+    includes: [...metaIncludes],
   };
 
   let instance: DomainInstance<E, L, R>;
@@ -744,11 +811,7 @@ function makeInstance<E extends EntitiesDef, L extends LinksDef<E>, R extends Ro
       name: def.name,
       rootDir: def.rootDir,
       packageName: def.packageName,
-    });
-    const composedMeta = getMeta(composed);
-    if (composedMeta) {
-      composedMeta.includes.push(() => instance, () => other);
-    }
+    }, [() => instance, () => other]);
     return composed;
   }
 
@@ -759,7 +822,7 @@ function makeInstance<E extends EntitiesDef, L extends LinksDef<E>, R extends Ro
     schema,
     compose,
   };
-  attachMeta(instance, meta);
+  attachMeta(instance, freezeMeta(meta));
   return instance;
 }
 
@@ -824,13 +887,13 @@ export function domain(arg?: unknown): any {
               return undefined;
             }
           };
-          meta.includes.push(lazyGetter as DomainIncludeRef);
+          const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys using MergeLinks
           return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter as any],
-            meta
+            nextMeta
           );
         }
         
@@ -840,13 +903,13 @@ export function domain(arg?: unknown): any {
           // Create a lazy getter that returns undefined
           // Entities will be available from app domain's merged entities when toInstantSchema() is called
           const lazyGetter = () => undefined;
-          meta.includes.push(lazyGetter as DomainIncludeRef);
+          const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys
           return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter],
-            meta
+            nextMeta
           );
         }
         
@@ -856,13 +919,13 @@ export function domain(arg?: unknown): any {
           if (!entities) {
             // If entities don't exist yet, store as lazy
             const lazyGetter = () => other;
-            meta.includes.push(lazyGetter as DomainIncludeRef);
+            const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
             // Preserve link literal keys
             return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
               deps as MergeEntities<AE, E2>,
               linkDeps as MergeLinks<AL, L2>,
               [...lazyIncludes, lazyGetter as any],
-              meta
+              nextMeta
             );
           }
           
@@ -870,18 +933,19 @@ export function domain(arg?: unknown): any {
           const mergedEntities = { ...deps, ...entities } as MergeEntities<AE, E2>;
           // Preserve literal link keys by merging directly (not casting to LinksDef)
           const mergedLinks = (links ? { ...linkDeps, ...links } : { ...linkDeps }) as MergeLinks<AL, L2>;
-          meta.includes.push(() => other as any);
-          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(mergedEntities, mergedLinks, lazyIncludes, meta);
+          const includeRef = () => other as any;
+          const nextMeta = appendMetaInclude(meta, includeRef);
+          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(mergedEntities, mergedLinks, lazyIncludes, nextMeta);
         } catch (e) {
           // If accessing entities throws, store as lazy
           const lazyGetter = () => other;
-          meta.includes.push(lazyGetter as DomainIncludeRef);
+          const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys
           return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter as any],
-            meta
+            nextMeta
           );
         }
       },
@@ -927,102 +991,113 @@ export function domain(arg?: unknown): any {
         type MergedLinksType = MergeLinks<AL, LL>;
         type MergedEntitiesType = MergeEntities<AE, LE>;
         
-        const result = {
-          entities: allEntities,
-          // Strip base phantom from public type so it's assignable to i.schema()
-          links: allLinks,
-          rooms: def.rooms,
-          // Add originalEntities for type-safe access to original entity definitions
-          originalEntities: allEntities,
-          toInstantSchema: (() => {
-            // Capture allEntities and allLinks in closure to avoid TypeScript scoping issues
-            const capturedEntities = allEntities;
-            const capturedLinks = allLinks;
-            // Capture the merged types for use in return type
-            type CapturedEntitiesType = MergedEntitiesType;
-            type CapturedLinksType = MergedLinksType;
-            return () => {
-              // i is already imported at the top of the file
-              // Final resolution: capturedEntities contains merged entities from all includes()
-              // For app domain, this includes all domains, so all entities are available
-              // Resolve any remaining lazy includes that couldn't be resolved at schema() time
-              let finalEntities = { ...capturedEntities };
-              // Preserve literal link keys from capturedLinks
-              let finalLinks = { ...capturedLinks } as typeof capturedLinks;
-            
-            // Try to resolve lazy includes one more time (domains should be initialized by now)
-            for (const lazyGetter of lazyIncludes) {
-              try {
-                const other = lazyGetter();
-                if (other) {
-                  const entities = (other as any).entities as EntitiesDef;
-                  if (entities) {
-                    // Merge entities that weren't available during schema() call
-                    finalEntities = { ...finalEntities, ...entities };
-                  }
-                  const links = (other as any).links as LinksDef<any>;
-                  if (links) {
-                    // Merge links preserving literal keys (owner, related, parent, etc.)
-                    finalLinks = { ...finalLinks, ...links } as typeof finalLinks;
-                  }
-                }
-              } catch (e) {
-                // If still can't resolve, entities should already be in allEntities from app domain composition
+        const createDomainResult = (
+          seedActions: DomainActionRegistration[] = [],
+        ): DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms> => {
+          const capturedEntities = { ...allEntities };
+          const capturedLinks = cloneLinksDef(allLinks);
+          const capturedRooms = cloneRoomsDef(def.rooms);
+          let cachedInstantSchema: ReturnType<
+            typeof i.schema<WithBase<MergedEntitiesType>, MergedLinksType, typeof def.rooms>
+          > | null = null;
+
+          const result = {
+            entities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
+            // Strip base phantom from public type so it's assignable to i.schema()
+            links: Object.freeze(cloneLinksDef(allLinks)) as MergedLinksType,
+            rooms: Object.freeze(cloneRoomsDef(def.rooms)),
+            // Add originalEntities for type-safe access to original entity definitions
+            originalEntities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
+            toInstantSchema: () => {
+              if (cachedInstantSchema) {
+                return cachedInstantSchema;
               }
-            }
-            
-            // Include base entities ($users, $files) that InstantDB manages
-            // These need to be explicitly included since InstantDB doesn't auto-add them
-            const baseEntities = {
-              $users: i.entity({
-                email: i.string().optional().indexed(),
-              }),
-              $files: i.entity({
-                path: i.string(),
-                url: i.string().optional(),
-                contentType: i.string().optional(),
-                size: i.number().optional(),
-              }),
-            };
 
-            // Merge base entities with user entities, user entities take precedence
-            const allEntitiesWithBase = { ...baseEntities, ...finalEntities } as WithBase<typeof capturedEntities>;
+              let finalEntities = { ...capturedEntities };
+              let finalLinks = cloneLinksDef(capturedLinks);
+              let hasUnresolvedIncludes = false;
 
-            // Create schema with merged links - preserve literal link keys
-            // The actual links object has literal keys (owner, related, parent, etc.)
-            // that need to be preserved for query validation
-            const schemaResult = i.schema({
-              entities: allEntitiesWithBase,
-              links: finalLinks as LinksDef<WithBase<typeof capturedEntities>>,
-              rooms: def.rooms,
-            });
-            
-            // Return schema result - i.schema() enriches entities with link labels automatically
-            // The type system should preserve this enrichment through the return type of toInstantSchema()
-            // which uses ReturnType<typeof i.schema<WithBase<E>, L, R>> where L is MergeLinks<AL, LL>
-            // This preserves both the enriched entities and the literal link keys
-            return schemaResult;
-            };
-          })(),
-        } as unknown as DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>;
+              // Try to resolve lazy includes one more time (domains should be initialized by now)
+              for (const lazyGetter of lazyIncludes) {
+                try {
+                  const other = lazyGetter();
+                  if (other) {
+                    const entities = (other as any).entities as EntitiesDef;
+                    if (entities) {
+                      finalEntities = { ...finalEntities, ...entities };
+                    }
+                    const links = (other as any).links as LinksDef<any>;
+                    if (links) {
+                      finalLinks = { ...finalLinks, ...links } as typeof finalLinks;
+                    }
+                  } else {
+                    hasUnresolvedIncludes = true;
+                  }
+                } catch {
+                  // If still can't resolve, entities should already be in allEntities from app domain composition
+                  hasUnresolvedIncludes = true;
+                }
+              }
 
-        attachMeta(result as object, meta);
-        (result as any).context = (options?: DomainContextOptions) =>
-          buildContext(result, options);
-        (result as any).contextString = (options?: DomainContextOptions) =>
-          contextToString(buildContext(result, options));
-        (result as any).fromDB = <DB = any>(db: DB) =>
-          createConcreteDomain(result as any, db, resolveSchema(result));
-        setStoredActions(result as any, []);
-        (result as any).actions = (actionsInput: DomainActionCollection) => {
-          const current = getStoredActions(result as any);
-          const additions = normalizeActionCollection(result as any, actionsInput);
-          setStoredActions(result as any, [...current, ...additions]);
-          return result as any;
+              assertNoDuplicateLinkAttributes(finalLinks as LinksDef<any>);
+
+              // Include base entities ($users, $files) that InstantDB manages
+              // These need to be explicitly included since InstantDB doesn't auto-add them
+              const baseEntities = {
+                $users: i.entity({
+                  email: i.string().optional().indexed(),
+                }),
+                $files: i.entity({
+                  path: i.string(),
+                  url: i.string().optional(),
+                  contentType: i.string().optional(),
+                  size: i.number().optional(),
+                }),
+              };
+
+              // Merge base entities with user entities, user entities take precedence
+              const allEntitiesWithBase = {
+                ...baseEntities,
+                ...finalEntities,
+              } as WithBase<MergedEntitiesType>;
+
+              const schemaResult = i.schema({
+                entities: allEntitiesWithBase,
+                links: cloneLinksDef(finalLinks as MergedLinksType) as LinksDef<WithBase<MergedEntitiesType>>,
+                rooms: cloneRoomsDef(capturedRooms),
+              });
+
+              const frozenSchema = Object.freeze(schemaResult) as typeof schemaResult;
+              if (!hasUnresolvedIncludes) {
+                cachedInstantSchema = frozenSchema;
+              }
+              return frozenSchema;
+            },
+          } as unknown as DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>;
+
+          attachMeta(result as object, freezeMeta(meta));
+          (result as any).context = (options?: DomainContextOptions) =>
+            buildContext(result, options);
+          (result as any).contextString = (options?: DomainContextOptions) =>
+            contextToString(buildContext(result, options));
+          (result as any).fromDB = <DB = any>(db: DB) =>
+            createConcreteDomain(result as any, db, resolveSchema(result));
+
+          const reboundActions = seedActions.map((action) =>
+            bindAction(action, { name: action.name, domain: result }),
+          );
+          setStoredActions(result as any, Object.freeze([...reboundActions]));
+          (result as any).actions = (actionsInput: DomainActionCollection) => {
+            const current = getStoredActions(result as any);
+            const additions = normalizeActionCollection(result as any, actionsInput);
+            return createDomainResult([...current, ...additions]);
+          };
+          (result as any).getActions = () => [...getStoredActions(result as any)];
+
+          return Object.freeze(result as any);
         };
-        (result as any).getActions = () => getStoredActions(result as any);
 
-        return result;
+        return createDomainResult();
       },
     };
   }

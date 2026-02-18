@@ -1,0 +1,9 @@
+{
+  "checks": [
+    {
+      "name": "@ekairos/domain unit tests",
+      "command": "pnpm",
+      "args": ["--filter", "@ekairos/domain", "run", "test:unit"]
+    }
+  ]
+}

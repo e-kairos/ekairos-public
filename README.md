@@ -45,10 +45,12 @@ pnpm test
 - `main` is the release branch.
 - Every push to `main` triggers CI beta publishing.
 - CI computes a unique beta version and publishes with provenance.
+- Publish is gated by required checks (`release-required-checks`) before npm steps run.
 
 Manual channel publishing (maintainers):
 
 ```bash
+pnpm run release:required-checks
 pnpm run publish:beta
 pnpm run publish:rc
 pnpm run publish:latest

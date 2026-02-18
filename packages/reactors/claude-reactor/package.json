@@ -32,10 +32,10 @@
                         },
     "repository":  {
                        "type":  "git",
-                       "url":  "git+https://github.com/e-kairos/ekairos-public.git"
+                       "url":  "git+https://github.com/e-kairos/ekairos.git"
                    },
-    "homepage":  "https://github.com/e-kairos/ekairos-public#readme",
+    "homepage":  "https://github.com/e-kairos/ekairos#readme",
     "bugs":  {
-                 "url":  "https://github.com/e-kairos/ekairos-public/issues"
+                 "url":  "https://github.com/e-kairos/ekairos/issues"
              }
 }

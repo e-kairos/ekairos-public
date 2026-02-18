@@ -12,9 +12,9 @@
   "publishConfig": {
     "access": "public"
   },
-  "homepage": "https://github.com/e-kairos/ekairos-public/tree/main/packages/domain",
+  "homepage": "https://github.com/e-kairos/ekairos/tree/main/packages/domain",
   "bugs": {
-    "url": "https://github.com/e-kairos/ekairos-public/issues"
+    "url": "https://github.com/e-kairos/ekairos/issues"
   },
   "keywords": [
     "ekairos",
@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/e-kairos/ekairos-public.git",
+    "url": "git+https://github.com/e-kairos/ekairos.git",
     "directory": "packages/domain"
   },
   "exports": {
@@ -59,7 +59,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "pnpm run test:unit",
-    "test:unit": "vitest run -c vitest.config.ts src/tests/runtime.actions.unit.test.ts",
+    "test:unit": "vitest run -c vitest.config.ts src/tests/runtime.actions.unit.test.ts src/tests/domain.purity.unit.test.ts",
     "test:conflicts": "node dist/__type_tests__/conflict-validation.test.js",
     "test:context": "node dist/context.test-runner.js",
     "test:e2e": "vitest run -c vitest.config.ts src/tests/domain.context.e2e.test.ts"

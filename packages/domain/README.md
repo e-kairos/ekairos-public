@@ -142,6 +142,13 @@ Use this to ground coding agents and domain assistants with current entities, li
 - `env` is adapter-defined and opaque to the package.
 - Included subdomains do not auto-export actions.
 
+## Purity and immutability guarantees
+
+- `toInstantSchema()` is pure and idempotent for the same domain result.
+- Domain schema results are immutable at runtime.
+- `.actions(...)` is persistent: it returns a new domain result and never mutates the original one.
+- Duplicate link attributes (`entity->label`) are rejected before schema materialization.
+
 ## Testing
 
 ```bash
@@ -149,11 +156,17 @@ pnpm run test:unit   # runtime and action behavior
 pnpm run test:e2e    # InstantDB temp app flow (requires INSTANT_CLI_AUTH_TOKEN)
 ```
 
+In the monorepo release flow, required checks run before publishing:
+
+```bash
+pnpm run release:required-checks
+```
+
 ## Links
 
 - npm: https://www.npmjs.com/package/@ekairos/domain
-- source: https://github.com/e-kairos/ekairos-public/tree/main/packages/domain
-- issues: https://github.com/e-kairos/ekairos-public/issues
+- source: https://github.com/e-kairos/ekairos/tree/main/packages/domain
+- issues: https://github.com/e-kairos/ekairos/issues
 
 ## License
 
