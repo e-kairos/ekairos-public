@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 import { i } from "@instantdb/core";
-import { defineDomainAction, domain } from "../index.js";
+import { defineDomainAction, domain } from "../index.ts";
 import {
   configureRuntime,
   executeRuntimeAction,
   getRuntimeAction,
   getRuntimeActions,
-} from "../runtime.js";
+} from "../runtime.ts";
 
 type Env = {
   orgId: string;

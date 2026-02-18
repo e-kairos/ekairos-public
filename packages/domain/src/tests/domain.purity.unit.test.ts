@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 import { i } from "@instantdb/core";
-import { defineDomainAction, domain } from "../index.js";
+import { defineDomainAction, domain } from "../index.ts";
 
 function duplicateLinkAttributes(links: Record<string, any>) {
   const ownership = new Map<string, string>();
