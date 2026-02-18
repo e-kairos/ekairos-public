@@ -996,10 +996,13 @@ export function domain(arg?: unknown): any {
         const createDomainResult = (
           seedActions: DomainActionRegistration[] = [],
         ): DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms> => {
+          type InstantSchemaResult = ReturnType<
+            DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>["toInstantSchema"]
+          >;
           const capturedEntities = { ...allEntities };
           const capturedLinks = cloneLinksDef(allLinks);
           const capturedRooms = cloneRoomsDef(def.rooms);
-          let cachedInstantSchema: ReturnType<typeof i.schema> | null = null;
+          let cachedInstantSchema: InstantSchemaResult | null = null;
 
           const result = {
             entities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
@@ -1010,9 +1013,7 @@ export function domain(arg?: unknown): any {
             originalEntities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
             toInstantSchema: () => {
               if (cachedInstantSchema) {
-                return cachedInstantSchema as ReturnType<
-                  typeof i.schema<WithBase<MergedEntitiesType>, MergedLinksType, typeof def.rooms>
-                >;
+                return cachedInstantSchema;
               }
 
               let finalEntities = { ...capturedEntities };
@@ -1069,7 +1070,7 @@ export function domain(arg?: unknown): any {
                 rooms: cloneRoomsDef(capturedRooms),
               });
 
-              const frozenSchema = Object.freeze(schemaResult) as typeof schemaResult;
+              const frozenSchema = Object.freeze(schemaResult) as InstantSchemaResult;
               if (!hasUnresolvedIncludes) {
                 cachedInstantSchema = frozenSchema;
               }

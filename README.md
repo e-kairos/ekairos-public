@@ -46,11 +46,18 @@ pnpm test
 - Every push to `main` triggers CI beta publishing.
 - CI computes a unique beta version and publishes with provenance.
 - Publish is gated by required checks (`release-required-checks`) before npm steps run.
+- Pushes to feature branches also run `release-required-checks` (no publish outside `main`).
 
 Manual channel publishing (maintainers):
 
 ```bash
+# 1) local preflight
 pnpm run release:required-checks
+
+# 2) branch validation (CI, no publish)
+# push your branch or open a PR to main
+
+# 3) publish on main (after merge)
 pnpm run publish:beta
 pnpm run publish:rc
 pnpm run publish:latest
