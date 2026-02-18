@@ -3,7 +3,7 @@ name: Publish Packages
 on:
   push:
     branches:
-      - main
+      - "**"
   pull_request:
     branches:
       - main
@@ -13,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: npm-release-main
+  group: npm-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
