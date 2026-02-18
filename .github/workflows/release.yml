@@ -93,7 +93,36 @@ jobs:
         run: |
           base_version="$(node -p "require('./package.json').version")"
           core_version="${base_version%%-*}"
-          beta_version="${core_version}-beta.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}"
+          IFS='.' read -r base_major base_minor base_patch <<< "${core_version}"
+          if [ -z "${base_major}" ] || [ -z "${base_minor}" ] || [ -z "${base_patch}" ]; then
+            echo "Invalid base version: ${base_version}"
+            exit 1
+          fi
+
+          next_patch=$((base_patch + 1))
+          latest_beta="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
+
+          if [ -n "${latest_beta}" ]; then
+            latest_core="${latest_beta%%-*}"
+            if [[ "${latest_core}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              latest_major="${BASH_REMATCH[1]}"
+              latest_minor="${BASH_REMATCH[2]}"
+              latest_patch="${BASH_REMATCH[3]}"
+              if [ "${latest_major}" = "${base_major}" ] && [ "${latest_minor}" = "${base_minor}" ]; then
+                candidate_patch=$((latest_patch + 1))
+                if [ "${candidate_patch}" -gt "${next_patch}" ]; then
+                  next_patch="${candidate_patch}"
+                fi
+              fi
+            fi
+          fi
+
+          beta_version="${base_major}.${base_minor}.${next_patch}-beta.0"
+          while npm view "@ekairos/domain@${beta_version}" version >/dev/null 2>&1; do
+            next_patch=$((next_patch + 1))
+            beta_version="${base_major}.${base_minor}.${next_patch}-beta.0"
+          done
+
           echo "Publishing beta version: ${beta_version}"
           export BETA_VERSION="${beta_version}"
           node - <<'NODE'
