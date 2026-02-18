@@ -1,6 +1,6 @@
 {
   "name": "@ekairos/domain",
-  "version": "1.21.100-beta.0",
+  "version": "1.22.0",
   "description": "Domain-first TypeScript primitives for InstantDB: schema composition, typed actions, and runtime execution.",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "ekairos",
-  "version": "1.21.100-beta.0",
+  "version": "1.22.0",
   "description": "Ekairos - AI Stories and Workflows Runtime",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -73,10 +73,10 @@
   },
   "dependencies": {
     "@ekairos/dataset": "^1.21.85-beta.0",
-    "@ekairos/domain": "^1.21.100-beta.0",
-    "@ekairos/thread": "^1.21.100-beta.0",
+    "@ekairos/domain": "^1.22.0",
+    "@ekairos/thread": "^1.22.0",
     "@instantdb/admin": "0.22.126",
-    "ekairos-cli": "^1.21.100-beta.0"
+    "ekairos-cli": "^1.22.0"
   },
   "devDependencies": {
     "@ekairos/tsconfig": "workspace:*",

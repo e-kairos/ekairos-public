@@ -1,6 +1,6 @@
 {
   "name": "@ekairos/thread",
-  "version": "1.21.100-beta.0",
+  "version": "1.22.0",
   "description": "Pulzar Thread - Workflow-based AI Threads",
   "type": "module",
   "main": "dist/index.js",
@@ -110,7 +110,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.52",
-    "@ekairos/domain": "^1.21.100-beta.0",
+    "@ekairos/domain": "^1.22.0",
     "@instantdb/admin": "0.22.126",
     "@instantdb/core": "0.22.126",
     "@vercel/mcp-adapter": "^1.0.0",

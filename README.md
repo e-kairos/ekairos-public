@@ -42,27 +42,38 @@ pnpm test
 
 ## Publishing model
 
-- `main` is the release branch.
-- Every push triggers CI publish with provenance.
-- `main` publishes stable versions to `latest`.
-- Non-main branches publish branch-scoped beta versions (`x.y.z-beta.<branch>.0`) to `beta`.
-- Publish is gated by required checks (`release-required-checks`) before npm steps run.
+- `main` publishes stable releases to `latest`.
+- Any non-main branch publishes branch-scoped betas to `beta`.
+- Publish runs only after required checks pass.
+- Versions are computed in CI from `package.json` base version:
+  - `main`: tries exact base core first (example `1.22.0`), then increments patch if that exact version already exists.
+  - branch: publishes `x.y.z-beta.<branch>.0`, incrementing patch if needed for uniqueness.
 
-Manual channel publishing (maintainers):
+## Release commands
 
 ```bash
-# 1) local preflight
+# Local required checks
 pnpm run release:required-checks
 
-# 2) branch validation + beta publish (CI)
-# push your branch
+# Local publishable build
+pnpm run build:publish-packages
 
-# 3) publish stable on main (after merge)
-pnpm run publish:beta
-pnpm run publish:rc
-pnpm run publish:latest
-pnpm run publish:next
+# Optional local release consistency check
+node scripts/release-check.mjs --tag latest
 ```
+
+## Minor stable release (recommended)
+
+1. Set root version base to the target minor in `package.json` (example `1.22.0`).
+2. Run local checks:
+
+```bash
+pnpm run release:required-checks
+pnpm run build:publish-packages
+```
+
+3. Push to `main`.
+4. CI publishes stable `latest` (`1.22.0` if not already taken).
 
 ## CI requirements
 

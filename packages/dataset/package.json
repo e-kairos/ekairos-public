@@ -1,6 +1,6 @@
 {
   "name": "@ekairos/dataset",
-  "version": "1.21.100-beta.0",
+  "version": "1.22.0",
   "description": "Pulzar Dataset Tools",
   "type": "commonjs",
   "main": "dist/index.js",
@@ -49,9 +49,9 @@
     "test": "vitest run -c vitest.config.mts"
   },
   "dependencies": {
-    "@ekairos/domain": "^1.21.100-beta.0",
-    "@ekairos/sandbox": "^1.21.100-beta.0",
-    "@ekairos/thread": "^1.21.100-beta.0",
+    "@ekairos/domain": "^1.22.0",
+    "@ekairos/sandbox": "^1.22.0",
+    "@ekairos/thread": "^1.22.0",
     "@instantdb/admin": "0.22.126",
     "@instantdb/core": "0.22.126",
     "ai": "^5.0.44",

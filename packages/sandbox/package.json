@@ -1,6 +1,6 @@
 {
   "name": "@ekairos/sandbox",
-  "version": "1.21.100-beta.0",
+  "version": "1.22.0",
   "description": "Pulzar Sandbox - Provider-agnostic sandbox helpers",
   "type": "module",
   "main": "dist/index.js",
@@ -53,7 +53,7 @@
   },
   "dependencies": {
     "@daytonaio/sdk": "^0.134.0",
-    "@ekairos/domain": "^1.21.100-beta.0",
+    "@ekairos/domain": "^1.22.0",
     "@instantdb/admin": "0.22.126",
     "@instantdb/core": "0.22.126",
     "@vercel/sandbox": "^0.0.23",

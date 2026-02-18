@@ -105,16 +105,16 @@ jobs:
             branch_slug="branch"
           fi
 
-          next_patch=$((base_patch + 1))
-
           if [ "${branch_name}" = "main" ]; then
             release_channel="latest"
             reference_version="$(npm view @ekairos/domain@latest version 2>/dev/null || true)"
             version_suffix=""
+            next_patch="${base_patch}"
           else
             release_channel="beta"
             reference_version="$(npm view @ekairos/domain@beta version 2>/dev/null || true)"
             version_suffix="-beta.${branch_slug}.0"
+            next_patch="${base_patch}"
           fi
 
           if [ -n "${reference_version}" ]; then
@@ -124,9 +124,8 @@ jobs:
               ref_minor="${BASH_REMATCH[2]}"
               ref_patch="${BASH_REMATCH[3]}"
               if [ "${ref_major}" = "${base_major}" ] && [ "${ref_minor}" = "${base_minor}" ]; then
-                candidate_patch=$((ref_patch + 1))
-                if [ "${candidate_patch}" -gt "${next_patch}" ]; then
-                  next_patch="${candidate_patch}"
+                if [ "${ref_patch}" -ge "${next_patch}" ]; then
+                  next_patch=$((ref_patch + 1))
                 fi
               fi
             fi
