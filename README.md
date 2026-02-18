@@ -44,7 +44,7 @@ pnpm test
 
 - `main` is the release branch.
 - Every push to `main` triggers CI beta publishing.
-- CI computes a unique beta version and publishes with provenance.
+- CI computes the next semantic beta version (`x.y.z-beta.0`) and publishes with provenance.
 - Publish is gated by required checks (`release-required-checks`) before npm steps run.
 - Pushes to feature branches also run `release-required-checks` (no publish outside `main`).
 
