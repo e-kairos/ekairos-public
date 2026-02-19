@@ -27,9 +27,6 @@
     "paths": {
       "@/*": [
         "./*"
-      ],
-      "@ekairos/domain": [
-        "../domain/src"
       ]
     }
   },
