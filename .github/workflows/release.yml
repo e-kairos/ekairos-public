@@ -101,27 +101,21 @@ jobs:
           registry-url: "https://registry.npmjs.org/"
           cache: "pnpm"
 
-      - name: Detect Instant token availability
-        id: instant-token
+      - name: Validate Instant token availability
         shell: bash
         run: |
           if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
-            echo "INSTANT_PERSONAL_ACCESS_TOKEN is not configured; thread e2e will be skipped."
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread e2e checks."
+            exit 1
           fi
 
       - name: Install dependencies
-        if: steps.instant-token.outputs.available == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browser (chromium)
-        if: steps.instant-token.outputs.available == 'true'
         run: pnpm --dir packages/thread/tests/playwright/server exec playwright install --with-deps chromium
 
       - name: Run @ekairos/thread workflow smoke e2e
-        if: steps.instant-token.outputs.available == 'true'
         run: pnpm --dir packages/thread/tests/playwright/server run test:e2e:thread-engine
 
   publish:
