@@ -86,7 +86,7 @@ export default function App() {
       try {
         const componentsToInstall = item.value === 'update-all' 
           ? state.installedComponents 
-          : ['ekairos-agent-Agent']; // Default Ekairos agent bundle from registry
+          : ['agent']; // Default Ekairos agent bundle from registry
 
         // Dedup and ensure prefix
         const targets = [...new Set(componentsToInstall)].map(c => 
@@ -95,7 +95,7 @@ export default function App() {
 
         if (targets.length === 0) {
              // Fallback if update-all called but nothing detected, force main agent bundle
-             targets.push('@ekairos/ekairos-agent-Agent');
+             targets.push('@ekairos/agent');
         }
 
         for (const component of targets) {

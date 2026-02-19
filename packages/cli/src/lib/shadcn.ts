@@ -65,8 +65,8 @@ export async function getInstalledComponents(): Promise<string[]> {
             // For simplicity in v1, we just return a single canonical component name
             const files = await fs.readdir(fullPath, { recursive: true });
             
-            // If we find 'agent', we assume 'ekairos-agent-Agent' as the installed Ekairos bundle
-            // This maps directly to the registry component name created from components/ekairos/agent/Agent.tsx
+            // If we find 'agent', we assume 'agent' as the installed Ekairos bundle
+            // This maps directly to the lower-case registry component name.
             
             const detected: string[] = [];
             const fileList = Array.isArray(files) ? files : []; // readdir recursive returns string[] in node 20+? wait fs-extra might differ.
@@ -74,7 +74,7 @@ export async function getInstalledComponents(): Promise<string[]> {
             // fs-extra readdir is standard. recursive not supported in older node with string, but let's assume standard recursive or walk.
             // Let's stick to checking specific known folders for v1.
             
-            if (await fs.pathExists(path.join(fullPath, 'agent'))) detected.push('ekairos-agent-Agent');
+            if (await fs.pathExists(path.join(fullPath, 'agent'))) detected.push('agent');
             // Add more detections here as registry grows
             
             return detected;

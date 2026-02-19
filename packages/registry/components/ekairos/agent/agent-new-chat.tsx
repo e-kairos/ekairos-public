@@ -24,6 +24,3 @@ export function AgentNewChat({ onNewChat, className, label = "Nuevo Chat" }: Age
   )
 }
 
-
-
-

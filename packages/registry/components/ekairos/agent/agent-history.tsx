@@ -48,6 +48,9 @@ export function AgentHistory({
                   "group flex items-center gap-2 p-2 rounded-md cursor-pointer hover:bg-accent/50 transition-colors text-sm",
                   selectedContextId === item.id ? "bg-accent text-accent-foreground" : "text-muted-foreground"
                 )}
+                data-agent-history-item="true"
+                data-context-id={item.id}
+                data-selected={selectedContextId === item.id ? "true" : "false"}
                 onClick={() => onHistorySelect(item.id)}
               >
                 <MessageSquare className="h-4 w-4 shrink-0" />
@@ -78,7 +81,4 @@ export function AgentHistory({
     </Popover>
   )
 }
-
-
-
 

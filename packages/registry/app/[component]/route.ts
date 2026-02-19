@@ -95,7 +95,7 @@ const capitalize = (value: string) => {
 };
 
 const toComponentName = (relativePath: string) =>
-  stripExtension(relativePath).split("/").join("-");
+  stripExtension(relativePath).split("/").join("-").toLowerCase();
 
 const toTitle = (relativePath: string) =>
   stripExtension(relativePath)
@@ -207,7 +207,7 @@ async function collectSources(
         if (segments.length === 2) {
           // ekairos/agent.tsx -> agent
           const fileName = segments[1] ?? "";
-          const ekairosName = stripExtension(fileName);
+          const ekairosName = stripExtension(fileName).toLowerCase();
 
           if (!ekairosName) {
             continue;
@@ -226,11 +226,12 @@ async function collectSources(
           // ekairos/agent/Agent.tsx -> agent (if directory name matches file name)
           const dirName = segments[1] ?? "";
           const fileName = stripExtension(segments[2] ?? "");
+          const normalizedDirName = dirName.toLowerCase();
           
           // If directory name matches file name (case-insensitive), use directory name
-          if (dirName.toLowerCase() === fileName.toLowerCase()) {
+          if (normalizedDirName === fileName.toLowerCase()) {
             list.push({
-              name: dirName,
+              name: normalizedDirName,
               relativePath: normalizedRelativePath,
               absolutePath,
               content,
@@ -292,6 +293,11 @@ async function getSources() {
       
       for (const source of sources) {
         sourceByPath.set(stripExtension(source.relativePath), source);
+        if (sourceByName.has(source.name)) {
+          throw new Error(
+            `Duplicate component name detected in registry sources: "${source.name}".`
+          );
+        }
         sourceByName.set(source.name, source);
       }
       
@@ -496,7 +502,7 @@ export const GET = async (_request: NextRequest, { params }: RequestProps) => {
   try {
     const paramsResult = await params;
     component = paramsResult.component;
-    parsedComponent = component.replace(".json", "");
+    parsedComponent = component.replace(".json", "").trim().toLowerCase();
 
   if (parsedComponent === "registry") {
     try {
@@ -518,50 +524,6 @@ export const GET = async (_request: NextRequest, { params }: RequestProps) => {
         );
       }
     }
-
-  if (parsedComponent === "all") {
-    try {
-        track("ekairos:registry-all");
-    } catch (error) {
-        console.warn("Failed to track registry all bundle:", error);
-    }
-
-      const { sources } = await getSources();
-    const allDependencies = new Set<string>();
-    const allRegistryDependencies = new Set<string>();
-
-      const allFiles = await Promise.all(sources.map(async (source) => {
-        const analysis = await analyzeSource(source);
-        for (const dep of analysis.dependencies) {
-          allDependencies.add(dep);
-        }
-        for (const dep of analysis.registryDependencies) {
-          allRegistryDependencies.add(dep);
-            }
-
-        return {
-          path: `registry/default/${source.relativePath}`,
-          type: "registry:component" as const,
-          content: source.content,
-          target: `components/${source.relativePath}`,
-        };
-      }));
-
-    const allComponentsItem: RegistryItem = {
-      $schema: "https://ui.shadcn.com/schema/registry-item.json",
-      name: "all",
-      type: "registry:component",
-        title: "All Ekairos Components",
-        description:
-          "Bundle containing every Ekairos component exposed through the registry.",
-      files: allFiles,
-      dependencies: Array.from(allDependencies),
-        devDependencies: [],
-      registryDependencies: Array.from(allRegistryDependencies),
-    };
-
-    return NextResponse.json(allComponentsItem);
-  }
 
     const { sourceByName } = await getSources();
     const source = sourceByName.get(parsedComponent);

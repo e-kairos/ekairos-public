@@ -134,13 +134,13 @@ export async function processAsyncStep(state: SessionState, input: any): Promise
             // Perform installation
             const componentsToInstall = input.action === 'update-all' 
                 ? state.installedComponents 
-                : ['ekairos-agent-Agent'];
+                : ['agent'];
 
             let targets = [...new Set(componentsToInstall)].map(c => 
                 c.startsWith('@ekairos/') ? c : `@ekairos/${c}`
             );
 
-            if (targets.length === 0) targets.push('@ekairos/ekairos-agent-Agent');
+            if (targets.length === 0) targets.push('@ekairos/agent');
 
             for (const component of targets) {
                 await installComponent(component);

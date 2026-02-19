@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ekairos Registry",
-  description: "Beautifully designed components for building AI-powered interfaces.",
+  title: "Ekairos Registry | Landing and Showcase",
+  description:
+    "Standalone registry website for Ekairos UI components. Browse showcase cards, docs, and CLI install endpoints ready for Vercel deployment.",
 };
 
 export default function RootLayout({

@@ -15,6 +15,14 @@ export function PromptTextarea({
   ...props
 }: PromptTextareaProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
+  const isDebugEnabled = () => {
+    if (typeof window === "undefined") return false
+    try {
+      return window.localStorage.getItem("ekairos:debug") === "1"
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
     const el = ref.current
@@ -32,9 +40,19 @@ export function PromptTextarea({
       if (e.shiftKey) {
         return
       }
+      if (isDebugEnabled()) {
+        // eslint-disable-next-line no-console
+        console.debug("[ekairos:ui] textarea:enter", {
+          valueLen: typeof (e.currentTarget as any)?.value === "string" ? (e.currentTarget as any).value.length : null,
+        })
+      }
       e.preventDefault()
       const form = e.currentTarget.form
       if (form) {
+        if (isDebugEnabled()) {
+          // eslint-disable-next-line no-console
+          console.debug("[ekairos:ui] textarea:requestSubmit")
+        }
         form.requestSubmit()
       }
     }
