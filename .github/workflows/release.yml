@@ -17,7 +17,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release-required-checks:
+  check-domain-unit:
+    name: Check - domain unit
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -42,14 +43,88 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run required release checks
-        run: pnpm run release:required-checks
+      - name: Run @ekairos/domain unit tests
+        run: pnpm --filter @ekairos/domain run test:unit
+
+  check-thread-unit:
+    name: Check - thread unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org/"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run @ekairos/thread AI SDK unit tests
+        run: pnpm --filter @ekairos/thread run test:ai-sdk-reactor
+
+  check-thread-e2e:
+    name: Check - thread workflow e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      INSTANT_PERSONAL_ACCESS_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
+      INSTANT_CLI_AUTH_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.1
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org/"
+          cache: "pnpm"
+
+      - name: Validate Instant token availability
+        shell: bash
+        run: |
+          if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread e2e checks."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser (chromium)
+        run: pnpm --dir packages/thread/tests/playwright/server exec playwright install --with-deps chromium
+
+      - name: Run @ekairos/thread workflow smoke e2e
+        run: pnpm --dir packages/thread/tests/playwright/server run test:e2e:thread-engine
 
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs:
-      - release-required-checks
+      - check-domain-unit
+      - check-thread-unit
+      - check-thread-e2e
     if: github.event_name == 'push'
     steps:
       - name: Checkout repository

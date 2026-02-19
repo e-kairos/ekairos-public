@@ -4,6 +4,16 @@
       "name": "@ekairos/domain unit tests",
       "command": "pnpm",
       "args": ["--filter", "@ekairos/domain", "run", "test:unit"]
+    },
+    {
+      "name": "@ekairos/thread unit tests",
+      "command": "pnpm",
+      "args": ["--filter", "@ekairos/thread", "run", "test:ai-sdk-reactor"]
+    },
+    {
+      "name": "@ekairos/thread workflow e2e",
+      "command": "pnpm",
+      "args": ["--dir", "packages/thread/tests/playwright/server", "run", "test:e2e:thread-engine"]
     }
   ]
 }
