@@ -1,258 +1,91 @@
-"use client"
+"use client";
 
-import { useCallback, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import Agent from "@/components/ekairos/agent/Agent"
-import { AgentHistory } from "@/components/ekairos/agent/agent-history"
-import { AgentNewChat } from "@/components/ekairos/agent/agent-new-chat"
-import { init } from "@instantdb/react"
+import React from "react";
 
-const db = init({ appId: process.env.NEXT_PUBLIC_INSTANT_APP_ID! })
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import type { RegistryItem } from "@/lib/registry-types";
 
-function InteractiveFullAgentDemoContent() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  
-  const { data } = db.useQuery({
-    thread_contexts: {}
-  })
-
-  const history = (data?.thread_contexts || [])
-    .sort((a: any, b: any) => {
-      const dateA = new Date(a.createdAt || 0).getTime()
-      const dateB = new Date(b.createdAt || 0).getTime()
-      return dateB - dateA
-    })
-    .map((ctx: any) => ({
-      id: ctx.id,
-      title: ctx.title || "Nuevo Chat",
-      createdAt: ctx.createdAt
-    }))
-  
-  const handleContextUpdate = useCallback((contextId: string) => {
-    // Update URL with contextId for shareable links
-    const params = new URLSearchParams(window.location.search)
-    if (contextId && contextId.length > 0) {
-      params.set("contextId", contextId)
-    } else {
-      params.delete("contextId")
-    }
-    const paramsString = params.toString()
-    let nextUrl = window.location.pathname
-    if (paramsString.length > 0) {
-      nextUrl = nextUrl + "?" + paramsString
-    }
-    window.history.replaceState({}, "", nextUrl)
-    
-    console.log("[Full Agent Demo] Context updated:", contextId)
-  }, [])
-
-  const handleNewChat = useCallback(() => {
-    const params = new URLSearchParams(window.location.search)
-    params.delete("contextId")
-    const paramsString = params.toString()
-    let nextUrl = window.location.pathname
-    if (paramsString.length > 0) {
-      nextUrl = nextUrl + "?" + paramsString
-    }
-    window.history.replaceState({}, "", nextUrl)
-  }, [])
-
-  const initialContextId = searchParams.get("contextId") || undefined
-
-  const handleDeleteChat = useCallback(async (contextId: string) => {
-    await db.transact(
-      db.tx.thread_contexts[contextId].delete()
-    )
-    if (initialContextId === contextId) {
-      handleNewChat()
-    }
-  }, [initialContextId, handleNewChat])
-
+const StaticFullAgentDemo = () => {
   return (
-    <div className="h-[600px] w-full rounded-2xl border bg-background overflow-hidden shadow-2xl flex flex-col relative ring-1 ring-border mx-auto max-w-3xl">
-      <div className="h-12 border-b bg-muted/50 flex items-center px-4 justify-between">
+    <div className="relative mx-auto flex h-[600px] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl ring-1 ring-border">
+      <div className="flex h-12 items-center justify-between border-b bg-muted/50 px-4">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-red-400/80"></div>
-          <div className="h-3 w-3 rounded-full bg-yellow-400/80"></div>
-          <div className="h-3 w-3 rounded-full bg-green-400/80"></div>
-          <span className="ml-4 text-xs font-medium text-muted-foreground">Ekairos Agent Preview</span>
+          <div className="h-3 w-3 rounded-full bg-red-400/80" />
+          <div className="h-3 w-3 rounded-full bg-yellow-400/80" />
+          <div className="h-3 w-3 rounded-full bg-green-400/80" />
+          <span className="ml-4 text-xs font-medium text-muted-foreground">
+            Ekairos Agent Preview (Static)
+          </span>
         </div>
-        <div className="flex items-center gap-2">
-          <AgentNewChat onNewChat={handleNewChat} label="Nuevo" className="h-7 text-xs px-2" />
-          <AgentHistory 
-            history={history} 
-            selectedContextId={initialContextId} 
-            onHistorySelect={handleContextUpdate} 
-            onDeleteChat={handleDeleteChat} 
-          />
-        </div>
+        <span className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+          No runtime
+        </span>
       </div>
 
-      <div className="flex-1 min-h-0">
-        <Agent
-          apiUrl="/api/agents/demo"
-          onContextUpdate={handleContextUpdate}
-          toolComponents={{}}
-          initialContextId={initialContextId}
-          classNames={{
-            container: "h-full",
-            scrollArea: "h-full",
-          }}
-        />
+      <div className="flex-1 space-y-4 overflow-y-auto bg-muted/10 p-4 md:p-6">
+        <Message from="assistant">
+          <MessageContent variant="flat" className="bg-transparent px-0 py-0">
+            <MessageResponse>
+              This is a static preview of the full-agent layout. It does not
+              connect to auth, DB, or backend routes.
+            </MessageResponse>
+          </MessageContent>
+        </Message>
+        <Message from="user">
+          <MessageContent variant="contained" className="bg-primary text-primary-foreground">
+            <MessageResponse>Can I still install this component with shadcn?</MessageResponse>
+          </MessageContent>
+        </Message>
+        <Message from="assistant">
+          <MessageContent variant="flat" className="bg-transparent px-0 py-0">
+            <MessageResponse>
+              Yes. Use the registry JSON endpoint and install command shown in
+              docs. Runtime wiring stays in your app.
+            </MessageResponse>
+          </MessageContent>
+        </Message>
+      </div>
+
+      <div className="border-t bg-background/95 p-4">
+        <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+          Prompt input and agent execution are intentionally disabled in the
+          registry website.
+        </div>
       </div>
     </div>
-  )
-}
-
-const InteractiveFullAgentDemo = () => {
-  return (
-    <Suspense 
-      fallback={
-        <div className="h-[600px] w-full rounded-2xl border bg-background flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-sm text-muted-foreground">Loading Agent...</p>
-          </div>
-        </div>
-      }
-    >
-      <InteractiveFullAgentDemoContent />
-    </Suspense>
-  )
-}
+  );
+};
 
 export const fullAgentRegistryItem: RegistryItem = {
   id: "full-agent",
   registryName: "full-agent",
   title: "Full Agent Layout",
-  subtitle: "A complete composition of all components working together.",
+  subtitle: "Static composition preview without auth or database runtime.",
   category: "template",
   props: [],
   code: `"use client"
 
-import { useCallback, Suspense } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
-import Agent from "@/components/ekairos/agent/Agent"
-import { AgentHistory } from "@/components/ekairos/agent/agent-history"
-import { AgentNewChat } from "@/components/ekairos/agent/agent-new-chat"
-import { init } from "@instantdb/react"
-
-const db = init({ appId: process.env.NEXT_PUBLIC_INSTANT_APP_ID! })
-
-function FullAgentLayoutContent() {
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  
-  const { data } = db.useQuery({
-    thread_contexts: {}
-  })
-
-  const history = (data?.thread_contexts || [])
-    .sort((a: any, b: any) => {
-      const dateA = new Date(a.createdAt || 0).getTime()
-      const dateB = new Date(b.createdAt || 0).getTime()
-      return dateB - dateA
-    })
-    .map((ctx: any) => ({
-      id: ctx.id,
-      title: ctx.title || "Nuevo Chat",
-      createdAt: ctx.createdAt
-    }))
-  
-  const handleContextUpdate = useCallback((contextId: string) => {
-    // Update URL with contextId for shareable links
-    const params = new URLSearchParams(window.location.search)
-    if (contextId && contextId.length > 0) {
-      params.set("contextId", contextId)
-    } else {
-      params.delete("contextId")
-    }
-    const paramsString = params.toString()
-    let nextUrl = window.location.pathname
-    if (paramsString.length > 0) {
-      nextUrl = nextUrl + "?" + paramsString
-    }
-    router.replace(nextUrl)
-  }, [router])
-
-  const handleNewChat = useCallback(() => {
-    const params = new URLSearchParams(window.location.search)
-    params.delete("contextId")
-    const paramsString = params.toString()
-    let nextUrl = window.location.pathname
-    if (paramsString.length > 0) {
-      nextUrl = nextUrl + "?" + paramsString
-    }
-    router.replace(nextUrl)
-  }, [router])
-
-  const initialContextId = searchParams.get("contextId") || undefined
-
-  const handleDeleteChat = useCallback(async (contextId: string) => {
-    await db.transact(
-      db.tx.thread_contexts[contextId].delete()
-    )
-    if (initialContextId === contextId) {
-      handleNewChat()
-    }
-  }, [initialContextId, handleNewChat])
-
-  return (
-    <div className="h-[600px] w-full rounded-2xl border bg-background overflow-hidden shadow-2xl flex flex-col relative ring-1 ring-border mx-auto max-w-3xl">
-      <div className="h-12 border-b bg-muted/50 flex items-center px-4 justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-red-400/80"></div>
-          <div className="h-3 w-3 rounded-full bg-yellow-400/80"></div>
-          <div className="h-3 w-3 rounded-full bg-green-400/80"></div>
-          <span className="ml-4 text-xs font-medium text-muted-foreground">
-            Ekairos Agent Preview
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <AgentNewChat onNewChat={handleNewChat} label="Nuevo" className="h-7 text-xs px-2" />
-          <AgentHistory 
-            history={history} 
-            selectedContextId={initialContextId} 
-            onHistorySelect={handleContextUpdate} 
-            onDeleteChat={handleDeleteChat} 
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 min-h-0">
-        <Agent
-          apiUrl="/api/agents/demo"
-          onContextUpdate={handleContextUpdate}
-          toolComponents={{}}
-          initialContextId={initialContextId}
-          classNames={{
-            container: "h-full",
-            scrollArea: "h-full",
-          }}
-        />
-      </div>
-    </div>
-  )
-}
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message"
 
 export function FullAgentLayout() {
   return (
-    <Suspense 
-      fallback={
-        <div className="h-[600px] w-full rounded-2xl border bg-background flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-sm text-muted-foreground">Loading Agent...</p>
-          </div>
-        </div>
-      }
-    >
-      <FullAgentLayoutContent />
-    </Suspense>
+    <div className="h-[600px] w-full rounded-2xl border bg-background overflow-hidden shadow-2xl flex flex-col">
+      <header className="h-12 border-b bg-muted/50 px-4 flex items-center">
+        <span className="text-xs font-medium text-muted-foreground">Ekairos Agent Preview (Static)</span>
+      </header>
+      <main className="flex-1 overflow-y-auto p-6 space-y-4 bg-muted/10">
+        <Message from="assistant">
+          <MessageContent variant="flat" className="bg-transparent px-0 py-0">
+            <MessageResponse>Static preview only. Wire runtime in your app.</MessageResponse>
+          </MessageContent>
+        </Message>
+      </main>
+      <footer className="border-t p-4 text-sm text-muted-foreground">
+        Prompt input intentionally disabled in registry.
+      </footer>
+    </div>
   )
-}`,
-  render: () => <InteractiveFullAgentDemo />
 }
-
-
+`,
+  render: () => <StaticFullAgentDemo />,
+};
