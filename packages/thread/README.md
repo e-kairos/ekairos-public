@@ -109,6 +109,7 @@ export const helloThread = createThread<Env>("hello.thread")
 Thread runs through a `reactor`:
 
 - default: `createAiSdkReactor()` (included in `@ekairos/thread`)
+- deterministic/local testing: `createScriptedReactor({ steps })`
 - optional: custom/provider reactor via `.reactor(...)`
 
 ```ts
@@ -140,9 +141,29 @@ const reactor = createAiSdkReactor({
 });
 ```
 
+For deterministic tests and local iteration loops without LLM/network calls:
+
+```ts
+import { createScriptedReactor } from "@ekairos/thread";
+
+const scripted = createScriptedReactor({
+  steps: [
+    {
+      assistantEvent: {
+        content: {
+          parts: [{ type: "text", text: "deterministic response" }],
+        },
+      },
+      toolCalls: [],
+      messagesForModel: [],
+    },
+  ],
+});
+```
+
 Provider reactors live in `packages/reactors/*`:
 
-- `@ekairos/openai-reactor` (`createOpenAIReactor`, `createCodexReactor`)
+- `@ekairos/openai-reactor` (`createCodexReactor`)
 - `@ekairos/claude-reactor` (scaffold)
 - `@ekairos/cursor-reactor` (scaffold)
 

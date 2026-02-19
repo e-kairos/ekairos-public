@@ -9,8 +9,7 @@ import {
 import type { InstantAdminDatabase } from "@instantdb/admin";
 import type { InstantSchemaDef } from "@instantdb/core";
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 export type RuntimeDomainSource = {
   toInstantSchema?: () => any;
@@ -184,8 +183,6 @@ function getRuntimeResolver(): StoredRuntimeResolver | null {
 function ensureDomainDocLoader() {
   if (docLoaderConfigured) return;
   if (typeof process === "undefined" || !process.versions?.node) return;
-
-  const req = createRequire(import.meta.url);
   const cache = new Map<string, { doc: string; docPath?: string } | null>();
 
   const readDoc = (absPath: string) => {
@@ -212,13 +209,40 @@ function ensureDomainDocLoader() {
   };
 
   const readDocFromPackage = (packageName: string) => {
-    try {
-      const pkgJson = req.resolve(`${packageName}/package.json`);
-      const pkgRoot = dirname(pkgJson);
-      return readDoc(join(pkgRoot, "DOMAIN.md"));
-    } catch {
-      return null;
+    const normalizedName = String(packageName || "").trim();
+    if (!normalizedName) return null;
+
+    const packageSegments = normalizedName
+      .split("/")
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    if (packageSegments.length === 0) return null;
+
+    const cwd = process.cwd();
+    const ekairosPrefix = "@ekairos/";
+    const inferredWorkspaceName = normalizedName.startsWith(ekairosPrefix)
+      ? normalizedName.slice(ekairosPrefix.length).trim()
+      : "";
+
+    const candidates = new Set<string>([
+      join(cwd, "node_modules", ...packageSegments, "DOMAIN.md"),
+      join(cwd, "..", "node_modules", ...packageSegments, "DOMAIN.md"),
+      join(cwd, "..", "..", "node_modules", ...packageSegments, "DOMAIN.md"),
+    ]);
+
+    if (inferredWorkspaceName) {
+      candidates.add(join(cwd, "packages", inferredWorkspaceName, "DOMAIN.md"));
+      candidates.add(join(cwd, "..", "packages", inferredWorkspaceName, "DOMAIN.md"));
+      candidates.add(join(cwd, "..", "..", "packages", inferredWorkspaceName, "DOMAIN.md"));
     }
+
+    for (const candidate of candidates) {
+      const resolvedCandidate = resolve(candidate);
+      const fromPath = readDoc(resolvedCandidate);
+      if (fromPath) return fromPath;
+    }
+
+    return null;
   };
 
   const loader: DomainDocLoader = ({ scope, meta }) => {

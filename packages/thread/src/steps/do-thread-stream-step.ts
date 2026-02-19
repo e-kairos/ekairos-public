@@ -2,6 +2,7 @@ import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
 import type { ThreadItem } from "../thread.store.js"
 import { OUTPUT_TEXT_ITEM_TYPE } from "../thread.events.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
+import type { ThreadModelInit } from "../thread.engine.js"
 
 /**
  * Runs a single LLM streaming step as a Workflow step.
@@ -11,7 +12,7 @@ import type { SerializableToolForModel } from "../tools-to-model-tools.js"
  * - Returns the assistant event + extracted tool calls for the workflow loop.
  */
 export async function doThreadStreamStep(params: {
-  model: any
+  model: ThreadModelInit
   system: string
   messages: ModelMessage[]
   tools: Record<string, SerializableToolForModel>
@@ -42,7 +43,11 @@ export async function doThreadStreamStep(params: {
       ? gateway(params.model)
       : typeof params.model === "function"
         ? await params.model()
-        : params.model
+        : (() => {
+            throw new Error(
+              "Invalid model init passed to doThreadStreamStep. Expected a model id string or an async model factory.",
+            )
+          })()
 
   // IMPORTANT:
   // `streamText` expects tools in the AI SDK ToolSet shape, where `inputSchema` is a Schema-like value.

@@ -3,7 +3,10 @@ export {
   thread,
   createThread,
   createAiSdkReactor,
+  createScriptedReactor,
   type CreateAiSdkReactorOptions,
+  type CreateScriptedReactorOptions,
+  type ScriptedReactorStep,
   type ThreadConfig,
   type ThreadInstance,
   type ThreadOptions,
@@ -64,6 +67,54 @@ export {
 } from "./thread.events.js"
 
 export {
+  THREAD_STATUSES,
+  THREAD_CONTEXT_STATUSES,
+  THREAD_EXECUTION_STATUSES,
+  THREAD_STEP_STATUSES,
+  THREAD_ITEM_STATUSES,
+  THREAD_ITEM_TYPES,
+  THREAD_CHANNELS,
+  THREAD_TRACE_EVENT_KINDS,
+  THREAD_STREAM_CHUNK_TYPES,
+  THREAD_CONTEXT_SUBSTATE_KEYS,
+  THREAD_THREAD_TRANSITIONS,
+  THREAD_CONTEXT_TRANSITIONS,
+  THREAD_EXECUTION_TRANSITIONS,
+  THREAD_STEP_TRANSITIONS,
+  THREAD_ITEM_TRANSITIONS,
+  canThreadTransition,
+  canContextTransition,
+  canExecutionTransition,
+  canStepTransition,
+  canItemTransition,
+  assertThreadTransition,
+  assertContextTransition,
+  assertExecutionTransition,
+  assertStepTransition,
+  assertItemTransition,
+  assertThreadPartKey,
+} from "./thread.contract.js"
+
+export type {
+  Transition,
+  ThreadThreadStatus,
+  ThreadContextStatus,
+  ThreadExecutionStatus,
+  ThreadStepStatus,
+  ThreadItemStatus,
+  ThreadItemType,
+  ThreadChannel,
+  ThreadTraceEventKind,
+  ThreadStreamChunkType,
+  ThreadContextSubstateKey,
+  ThreadTransition,
+  ContextTransition,
+  ExecutionTransition,
+  StepTransition,
+  ItemTransition,
+} from "./thread.contract.js"
+
+export {
   DEFAULT_CODEX_TOOL_NAME,
   DEFAULT_CODEX_MODEL,
   codexToolInputSchema,
@@ -87,3 +138,29 @@ export {
   type ThreadStreamChunk,
   type UseThreadOptions,
 } from "./react.js"
+
+export {
+  parseThreadStreamEvent,
+  assertThreadStreamTransitions,
+  validateThreadStreamTimeline,
+} from "./thread.stream.js"
+
+export type {
+  ThreadStreamEvent,
+  ContextCreatedEvent,
+  ContextResolvedEvent,
+  ContextStatusChangedEvent,
+  ThreadCreatedEvent,
+  ThreadResolvedEvent,
+  ThreadStatusChangedEvent,
+  ExecutionCreatedEvent,
+  ExecutionStatusChangedEvent,
+  ItemCreatedEvent,
+  ItemStatusChangedEvent,
+  StepCreatedEvent,
+  StepStatusChangedEvent,
+  PartCreatedEvent,
+  PartUpdatedEvent,
+  ChunkEmittedEvent,
+  ThreadFinishedEvent,
+} from "./thread.stream.js"

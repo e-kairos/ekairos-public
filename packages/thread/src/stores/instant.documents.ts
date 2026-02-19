@@ -119,13 +119,13 @@ export async function expandEventsWithInstantDocuments(params: {
    */
   maxChars?: number
   /**
-   * Event type used for derived document text. Defaults to "document.parsed".
+   * Event type used for derived document text. Defaults to "output_text".
    */
-  derivedEventType?: string
+  derivedEventType?: ThreadItem["type"]
 }) {
   const db = params.db
   const maxChars = typeof params.maxChars === "number" ? params.maxChars : 120_000
-  const derivedEventType = params.derivedEventType ?? "document.parsed"
+  const derivedEventType = params.derivedEventType ?? "output_text"
 
   const out: ThreadItem[] = []
 

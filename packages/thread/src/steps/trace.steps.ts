@@ -1,5 +1,6 @@
 ﻿import "../polyfills/dom-events.js";
 import type { ThreadEnvironment } from "../thread.config.js";
+import type { ThreadTraceEventKind } from "../thread.contract.js";
 import { lookup } from "@instantdb/admin";
 
 function requireBaseUrl(): string {
@@ -73,7 +74,7 @@ async function getTraceAuthHeader(baseUrl: string, projectId: string): Promise<s
 export type ThreadTraceEventWrite = {
   workflowRunId: string;
   eventId: string;
-  eventKind: string;
+  eventKind: ThreadTraceEventKind;
   seq?: number;
   eventAt?: string;
   contextKey?: string;
@@ -106,9 +107,13 @@ export type ThreadTraceEventWrite = {
 };
 
 async function readProjectId(): Promise<string> {
-  const { getRuntimeProjectId } = await import("@ekairos/domain/runtime");
-  const fromConfig = String(getRuntimeProjectId() || "").trim();
-  if (fromConfig) return fromConfig;
+  try {
+    const { getRuntimeProjectId } = await import("@ekairos/domain/runtime");
+    const fromConfig = String(getRuntimeProjectId?.() || "").trim();
+    if (fromConfig) return fromConfig;
+  } catch {
+    // ignore and fall back to env
+  }
   const fallback =
     typeof process !== "undefined" && process.env
       ? String(process.env.EKAIROS_PROJECT_ID || "").trim()

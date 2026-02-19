@@ -4,6 +4,15 @@ import { id, lookup } from "@instantdb/admin"
 import { threadDomain } from "../schema.js"
 import type { DomainSchemaResult } from "@ekairos/domain";
 import { convertItemsToModelMessages } from "../thread.events.js"
+import {
+  assertContextTransition,
+  assertExecutionTransition,
+  assertItemTransition,
+  assertStepTransition,
+  assertThreadTransition,
+  type ThreadExecutionStatus as ExecutionStatus,
+  type ThreadStepStatus,
+} from "../thread.contract.js"
 import type { ModelMessage } from "ai"
 import type {
   ThreadItem,
@@ -366,6 +375,9 @@ export class InstantStore implements ThreadStore {
   ): Promise<void> {
     const thread = await this.getThread(threadIdentifier)
     if (!thread) throw new Error("InstantStore: thread not found")
+    if (thread.status !== status) {
+      assertThreadTransition(thread.status, status)
+    }
     await this.db.transact([
       this.db.tx.thread_threads[thread.id].update({
         status,
@@ -503,6 +515,9 @@ export class InstantStore implements ThreadStore {
   ): Promise<void> {
     const context = await this.getContext(contextIdentifier)
     if (!context?.id) throw new Error("InstantStore: context not found")
+    if (context.status !== status) {
+      assertContextTransition(context.status, status)
+    }
 
     const txs: any[] = [
       this.db.tx.thread_contexts[context.id].update({
@@ -511,9 +526,14 @@ export class InstantStore implements ThreadStore {
       }),
     ]
     if (context.threadId) {
+      const thread = await this.getThread({ id: context.threadId })
+      const nextThreadStatus = (status === "closed" ? "closed" : status) as ThreadStatus
+      if (thread && thread.status !== nextThreadStatus) {
+        assertThreadTransition(thread.status, nextThreadStatus)
+      }
       txs.push(
         this.db.tx.thread_threads[context.threadId].update({
-          status: (status === "closed" ? "closed" : status) as ThreadStatus,
+          status: nextThreadStatus,
           updatedAt: new Date(),
         }),
       )
@@ -543,6 +563,10 @@ export class InstantStore implements ThreadStore {
     event: ThreadItem,
   ): Promise<ThreadItem> {
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
+    const existing = await this.getItem(event.id)
+    if (existing?.status && existing.status !== "stored") {
+      assertItemTransition(existing.status, "stored")
+    }
     const txs = [
       this.db.tx.thread_items[event.id].update({
         ...(event as any),
@@ -578,6 +602,10 @@ export class InstantStore implements ThreadStore {
   }
 
   async updateItem(eventId: string, event: ThreadItem): Promise<ThreadItem> {
+    const current = await this.getItem(eventId)
+    if (current?.status && event.status && current.status !== event.status) {
+      assertItemTransition(current.status, event.status)
+    }
     await this.db.transact([this.db.tx.thread_items[eventId].update(event as any)])
     const persisted = await this.getItem(eventId)
     if (!persisted) throw new Error("InstantStore: event not found after update")
@@ -690,6 +718,25 @@ export class InstantStore implements ThreadStore {
     status: "completed" | "failed",
   ): Promise<void> {
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
+    const executionResult = await this.db.query({
+      thread_executions: {
+        $: { where: { id: executionId as any }, limit: 1 },
+      },
+    })
+    const executionRow = (executionResult?.thread_executions as any[])?.[0]
+    if (!executionRow) throw new Error("InstantStore: execution not found")
+    const currentExecutionStatus = String(executionRow.status ?? "executing") as ExecutionStatus
+    if (currentExecutionStatus !== status) {
+      assertExecutionTransition(currentExecutionStatus, status)
+    }
+    if (context.status !== "open") {
+      assertContextTransition(context.status, "open")
+    }
+    const nextThreadStatus = status === "failed" ? "failed" : "open"
+    if (thread.status !== nextThreadStatus) {
+      assertThreadTransition(thread.status, nextThreadStatus)
+    }
+
     const txs: any[] = []
     txs.push(this.db.tx.thread_executions[executionId].update({ status, updatedAt: new Date() }))
 
@@ -697,7 +744,7 @@ export class InstantStore implements ThreadStore {
     txs.push(this.db.tx.thread_contexts[context.id].update({ status: "open", updatedAt: new Date() }))
     txs.push(
       this.db.tx.thread_threads[thread.id].update({
-        status: status === "failed" ? "failed" : "open",
+        status: nextThreadStatus,
         updatedAt: new Date(),
       }),
     )
@@ -755,6 +802,20 @@ export class InstantStore implements ThreadStore {
       updatedAt: Date
     }>,
   ): Promise<void> {
+    if (patch.status) {
+      const stepResult = await this.db.query({
+        thread_steps: {
+          $: { where: { id: stepId as any }, limit: 1 },
+        },
+      })
+      const stepRow = (stepResult?.thread_steps as any[])?.[0]
+      if (!stepRow) throw new Error("InstantStore: step not found")
+      const currentStepStatus = String(stepRow.status ?? "running") as ThreadStepStatus
+      if (currentStepStatus !== patch.status) {
+        assertStepTransition(currentStepStatus, patch.status)
+      }
+    }
+
     const update: any = {
       ...(patch as any),
       updatedAt: patch.updatedAt ?? new Date(),
@@ -854,12 +915,12 @@ export class InstantStore implements ThreadStore {
     }
 
     // Default behavior for Instant-backed stories:
-    // - Expand file parts into derived `document.parsed` events (persisting parsed content into document_documents)
+    // - Expand file parts into derived `output_text` events (persisting parsed content into document_documents)
     // - Then convert expanded events to model messages
     const expanded = await expandEventsWithInstantDocuments({
       db: this.db,
       events: eventsWithParts,
-      derivedEventType: "document.parsed",
+      derivedEventType: "output_text",
     })
     return await convertItemsToModelMessages(expanded)
   }

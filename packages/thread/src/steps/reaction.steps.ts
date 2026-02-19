@@ -1,6 +1,7 @@
 ﻿import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
 
 import type { ThreadEnvironment } from "../thread.config.js"
+import type { ThreadModelInit } from "../thread.engine.js"
 import type { ThreadItem, ContextIdentifier } from "../thread.store.js"
 import { OUTPUT_TEXT_ITEM_TYPE } from "../thread.events.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
@@ -98,7 +99,7 @@ function safeErrorJson(error: unknown) {
 export async function executeReaction(params: {
   env: ThreadEnvironment
   contextIdentifier: ContextIdentifier
-  model: any
+  model: ThreadModelInit
   system: string
   tools: Record<string, SerializableToolForModel>
   eventId: string
@@ -106,7 +107,7 @@ export async function executeReaction(params: {
   maxSteps: number
   sendStart?: boolean
   silent?: boolean
-  writable?: WritableStream<UIMessageChunk>
+  writable: WritableStream<UIMessageChunk>
   executionId?: string
   contextId?: string
   stepId?: string
@@ -148,88 +149,20 @@ export async function executeReaction(params: {
     throw error
   }
 
-  const writable =
-    params.silent || !params.writable
-      ? (new WritableStream<UIMessageChunk>({ write() {} }) as any)
-      : params.writable
-
   const { jsonSchema, gateway, smoothStream, stepCountIs, streamText } = await import("ai")
   const { extractToolCallsFromParts } = await import("@ekairos/thread")
-
-  const isMockModelConfig = (value: any): value is {
-    source?: "mock"
-    provider?: string
-    modelId?: string
-    toolName?: string
-  } => {
-    if (!value || typeof value !== "object") return false
-    if ("specificationVersion" in value) return false
-    if (value.source === "mock") return true
-    return typeof value.provider === "string" && typeof value.modelId === "string"
-  }
-
-  const buildMockModel = async (config: {
-    provider?: string
-    modelId?: string
-    toolName?: string
-  }): Promise<any> => {
-    const toolName =
-      typeof config.toolName === "string" && config.toolName.trim()
-        ? config.toolName.trim()
-        : Object.keys(params.tools || {})[0] || "tool"
-    const provider = config.provider ?? "mock-provider"
-    const modelId = config.modelId ?? "mock-model-id"
-    return {
-      specificationVersion: "v2",
-      provider,
-      modelId,
-      supportedUrls: {},
-      doGenerate: async () => ({
-        content: [
-          {
-            type: "tool-call",
-            toolCallId: "mock-tool-call",
-            toolName,
-            input: JSON.stringify({ instruction: "" }),
-          },
-        ],
-        finishReason: "tool-calls",
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        warnings: [],
-      }),
-      doStream: async () => {
-        const toolCallId = `mock-tool-${Date.now()}`
-        const stream = new ReadableStream<any>({
-          start(controller) {
-            controller.enqueue({ type: "stream-start", warnings: [] })
-            controller.enqueue({
-              type: "tool-call",
-              toolCallId,
-              toolName,
-              input: JSON.stringify({ instruction: "" }),
-            })
-            controller.enqueue({
-              type: "finish",
-              finishReason: "tool-calls",
-              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-            })
-            controller.close()
-          },
-        })
-        return { stream }
-      },
-    }
-  }
 
   // Match DurableAgent-style model init behavior:
   const resolvedModel =
     typeof params.model === "string"
       ? gateway(params.model)
-      : isMockModelConfig(params.model)
-        ? await buildMockModel(params.model)
       : typeof params.model === "function"
         ? await params.model()
-        : params.model
+        : (() => {
+            throw new Error(
+              "Invalid model init passed to executeReaction. Expected a model id string or an async model factory.",
+            )
+          })()
 
   // Wrap plain JSON Schema objects so the AI SDK doesn't attempt Zod conversion at runtime.
   const toolsForStreamText: Record<string, any> = {}
@@ -295,7 +228,7 @@ export async function executeReaction(params: {
       }),
     )
 
-  await uiStream.pipeTo(writable, { preventClose: true })
+  await uiStream.pipeTo(params.writable, { preventClose: true })
 
   const assistantEvent = await finishPromise
   const finishedAtMs = Date.now()
@@ -434,5 +367,7 @@ export async function executeReaction(params: {
 
   return { assistantEvent, toolCalls, messagesForModel, llm }
 }
+
+
 
 

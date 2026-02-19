@@ -99,7 +99,7 @@ export interface ThreadStreamOptions {
  * - `function`: a function that returns a model instance. For Workflow compatibility, this should
  *   be a `"use-step"` function (so it can be serialized by reference).
  */
-export type ThreadModelInit = string | (() => Promise<any>) | any
+export type ThreadModelInit = string | (() => Promise<any>)
 
 export type ThreadReactParams<Env extends ThreadEnvironment = ThreadEnvironment> = {
   env: Env
@@ -394,6 +394,16 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
       }
     }
 
+    // Reactor/steps always receive a stream argument.
+    // In silent mode (or when no workflow writable is available), we use an in-memory sink.
+    if (!writable) {
+      writable = new WritableStream<UIMessageChunk>({
+        write() {
+          // noop
+        },
+      })
+    }
+
     const contextSelector: ContextIdentifier =
       params.contextIdentifier?.id
         ? { id: String(params.contextIdentifier.id) }
@@ -520,7 +530,14 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
         // We intentionally do NOT persist the per-step LLM assistant event as a `context_event`.
         // The story exposes a single visible `context_event` per turn (`reactionEventId`) so the UI
         // doesn't render duplicate assistant messages (LLM-step + aggregated reaction).
-        const stepParts = ((assistantEvent as any)?.content?.parts ?? []) as any[]
+        const stepParts = (((assistantEvent as any)?.content?.parts ?? []) as any[]) as any[]
+        const assistantEventEffective: ThreadItem = {
+          ...assistantEvent,
+          content: {
+            ...((assistantEvent as any)?.content ?? {}),
+            parts: stepParts,
+          },
+        }
         await saveThreadPartsStep({
           env: params.env,
           stepId: stepCreate.stepId,
@@ -532,14 +549,14 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
 
         // Persist/append the aggregated reaction event (stable `reactionEventId` for the execution).
         if (!reactionEvent) {
-          const reactionPayload = {
-            ...(assistantEvent as any),
+          const reactionPayload: ThreadItem = {
+            ...assistantEventEffective,
             status: "pending",
           }
           reactionEvent = await saveReactionItem(
             params.env,
             contextSelector,
-            reactionPayload as any,
+            reactionPayload,
             {
               executionId,
               contextId: String(currentContext.id),
@@ -547,28 +564,33 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             },
           )
         } else {
+          const existingReactionParts = Array.isArray(reactionEvent.content?.parts)
+            ? reactionEvent.content.parts
+            : []
+          const nextAssistantParts = Array.isArray(assistantEventEffective.content?.parts)
+            ? assistantEventEffective.content.parts
+            : []
+          const nextReactionEvent: ThreadItem = {
+            ...reactionEvent,
+            content: {
+              ...reactionEvent.content,
+              parts: [...existingReactionParts, ...nextAssistantParts],
+            },
+            status: "pending",
+          }
           reactionEvent = await updateItem(
             params.env,
             reactionEvent.id,
-            {
-              ...(reactionEvent as any),
-              content: {
-                parts: [
-                  ...((reactionEvent as any)?.content?.parts ?? []),
-                  ...((assistantEvent as any)?.content?.parts ?? []),
-                ],
-              },
-              status: "pending",
-            } as any,
+            nextReactionEvent,
             { executionId, contextId: String(currentContext.id) },
           )
         }
 
-        story.opts.onEventCreated?.(assistantEvent)
+        story.opts.onEventCreated?.(assistantEventEffective)
 
         // Done: no tool calls requested by the model
         if (!toolCalls.length) {
-          const endResult = await story.callOnEnd(assistantEvent)
+          const endResult = await story.callOnEnd(assistantEventEffective)
           if (endResult) {
             // Mark iteration step completed (no tools)
           await updateThreadStep({
@@ -590,9 +612,9 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
               params.env,
               reactionEventId,
               {
-                ...(reactionEvent as any),
+                ...(reactionEvent ?? assistantEventEffective),
                 status: "completed",
-              } as any,
+              },
               { executionId, contextId: String(currentContext.id) },
             )
             await completeExecution(params.env, contextSelector, executionId, "completed")
@@ -703,7 +725,9 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
 
         // Merge tool results into persisted parts (so next LLM call can see them)
         if (reactionEvent) {
-          let parts = (reactionEvent as any)?.content?.parts ?? []
+          let parts = Array.isArray(reactionEvent.content?.parts)
+            ? [...reactionEvent.content.parts]
+            : []
           for (const r of executionResults as any[]) {
             parts = applyToolExecutionResultToParts(parts, r.tc, {
               success: Boolean(r.success),
@@ -712,14 +736,18 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             })
           }
 
+          const nextReactionEvent: ThreadItem = {
+            ...reactionEvent,
+            content: {
+              ...reactionEvent.content,
+              parts,
+            },
+            status: "pending",
+          }
           reactionEvent = await updateItem(
             params.env,
             reactionEventId,
-            {
-              ...(reactionEvent as any),
-              content: { parts },
-              status: "pending",
-            } as any,
+            nextReactionEvent,
             { executionId, contextId: String(currentContext.id) },
           )
         }
@@ -742,8 +770,8 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
         const continueLoop = await story.shouldContinue({
           env: params.env,
           context: updatedContext,
-          reactionEvent: (reactionEvent as any) ?? (assistantEvent as any),
-          assistantEvent,
+          reactionEvent: reactionEvent ?? assistantEventEffective,
+          assistantEvent: assistantEventEffective,
           toolCalls,
           toolExecutionResults: executionResults as any,
         })
@@ -768,9 +796,9 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             params.env,
             reactionEventId,
             {
-              ...(reactionEvent as any),
+              ...(reactionEvent ?? assistantEventEffective),
               status: "completed",
-            } as any,
+            },
             { executionId, contextId: String(currentContext.id) },
           )
           await completeExecution(params.env, contextSelector, executionId, "completed")

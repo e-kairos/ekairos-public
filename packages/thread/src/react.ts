@@ -1,18 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  ThreadContextStatus,
+  ThreadContextSubstateKey,
+  ThreadThreadStatus,
+} from "./thread.contract.js";
 
 export type ThreadSnapshot<Context = unknown, Item = Record<string, unknown>> = {
   thread: {
     id: string;
     key: string;
-    status: string;
+    status: ThreadThreadStatus;
     createdAt: string | null;
     updatedAt: string | null;
   };
   context: {
     id: string;
-    status: string;
+    status: ThreadContextStatus;
     content: Context;
     createdAt: string | null;
     updatedAt: string | null;
@@ -28,7 +33,7 @@ export type ThreadStreamChunk =
     }
   | {
       type: "data-context-substate";
-      data?: { key?: string | null };
+      data?: { key?: ThreadContextSubstateKey | null };
       transient?: boolean;
     }
   | {

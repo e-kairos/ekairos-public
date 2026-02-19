@@ -1,4 +1,13 @@
 import type { ModelMessage } from "ai"
+import type {
+  ThreadThreadStatus,
+  ThreadContextStatus,
+  ThreadExecutionStatus,
+  ThreadStepStatus as ContractThreadStepStatus,
+  ThreadItemStatus,
+  ThreadItemType,
+  ThreadChannel,
+} from "./thread.contract.js"
 
 /**
  * ## thread.store.ts
@@ -15,9 +24,9 @@ import type { ModelMessage } from "ai"
 export type ThreadIdentifier = { id: string; key?: never } | { key: string; id?: never }
 export type ContextIdentifier = ThreadIdentifier
 
-export type ThreadStatus = "open" | "streaming" | "closed" | "failed"
+export type ThreadStatus = ThreadThreadStatus
 
-export type ContextStatus = "open" | "streaming" | "closed"
+export type ContextStatus = ThreadContextStatus
 
 export type StoredThread = {
   id: string
@@ -40,16 +49,19 @@ export type StoredContext<Context> = {
 
 export type ThreadItem = {
   id: string
-  type: string
-  channel: string
+  type: ThreadItemType
+  channel: ThreadChannel
   createdAt: string
-  status?: string
-  content: any
+  status?: ThreadItemStatus
+  content: {
+    parts?: unknown[]
+    [key: string]: unknown
+  }
 }
 
-export type ExecutionStatus = "executing" | "completed" | "failed"
+export type ExecutionStatus = ThreadExecutionStatus
 
-export type ThreadStepStatus = "running" | "completed" | "failed"
+export type ThreadStepStatus = ContractThreadStepStatus
 
 export type ThreadStep = {
   id: string

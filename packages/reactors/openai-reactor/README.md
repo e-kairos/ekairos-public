@@ -1,44 +1,11 @@
 # @ekairos/openai-reactor
 
-OpenAI-oriented reactors for `@ekairos/thread`.
+Codex reactor for `@ekairos/thread`.
 
 ## Exports
 
-- `createOpenAIReactor(options?)`  
-  Returns the AI SDK reactor (`streamText`) for Thread. Optional `options`
-  let you resolve per-turn `config` and map it into model/max-step settings.
 - `createCodexReactor(options)`  
   Codex App Server reactor for direct Thread execution (no tool indirection).
-
-## AI SDK Reactor Example
-
-```ts
-import { createThread } from "@ekairos/thread";
-import { createOpenAIReactor } from "@ekairos/openai-reactor";
-
-const reactor = createOpenAIReactor({
-  resolveConfig: async ({ env }) => {
-    "use step";
-    return {
-      model: env.model ?? "openai/gpt-5.2",
-      maxModelSteps: 2,
-    };
-  },
-  selectModel: ({ config, baseModel }) => config.model ?? baseModel,
-  selectMaxModelSteps: ({ config, baseMaxModelSteps }) =>
-    typeof config.maxModelSteps === "number"
-      ? config.maxModelSteps
-      : baseMaxModelSteps,
-});
-
-const aiThread = createThread<any>("ai.thread")
-  .context((stored) => stored.content ?? {})
-  .narrative(() => "General purpose AI thread")
-  .actions(() => ({}))
-  .reactor(reactor)
-  .shouldContinue(() => false)
-  .build();
-```
 
 ## Codex Reactor Example
 
@@ -82,3 +49,7 @@ const codingThread = createThread<any>("code.agent")
 ## Workflow Compatibility
 
 `resolveConfig` and `executeTurn` should be implemented as workflow-safe step functions when they perform I/O.
+
+## AI SDK generic reactor
+
+`createAiSdkReactor(...)` is provider-agnostic and lives in `@ekairos/thread`.

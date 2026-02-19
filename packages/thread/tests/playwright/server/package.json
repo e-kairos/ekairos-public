@@ -8,12 +8,15 @@
                     "build":  "node scripts/clean-next-workflow-data.mjs \u0026\u0026 next build",
                     "start":  "next start --port 3012",
                     "test":  "pnpm run test:e2e",
-                    "test:e2e":  "node scripts/test-e2e.mjs"
+                    "test:e2e":  "node scripts/test-e2e.mjs",
+                    "test:e2e:thread-engine":  "node scripts/test-e2e.mjs tests/thread-engine-ai-sdk.spec.ts --reporter=list",
+                    "test:e2e:thread-engine:repeat":  "node scripts/test-e2e.mjs tests/thread-engine-ai-sdk.spec.ts --reporter=list --repeat-each=2"
                 },
     "dependencies":  {
                          "@ekairos/domain":  "workspace:*",
                          "@ekairos/thread":  "workspace:*",
                          "@instantdb/admin":  "0.22.126",
+                         "ai":  "^5.0.98",
                          "dotenv":  "^17.2.3",
                          "next":  "16.0.7",
                          "react":  "19.1.0",

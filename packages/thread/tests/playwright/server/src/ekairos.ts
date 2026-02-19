@@ -6,10 +6,10 @@ import { config as dotenvConfig } from "dotenv";
 import { resolve } from "node:path";
 
 // Local DX: load env from repo root if present.
-dotenvConfig({ path: resolve(process.cwd(), ".env.local") });
-dotenvConfig({ path: resolve(process.cwd(), ".env") });
-dotenvConfig({ path: resolve(process.cwd(), "../../../.env.local") });
-dotenvConfig({ path: resolve(process.cwd(), "../../../.env") });
+dotenvConfig({ path: resolve(process.cwd(), ".env.local"), quiet: true });
+dotenvConfig({ path: resolve(process.cwd(), ".env"), quiet: true });
+dotenvConfig({ path: resolve(process.cwd(), "../../../.env.local"), quiet: true });
+dotenvConfig({ path: resolve(process.cwd(), "../../../.env"), quiet: true });
 
 const appId =
   (process.env.NEXT_PUBLIC_INSTANT_APP_ID as string) ||

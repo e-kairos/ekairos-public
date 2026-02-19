@@ -12,10 +12,10 @@ const envPath = resolve(smokeDir, ".env.local");
 const schemaPath = resolve(smokeDir, "instant.schema.ts");
 
 // Load env from the server folder and repo root.
-dotenvConfig({ path: resolve(smokeDir, ".env.local") });
-dotenvConfig({ path: resolve(smokeDir, ".env") });
-dotenvConfig({ path: resolve(repoRoot, ".env.local") });
-dotenvConfig({ path: resolve(repoRoot, ".env") });
+dotenvConfig({ path: resolve(smokeDir, ".env.local"), quiet: true });
+dotenvConfig({ path: resolve(smokeDir, ".env"), quiet: true });
+dotenvConfig({ path: resolve(repoRoot, ".env.local"), quiet: true });
+dotenvConfig({ path: resolve(repoRoot, ".env"), quiet: true });
 
 function parseJsonOutput(output) {
   const raw = String(output ?? "");

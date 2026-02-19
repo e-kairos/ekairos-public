@@ -92,6 +92,12 @@ export type ThreadInstance<
   readonly __config: ThreadConfig<Context, Env>
 }
 
+function isDynamicModelSelector<Context, Env extends ThreadEnvironment>(
+  model: ThreadConfig<Context, Env>["model"],
+): model is (context: StoredContext<Context>, env: Env) => ThreadModelInit {
+  return typeof model === "function" && model.length >= 1
+}
+
 export function thread<
   Context,
   Env extends ThreadEnvironment = ThreadEnvironment,
@@ -129,7 +135,7 @@ export function thread<
     }
 
     protected getModel(context: StoredContext<Context>, env: Env) {
-      if (typeof config.model === "function") return config.model(context, env)
+      if (isDynamicModelSelector(config.model)) return config.model(context, env)
       return config.model ?? super.getModel(context, env)
     }
 
