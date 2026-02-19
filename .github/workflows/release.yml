@@ -77,7 +77,6 @@ jobs:
 
   check-thread-e2e:
     name: Check - thread workflow e2e
-    if: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -102,21 +101,27 @@ jobs:
           registry-url: "https://registry.npmjs.org/"
           cache: "pnpm"
 
-      - name: Validate Instant token availability
+      - name: Detect Instant token availability
+        id: instant-token
         shell: bash
         run: |
           if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
-            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread e2e checks."
-            exit 1
+            echo "INSTANT_PERSONAL_ACCESS_TOKEN is not configured; thread e2e will be skipped."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
+        if: steps.instant-token.outputs.available == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browser (chromium)
+        if: steps.instant-token.outputs.available == 'true'
         run: pnpm --dir packages/thread/tests/playwright/server exec playwright install --with-deps chromium
 
       - name: Run @ekairos/thread workflow smoke e2e
+        if: steps.instant-token.outputs.available == 'true'
         run: pnpm --dir packages/thread/tests/playwright/server run test:e2e:thread-engine
 
   publish:
@@ -130,7 +135,7 @@ jobs:
       github.event_name == 'push' &&
       needs.check-domain-unit.result == 'success' &&
       needs.check-thread-unit.result == 'success' &&
-      (needs.check-thread-e2e.result == 'success' || needs.check-thread-e2e.result == 'skipped')
+      needs.check-thread-e2e.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
