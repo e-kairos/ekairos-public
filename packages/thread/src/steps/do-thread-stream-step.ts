@@ -33,7 +33,7 @@ export async function doThreadStreamStep(params: {
   const writable = getWritable<UIMessageChunk>()
 
   const { jsonSchema, gateway, smoothStream, stepCountIs, streamText } = await import("ai")
-  const { extractToolCallsFromParts } = await import("@ekairos/thread")
+  const { extractToolCallsFromParts } = await import("../thread.toolcalls.js")
 
   // Match DurableAgent's model init behavior:
   // - string => AI Gateway model id, resolved via `gateway(...)` in the step runtime
