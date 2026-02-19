@@ -1,45 +1,10 @@
-# @ekairos/thread
+﻿# @ekairos/thread
 
-Durable AI threads for production apps.
+Durable thread engine for Workflow-compatible AI agents.
 
-`@ekairos/thread` gives you an execution model that is:
+`@ekairos/thread` is the execution layer used by Ekairos agents. It persists context, items, steps, parts, and executions, while streaming UI chunks and enforcing transition contracts.
 
-- workflow-compatible,
-- persistence-first,
-- traceable by design,
-- simple to embed in domain applications.
-
-It is the runtime used by Ekairos coding agents and domain agents.
-
-## Why Thread
-
-Most chat abstractions stop at "messages in, text out".  
-Thread models the full lifecycle:
-
-1. Persist trigger event.
-2. Create execution.
-3. Run model reaction.
-4. Persist normalized parts.
-5. Execute actions (tools).
-6. Persist tool outcomes.
-7. Decide continue or end.
-8. Emit traces for every durable step.
-
-This design supports long-running, resumable agent runs without losing state.
-
-## Core Concepts
-
-- `Thread`: durable loop orchestrator.
-- `Reactor`: pluggable reaction implementation (`AI SDK`, `Codex`, `Claude`, `Cursor`, ...).
-- `Thread Key`: stable public identifier (`thread.key`) for continuity.
-- `Context`: typed persistent state attached to a thread.
-- `Item`: normalized event (`input_text`, `output_text`, etc).
-- `Execution`: one run for a trigger/reaction pair.
-- `Step`: one loop iteration inside an execution.
-- `Part`: normalized content fragment persisted by step.
-- `Trace`: machine timeline (`thread.*`, `workflow.*`) for observability.
-
-## Installation
+## Install
 
 ```bash
 pnpm add @ekairos/thread
@@ -54,161 +19,412 @@ Optional subpaths:
 - `@ekairos/thread/mcp`
 - `@ekairos/thread/oidc`
 
-## Quick Start
+## Package Surface (from `src/index.ts`)
 
-### 1) Configure app runtime once
+### Core builders and engine
 
-Thread resolves persistence through runtime.  
-Do this once in app bootstrap (`src/ekairos.ts`):
+- `createThread`
+- `thread`
+- `Thread`
+- `type ThreadConfig`
+- `type ThreadInstance`
+- `type RegistrableThreadBuilder`
+- `type ThreadOptions`
+- `type ThreadStreamOptions`
+
+### Reactors
+
+- `createAiSdkReactor`
+- `createScriptedReactor`
+- `type ThreadReactor`
+- `type ThreadReactorParams`
+- `type ThreadReactionResult`
+- `type ThreadReactionToolCall`
+- `type ThreadReactionLLM`
+- `type CreateAiSdkReactorOptions`
+- `type CreateScriptedReactorOptions`
+- `type ScriptedReactorStep`
+
+### Contracts and transitions
+
+- `THREAD_STATUSES`
+- `THREAD_CONTEXT_STATUSES`
+- `THREAD_EXECUTION_STATUSES`
+- `THREAD_STEP_STATUSES`
+- `THREAD_ITEM_STATUSES`
+- `THREAD_ITEM_TYPES`
+- `THREAD_CHANNELS`
+- `THREAD_TRACE_EVENT_KINDS`
+- `THREAD_STREAM_CHUNK_TYPES`
+- `THREAD_CONTEXT_SUBSTATE_KEYS`
+- `THREAD_THREAD_TRANSITIONS`
+- `THREAD_CONTEXT_TRANSITIONS`
+- `THREAD_EXECUTION_TRANSITIONS`
+- `THREAD_STEP_TRANSITIONS`
+- `THREAD_ITEM_TRANSITIONS`
+- `can*Transition`, `assert*Transition`
+- `assertThreadPartKey`
+
+### Stream and parsing
+
+- `parseThreadStreamEvent`
+- `assertThreadStreamTransitions`
+- `validateThreadStreamTimeline`
+- `type ThreadStreamEvent`
+- `type ContextCreatedEvent`
+- `type ContextResolvedEvent`
+- `type ContextStatusChangedEvent`
+- `type ThreadCreatedEvent`
+- `type ThreadResolvedEvent`
+- `type ThreadStatusChangedEvent`
+- `type ExecutionCreatedEvent`
+- `type ExecutionStatusChangedEvent`
+- `type ItemCreatedEvent`
+- `type ItemStatusChangedEvent`
+- `type StepCreatedEvent`
+- `type StepStatusChangedEvent`
+- `type PartCreatedEvent`
+- `type PartUpdatedEvent`
+- `type ChunkEmittedEvent`
+- `type ThreadFinishedEvent`
+
+### Event conversion helpers
+
+- `createUserItemFromUIMessages`
+- `createAssistantItemFromUIMessages`
+- `convertToUIMessage`
+- `convertItemToModelMessages`
+- `convertItemsToModelMessages`
+- `convertModelMessageToItem`
+- `didToolExecute`
+- `extractToolCallsFromParts`
+
+### React hook
+
+- `useThread`
+- `type UseThreadOptions`
+- `type ThreadSnapshot`
+- `type ThreadStreamChunk`
+
+### Registry / codex
+
+- `registerThread`
+- `getThread`
+- `getThreadFactory`
+- `hasThread`
+- `listThreads`
+- `createCodexThreadBuilder`
+- codex defaults/types from `codex.ts`
+
+## Thread API Specification
+
+## `createThread`
 
 ```ts
-import "server-only";
-import { configureRuntime } from "@ekairos/domain/runtime";
-import { getOrgAdminDb } from "@/lib/admin-org-db";
-import appDomain from "@/lib/domain";
-
-export const runtimeConfig = configureRuntime({
-  runtime: async (env: { orgId: string }) => {
-    const db = await getOrgAdminDb(env.orgId, appDomain);
-    return { db };
-  },
-  domain: { domain: appDomain },
-});
+createThread<Env>(key: ThreadKey)
 ```
 
-### 2) Define a thread
+Builder stages:
+
+1. `.context((storedContext, env) => context)` (required)
+2. `.expandEvents((events, context, env) => events)` (optional)
+3. `.narrative((context, env) => string)` (required)
+4. `.actions((context, env) => Record<string, ThreadTool>)` (required)
+5. `.model(modelInit | selector)` (optional)
+6. `.reactor(reactor)` (optional, default is AI SDK reactor)
+7. `.shouldContinue(({ reactionEvent, toolCalls, toolExecutionResults, ... }) => boolean)` (optional)
+8. `.opts(threadOptions)` (optional)
+
+Builder terminals:
+
+- `.build()` -> `ThreadInstance`
+- `.react(triggerEvent, params)`
+- `.stream(triggerEvent, params)` (deprecated alias)
+- `.register()`
+- `.config()`
+
+### `ThreadConfig<Context, Env>`
+
+Required keys:
+
+- `context`
+- `narrative`
+- `actions` (or legacy `tools`)
+
+Optional keys:
+
+- `expandEvents`
+- `model`
+- `reactor`
+- `shouldContinue`
+- `opts`
+
+### `Thread.react`
+
+Primary form:
 
 ```ts
-import { createThread } from "@ekairos/thread";
-import { tool } from "ai";
-import { z } from "zod";
-
-type Env = { orgId: string; sessionId: string };
-type Ctx = { orgId: string; sessionId: string };
-
-export const helloThread = createThread<Env>("hello.thread")
-  .context(async (stored, env) => ({
-    orgId: env.orgId,
-    sessionId: env.sessionId,
-    ...(stored.content ?? {}),
-  }))
-  .narrative((ctx) => `You are a precise assistant. Session=${ctx.content?.sessionId}`)
-  .actions(() => ({
-    ping: tool({
-      description: "Return pong",
-      inputSchema: z.object({ text: z.string().optional() }),
-      execute: async ({ text }) => ({ pong: text ?? "ok" }),
-    }),
-  }))
-  .model("openai/gpt-5.2")
-  .build();
+thread.react(triggerEvent, {
+  env,
+  context: { id } | { key } | null,
+  options,
+})
 ```
 
-### 2.1) Reactor model (new)
-
-Thread runs through a `reactor`:
-
-- default: `createAiSdkReactor()` (included in `@ekairos/thread`)
-- optional: custom/provider reactor via `.reactor(...)`
+Return shape:
 
 ```ts
-import { createThread, createAiSdkReactor } from "@ekairos/thread";
-
-const thread = createThread<{ orgId: string }>("my.thread")
-  .context((stored, env) => ({ ...(stored.content ?? {}), orgId: env.orgId }))
-  .narrative(() => "System prompt")
-  .actions(() => ({}))
-  .reactor(createAiSdkReactor())
-  .build();
+{
+  contextId: string;
+  context: StoredContext<Context>;
+  triggerEventId: string;
+  reactionEventId: string;
+  executionId: string;
+}
 ```
 
-`createAiSdkReactor` also accepts optional per-turn config hooks:
+### `ThreadStreamOptions`
+
+- `maxIterations?: number` (default `20`)
+- `maxModelSteps?: number` (default `1`)
+- `preventClose?: boolean` (default `false`)
+- `sendFinish?: boolean` (default `true`)
+- `silent?: boolean` (default `false`)
+- `writable?: WritableStream<UIMessageChunk>`
+
+### `ThreadOptions`
+
+Lifecycle callbacks:
+
+- `onContextCreated`
+- `onContextUpdated`
+- `onEventCreated`
+- `onToolCallExecuted`
+- `onEnd`
+
+## Reactor Specification
+
+A reactor receives the full execution context for one iteration and returns normalized assistant output + tool calls.
+
+### `ThreadReactorParams`
+
+- `env`
+- `context`
+- `contextIdentifier`
+- `triggerEvent`
+- `model`
+- `systemPrompt`
+- `actions`
+- `toolsForModel`
+- `eventId`
+- `executionId`
+- `contextId`
+- `stepId`
+- `iteration`
+- `maxModelSteps`
+- `sendStart`
+- `silent`
+- `writable`
+
+### `ThreadReactionResult`
+
+- `assistantEvent: ThreadItem`
+- `toolCalls: ThreadReactionToolCall[]`
+- `messagesForModel: ModelMessage[]`
+- `llm?: ThreadReactionLLM`
+
+## Built-in Reactors
+
+## `createAiSdkReactor` (production default)
+
+Uses AI SDK streaming + tool extraction through engine steps.
 
 ```ts
 import { createAiSdkReactor } from "@ekairos/thread";
 
 const reactor = createAiSdkReactor({
-  resolveConfig: async ({ env }) => {
+  resolveConfig: async ({ env, context, iteration }) => {
     "use step";
-    return { model: env.model ?? "openai/gpt-5.2", maxModelSteps: 2 };
+    return {
+      model: env.model ?? "openai/gpt-5.2",
+      maxModelSteps: iteration === 0 ? 2 : 1,
+      tenant: context.content?.orgId,
+    };
   },
-  selectModel: ({ config, baseModel }) => config.model ?? baseModel,
-  selectMaxModelSteps: ({ config, baseMaxModelSteps }) =>
+  selectModel: ({ baseModel, config }) => config.model ?? baseModel,
+  selectMaxModelSteps: ({ baseMaxModelSteps, config }) =>
     typeof config.maxModelSteps === "number"
       ? config.maxModelSteps
       : baseMaxModelSteps,
 });
 ```
 
-Provider reactors live in `packages/reactors/*`:
-
-- `@ekairos/openai-reactor` (`createOpenAIReactor`, `createCodexReactor`)
-- `@ekairos/claude-reactor` (scaffold)
-- `@ekairos/cursor-reactor` (scaffold)
-
-### 3) Run from a workflow
+Use in thread:
 
 ```ts
-import { getWritable } from "workflow";
-import type { UIMessageChunk } from "ai";
-import type { ThreadItem } from "@ekairos/thread";
-import { helloThread } from "./hello.thread";
-
-export async function helloWorkflow(params: {
-  env: { orgId: string; sessionId: string };
-  triggerEvent: ThreadItem;
-  threadKey?: string;
-}) {
-  "use workflow";
-
-  const writable = getWritable<UIMessageChunk>();
-  return await helloThread.react(params.triggerEvent, {
-    env: params.env,
-    context: params.threadKey ? { key: params.threadKey } : null,
-    options: { writable, maxIterations: 2, maxModelSteps: 1 },
-  });
-}
+createThread<{ orgId: string }>("support.agent")
+  .context((stored, env) => ({ ...stored.content, orgId: env.orgId }))
+  .narrative(() => "You are a precise assistant")
+  .actions(() => ({}))
+  .reactor(reactor)
+  .build();
 ```
 
-## Thread Lifecycle (Detailed)
+## `createScriptedReactor` (testing and deterministic local loops)
 
-For each `react(...)` call:
+No network/model calls. Returns scripted payloads per iteration.
 
-1. `initializeContext` creates or loads context.
-2. `saveTriggerAndCreateExecution` persists trigger and execution.
-3. `createThreadStep` starts iteration record.
-4. `buildSystemPrompt` and `buildTools` are evaluated.
-5. `executeReaction` runs model + tool call planning.
-6. `saveThreadPartsStep` persists normalized parts.
-7. `saveReactionItem` or `updateItem` updates stable reaction item.
-8. Tool executions run and are merged into persisted parts.
-9. `shouldContinue(...)` decides next iteration or completion.
-10. `completeExecution` closes run status.
+```ts
+import { createScriptedReactor } from "@ekairos/thread";
 
-All side effects are executed through workflow-safe steps.
+const reactor = createScriptedReactor({
+  steps: [
+    {
+      assistantEvent: {
+        content: { parts: [{ type: "text", text: "Deterministic answer" }] },
+      },
+      toolCalls: [],
+      messagesForModel: [],
+    },
+  ],
+  repeatLast: true,
+});
+```
 
-## Event and Item Model
+Rules:
 
-Key utilities:
+- `steps` must contain at least 1 entry.
+- If all steps are consumed and `repeatLast !== true`, reactor throws.
+- `assistantEvent` is normalized with fallback fields:
+  - `id = params.eventId`
+  - `type = "output_text"`
+  - `channel = triggerEvent.channel`
+  - `createdAt = now`
 
-- `createUserItemFromUIMessages(...)`
-- `createAssistantItemFromUIMessages(...)`
-- `convertItemsToModelMessages(...)`
-- `convertModelMessageToItem(...)`
-- `didToolExecute(...)`
-- `extractToolCallsFromParts(...)`
+## Production Pattern
 
-This keeps a stable internal representation while remaining compatible with UI/model formats.
+```ts
+import { createThread, createAiSdkReactor } from "@ekairos/thread";
+import { tool } from "ai";
+import { z } from "zod";
 
-## Runtime and Persistence
+type Env = { orgId: string; sessionId: string };
 
-Thread runtime resolves from `@ekairos/domain/runtime` bootstrap.
+export const supportThread = createThread<Env>("support.agent")
+  .context((stored, env) => ({
+    orgId: env.orgId,
+    sessionId: env.sessionId,
+    ...stored.content,
+  }))
+  .narrative((context) => `Assist session ${context.content?.sessionId}`)
+  .actions(() => ({
+    ping: tool({
+      description: "Health check",
+      inputSchema: z.object({ text: z.string().optional() }),
+      execute: async ({ text }) => ({ pong: text ?? "ok" }),
+    }),
+  }))
+  .reactor(createAiSdkReactor())
+  .shouldContinue(({ reactionEvent }) => {
+    const parts = reactionEvent.content?.parts ?? [];
+    const hasTool = parts.some((part: any) => part?.type === "tool-call");
+    return hasTool;
+  })
+  .build();
+```
 
-Default persistence adapter:
+## Testing Pattern
 
-- `InstantStore` (`@ekairos/thread/instant`)
+```ts
+import { createThread, createScriptedReactor } from "@ekairos/thread";
 
-Schema:
+type Env = { orgId: string };
+
+const testThread = createThread<Env>("thread.test")
+  .context((stored, env) => ({ orgId: env.orgId, ...stored.content }))
+  .narrative(() => "Test narrative")
+  .actions(() => ({}))
+  .reactor(
+    createScriptedReactor({
+      steps: [
+        {
+          assistantEvent: {
+            content: { parts: [{ type: "text", text: "ok-1" }] },
+          },
+          toolCalls: [],
+          messagesForModel: [],
+        },
+      ],
+      repeatLast: true,
+    }),
+  )
+  .build();
+```
+
+## Stream Contract
+
+Thread stream events (`thread.stream.ts`) are entity-based.
+
+Hierarchy:
+
+1. context
+2. thread
+3. item
+4. step
+5. part
+6. chunk
+
+Event types:
+
+- `context.created`
+- `context.resolved`
+- `context.status.changed`
+- `thread.created`
+- `thread.resolved`
+- `thread.status.changed`
+- `execution.created`
+- `execution.status.changed`
+- `item.created`
+- `item.status.changed`
+- `step.created`
+- `step.status.changed`
+- `part.created`
+- `part.updated`
+- `chunk.emitted`
+- `thread.finished`
+
+Chunk types (`THREAD_STREAM_CHUNK_TYPES`):
+
+- `data-context-id`
+- `data-context-substate`
+- `data-thread-ping`
+- `tool-output-available`
+- `tool-output-error`
+- `finish`
+
+Validation helpers:
+
+- `parseThreadStreamEvent(event)`
+- `assertThreadStreamTransitions(event)`
+- `validateThreadStreamTimeline(events)`
+
+## Transition Contract
+
+Allowed status transitions are exported as constants and enforced by assertion helpers.
+
+- Thread: `open -> streaming -> (open | closed | failed)`, `failed -> open`
+- Context: `open <-> streaming`, `(open | streaming) -> closed`
+- Execution: `executing -> (completed | failed)`
+- Step: `running -> (completed | failed)`
+- Item: `stored -> (pending | completed)`, `pending -> completed`
+
+## Runtime and Schema
+
+- Import schema with `threadDomain` from `@ekairos/thread/schema`
+- Store integration defaults to `InstantStore`
+- Runtime must be configured via `@ekairos/domain/runtime` in host app
+
+Persisted entities:
 
 - `thread_threads`
 - `thread_contexts`
@@ -220,144 +436,10 @@ Schema:
 - `thread_trace_runs`
 - `thread_trace_spans`
 
-Import domain schema:
+## Notes for Productive Usage
 
-```ts
-import { threadDomain } from "@ekairos/thread/schema";
-```
-
-## Streaming
-
-Thread writes `UIMessageChunk` to workflow writable streams.
-
-Options:
-
-- `writable`: custom stream.
-- `silent`: disable stream writes, keep persistence.
-- `preventClose`: do not close writer.
-- `sendFinish`: control final `finish` chunk.
-
-Namespaced streams are supported using `context:<contextId>`.
-
-## Identity Model
-
-- `thread.key` is the functional continuity id.
-- `context.id` is internal state id for typed context persistence.
-- A thread can own one or more contexts; default runtime behavior is one active context per thread.
-
-### Open Responses alignment
-
-Thread is protocol-aligned with Open Responses item/event semantics and keeps durable execution
-through Workflow.
-
-- Public continuity id should be `thread.key`.
-- Context remains internal typed state, but can be exposed as an extension field in thread query APIs.
-- Safe extension pattern: include `context` object in thread payload while preserving standard fields.
-
-Example shape for a thread query response:
-
-```json
-{
-  "object": "conversation",
-  "id": "thread-key-or-id",
-  "status": "completed",
-  "context": {
-    "id": "ctx_123",
-    "key": "code.agent.session.abc",
-    "status": "completed",
-    "content": {}
-  }
-}
-```
-
-This extension is additive and does not break Open Responses compatibility.
-
-## Tracing and Observability
-
-Thread emits lifecycle traces by default through step operations.
-
-Typical namespaces:
-
-- `thread.run`
-- `thread.context`
-- `thread.execution`
-- `thread.step`
-- `thread.item`
-- `thread.part`
-- `thread.review`
-- `thread.llm`
-- `workflow.run`
-
-These traces are intended for local persistence plus optional mirror ingestion to central collectors.
-
-## Registry API
-
-Register and resolve threads by key:
-
-```ts
-import { registerThread, getThread } from "@ekairos/thread";
-```
-
-Builder convenience:
-
-```ts
-const builder = createThread<Env>("my.key").context(...).narrative(...).actions(...);
-builder.register();
-```
-
-## Preconfigured Codex Thread
-
-Use `@ekairos/thread/codex` to create coding threads with minimal wiring.
-
-```ts
-import { createCodexThreadBuilder } from "@ekairos/thread/codex";
-
-const builder = createCodexThreadBuilder({
-  key: "code.agent",
-  context: async (stored, env) => ({ ...(stored.content ?? {}), ...env }),
-  executeCodex: async ({ input, env }) => {
-    // Call Codex app server here (usually in a use-step function)
-    return {
-      threadId: "t_123",
-      turnId: "turn_123",
-      assistantText: "done",
-      reasoningText: "",
-      diff: "",
-      toolParts: [],
-    };
-  },
-});
-```
-
-What it configures for you:
-
-- `codex` action schema,
-- default model selection (`openai/gpt-5.2`),
-- default continue rule (`stop after codex action executes`),
-- default narrative fallback.
-
-For direct Codex runtime (without "tool indirection"), use
-`@ekairos/openai-reactor` + `createCodexReactor(...)`.
-
-## MCP and OIDC
-
-Utilities are exposed for protocol integration:
-
-- `@ekairos/thread/mcp`
-- `@ekairos/thread/oidc`
-
-Use these from server-side API routes when exposing thread-driven tools via MCP.
-
-## DX Guidelines
-
-- Keep `env` serializable.
-- Keep thread definition declarative.
-- Put DB/network side effects inside step functions.
-- Prefer `context.id` for deterministic resume.
-- Use explicit thread keys (`domain.agent.name` format).
-
-## Breaking-Change Policy
-
-Thread prioritizes runtime correctness over implicit compatibility shims.
-
-When behavior conflicts with durability or protocol clarity, explicit configuration is preferred over hidden fallbacks.
+- Always pass explicit `env`.
+- Prefer `context: { key }` for stable continuation and `context: { id }` for deterministic resume.
+- Keep IO in workflow steps.
+- Use `createScriptedReactor` for deterministic regression tests and component demos.
+- Validate stream timelines with `validateThreadStreamTimeline` when consuming SSE externally.
