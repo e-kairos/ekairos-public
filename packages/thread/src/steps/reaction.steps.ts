@@ -150,7 +150,7 @@ export async function executeReaction(params: {
   }
 
   const { jsonSchema, gateway, smoothStream, stepCountIs, streamText } = await import("ai")
-  const { extractToolCallsFromParts } = await import("@ekairos/thread")
+  const { extractToolCallsFromParts } = await import("../thread.toolcalls.js")
 
   // Match DurableAgent-style model init behavior:
   const resolvedModel =
