@@ -1,12 +1,15 @@
-import { storySmoke } from "./story-smoke.story";
+import { storySmoke, storySmokeToolError } from "./story-smoke.story";
 import type { ContextEvent } from "@ekairos/thread";
+import { getWritable } from "workflow";
 
-export async function storySmokeWorkflow(params: { env: { orgId: string } }) {
+export type StorySmokeWorkflowMode = "success" | "tool-error";
+
+export async function storySmokeWorkflow(mode: StorySmokeWorkflowMode = "success") {
   "use workflow";
 
   const triggerEvent: ContextEvent = {
-    id: `evt_${Date.now()}`,
-    type: "user.message",
+    id: crypto.randomUUID(),
+    type: "input_text",
     channel: "web",
     createdAt: new Date().toISOString(),
     content: {
@@ -14,12 +17,15 @@ export async function storySmokeWorkflow(params: { env: { orgId: string } }) {
     },
   };
 
-  return await storySmoke.react(triggerEvent, {
-    env: params.env,
+  const thread = mode === "tool-error" ? storySmokeToolError : storySmoke;
+
+  return await thread.react(triggerEvent, {
+    env: { mode },
     context: null,
     options: {
       maxIterations: 1,
       maxModelSteps: 1,
+      writable: getWritable(),
     },
   });
 }

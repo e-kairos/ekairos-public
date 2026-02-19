@@ -106,7 +106,10 @@
     "dev": "tsc -p tsconfig.json --watch",
     "watch": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run -c vitest.config.mts",
+    "test:ai-sdk-reactor": "vitest run -c vitest.config.mts src/tests/thread.ai-sdk-reactor.instant.test.ts",
+    "test:scripted-reactor": "vitest run -c vitest.config.mts src/tests/thread.scripted-reactor.instant.test.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.52",
@@ -125,9 +128,12 @@
     "zod": "^4.1.8"
   },
   "devDependencies": {
+    "@ekairos/testing": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "@types/react": "^19.2.2",
+    "dotenv": "^17.2.3",
+    "vitest": "^3.2.4",
     "typescript": "^5.9.2"
   }
 }

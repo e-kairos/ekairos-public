@@ -18,7 +18,10 @@ export {
 
 export {
   createAiSdkReactor,
+  createScriptedReactor,
   type CreateAiSdkReactorOptions,
+  type CreateScriptedReactorOptions,
+  type ScriptedReactorStep,
   type ThreadReactor,
   type ThreadReactorParams,
   type ThreadReactionResult,

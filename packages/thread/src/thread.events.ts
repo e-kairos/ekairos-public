@@ -55,10 +55,14 @@ export function convertToUIMessage(item: ThreadItem): UIMessage {
     role = "assistant"
   }
 
+  const parts = Array.isArray(item.content.parts)
+    ? (item.content.parts as UIMessage["parts"])
+    : []
+
   return {
     id: item.id,
     role: role,
-    parts: item.content.parts,
+    parts,
     metadata: {
       channel: item.channel,
       type: item.type,
@@ -107,9 +111,19 @@ export type ResponseMessage = {
   message: ModelMessage
 }
 
+function normalizeModelMessageContentToParts(content: ModelMessage["content"]): unknown[] {
+  if (Array.isArray(content)) return content as unknown[]
+  if (typeof content === "string") {
+    if (!content.trim()) return []
+    return [{ type: "text", text: content }]
+  }
+  if (content === null || content === undefined) return []
+  return [content as unknown]
+}
+
 export function convertModelMessageToItem(itemId: string, message: ResponseMessage): ThreadItem {
 
-  let type: string;
+  let type: ThreadItem["type"];
   switch (message.message.role) {
     case "user":
       type = INPUT_TEXT_ITEM_TYPE;
@@ -131,7 +145,7 @@ export function convertModelMessageToItem(itemId: string, message: ResponseMessa
     type: type,
     channel: WEB_CHANNEL,
     content: {
-      parts: message.message.content,
+      parts: normalizeModelMessageContentToParts(message.message.content),
     },
     createdAt: message.timestamp.toISOString(),
   }

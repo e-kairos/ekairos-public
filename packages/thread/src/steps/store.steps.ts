@@ -107,10 +107,7 @@ function inferDirection(item: ThreadItem): "inbound" | "outbound" | undefined {
 }
 
 function shouldDebugThreadStoreSteps() {
-  return (
-    process.env.EKAIROS_THREAD_DEBUG === "1" ||
-    process.env.PLAYWRIGHT_TEST === "1"
-  )
+  return process.env.EKAIROS_THREAD_DEBUG === "1"
 }
 
 function summarizeStepError(error: unknown): Record<string, unknown> {

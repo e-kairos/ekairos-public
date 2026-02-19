@@ -37,7 +37,7 @@ export type CreateCursorReactorOptions<
     executionId: string
     stepId: string
     iteration: number
-    writable?: unknown
+    writable: WritableStream<unknown>
     silent: boolean
   }) => Promise<CursorTurnResult>
 }
