@@ -9,7 +9,7 @@ export async function storySmokeWorkflow(mode: StorySmokeWorkflowMode = "success
 
   const triggerEvent: ContextEvent = {
     id: crypto.randomUUID(),
-    type: "input_text",
+    type: "input",
     channel: "web",
     createdAt: new Date().toISOString(),
     content: {

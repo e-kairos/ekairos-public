@@ -3,7 +3,7 @@ import type { ThreadModelInit } from "../thread.engine.js"
 import type { ContextIdentifier, StoredContext, ThreadItem } from "../thread.store.js"
 import { executeReaction } from "../steps/reaction.steps.js"
 import type {
-  ThreadReactionToolCall,
+  ThreadActionRequest,
   ThreadReactor,
 } from "./types.js"
 
@@ -110,7 +110,15 @@ export function createAiSdkReactor<
 
     return {
       assistantEvent: result.assistantEvent,
-      toolCalls: result.toolCalls as ThreadReactionToolCall[],
+      actionRequests: (result.toolCalls as Array<{
+        toolCallId: string
+        toolName: string
+        args: unknown
+      }>).map((entry) => ({
+        actionRef: String(entry.toolCallId),
+        actionName: String(entry.toolName),
+        input: entry.args,
+      })) as ThreadActionRequest[],
       messagesForModel: result.messagesForModel,
       llm: result.llm,
     }

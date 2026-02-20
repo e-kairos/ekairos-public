@@ -109,6 +109,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run -c vitest.config.mts",
     "test:ai-sdk-reactor": "vitest run -c vitest.config.mts src/tests/thread.ai-sdk-reactor.instant.test.ts",
+    "test:ai-sdk-reactor:real": "vitest run -c vitest.config.mts src/tests/thread.ai-sdk-reactor.real.instant.test.ts",
     "test:scripted-reactor": "vitest run -c vitest.config.mts src/tests/thread.scripted-reactor.instant.test.ts"
   },
   "dependencies": {

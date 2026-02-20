@@ -13,6 +13,6 @@ export type {
   ThreadReactor,
   ThreadReactorParams,
   ThreadReactionResult,
-  ThreadReactionToolCall,
+  ThreadActionRequest,
   ThreadReactionLLM,
 } from "./reactors/types.js"

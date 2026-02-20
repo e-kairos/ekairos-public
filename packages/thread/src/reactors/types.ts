@@ -5,10 +5,10 @@ import type { ThreadModelInit } from "../thread.engine.js"
 import type { ContextIdentifier, StoredContext, ThreadItem } from "../thread.store.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 
-export type ThreadReactionToolCall = {
-  toolCallId: string
-  toolName: string
-  args: unknown
+export type ThreadActionRequest = {
+  actionRef: string
+  actionName: string
+  input: unknown
 }
 
 export type ThreadReactionLLM = {
@@ -26,7 +26,7 @@ export type ThreadReactionLLM = {
 
 export type ThreadReactionResult = {
   assistantEvent: ThreadItem
-  toolCalls: ThreadReactionToolCall[]
+  actionRequests: ThreadActionRequest[]
   messagesForModel: ModelMessage[]
   llm?: ThreadReactionLLM
 }

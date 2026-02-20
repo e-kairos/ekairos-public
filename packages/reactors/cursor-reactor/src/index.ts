@@ -1,5 +1,5 @@
 import {
-  OUTPUT_TEXT_ITEM_TYPE,
+  OUTPUT_ITEM_TYPE,
   type ThreadItem,
   type ThreadReactionResult,
   type ThreadReactor,
@@ -72,7 +72,7 @@ export function createCursorReactor<
 
     const assistantEvent: ThreadItem = {
       id: params.eventId,
-      type: OUTPUT_TEXT_ITEM_TYPE,
+      type: OUTPUT_ITEM_TYPE,
       channel: "web",
       createdAt: new Date().toISOString(),
       status: "completed",

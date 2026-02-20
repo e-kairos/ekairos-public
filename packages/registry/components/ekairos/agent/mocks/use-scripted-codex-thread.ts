@@ -42,6 +42,30 @@ type FixtureData = {
   };
 };
 
+type ScriptedThreadLifecycleCallbacks = {
+  onRunStart?: (params: {
+    runId: string;
+    prompt: string;
+    contextId: string;
+    fixture: FixtureData;
+  }) => Promise<void> | void;
+  onEvent?: (params: {
+    runId: string;
+    sequence: number;
+    event: ContextEventForUI;
+    contextId: string;
+    fixture: FixtureData;
+  }) => Promise<void> | void;
+  onRunFinish?: (params: {
+    runId: string;
+    contextId: string;
+    fixture: FixtureData;
+    status: "completed" | "stopped" | "error";
+    error?: string;
+  }) => Promise<void> | void;
+  onReset?: (params: { contextId: string; fixture: FixtureData }) => Promise<void> | void;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -56,6 +80,14 @@ function makeId(prefix: string): string {
     return `${prefix}:${maybeUuid}`;
   }
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+}
+
+function makeRunId(): string {
+  const maybeUuid = globalThis.crypto?.randomUUID?.();
+  if (typeof maybeUuid === "string" && maybeUuid.length > 0) {
+    return `run:${maybeUuid}`;
+  }
+  return `run:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
 function extractPromptText(parts: any[]): string {
@@ -170,7 +202,9 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
   };
 }
 
-export function useScriptedCodexThread(): ThreadValue & {
+export function useScriptedCodexThread(
+  callbacks?: ScriptedThreadLifecycleCallbacks,
+): ThreadValue & {
   reset: () => void;
   title: string;
 } {
@@ -181,18 +215,33 @@ export function useScriptedCodexThread(): ThreadValue & {
   const [sendError, setSendError] = useState<string | null>(null);
   const [turnSubstateKey, setTurnSubstateKey] = useState<string | null>(null);
   const currentRunRef = useRef(0);
+  const currentRunIdRef = useRef<string | null>(null);
 
   const stop = useCallback(() => {
+    const currentRunId = currentRunIdRef.current;
     currentRunRef.current += 1;
     setContextStatus("open");
     setSendStatus("idle");
     setTurnSubstateKey(null);
-  }, []);
+    currentRunIdRef.current = null;
+    if (currentRunId) {
+      void callbacks?.onRunFinish?.({
+        runId: currentRunId,
+        contextId: data.source.contextId,
+        fixture: data,
+        status: "stopped",
+      });
+    }
+  }, [callbacks, data]);
 
   const reset = useCallback(() => {
     stop();
     setEvents([]);
     setSendError(null);
+    void callbacks?.onReset?.({
+      contextId: data.source.contextId,
+      fixture: data,
+    });
   }, [stop]);
 
   const append = useCallback(async (args: AppendArgs) => {
@@ -201,12 +250,28 @@ export function useScriptedCodexThread(): ThreadValue & {
 
     const runToken = currentRunRef.current + 1;
     currentRunRef.current = runToken;
+    const runId = makeRunId();
+    currentRunIdRef.current = runId;
 
     setSendError(null);
     setSendStatus("submitting");
     setContextStatus("streaming");
     setTurnSubstateKey("code.runtime.connecting");
-    setEvents((prev) => [...prev, createUserEvent(promptText)]);
+    const userEvent = createUserEvent(promptText);
+    setEvents((prev) => [...prev, userEvent]);
+    await callbacks?.onRunStart?.({
+      runId,
+      prompt: promptText,
+      contextId: data.source.contextId,
+      fixture: data,
+    });
+    await callbacks?.onEvent?.({
+      runId,
+      sequence: 0,
+      event: userEvent,
+      contextId: data.source.contextId,
+      fixture: data,
+    });
 
     try {
       for (let index = 0; index < data.stream.length; index += 1) {
@@ -217,31 +282,60 @@ export function useScriptedCodexThread(): ThreadValue & {
         setTurnSubstateKey(
           step.phase === "runtime.connecting" ? "code.runtime.connecting" : "code.runtime.ready",
         );
-        setEvents((prev) => [
-          ...prev,
-          createCodexStreamEvent({
-            contextId: data.source.contextId,
-            executionId: data.source.executionId,
-            runId: data.source.runId,
-            step,
-            index,
-          }),
-        ]);
+        const streamEvent = createCodexStreamEvent({
+          contextId: data.source.contextId,
+          executionId: data.source.executionId,
+          runId: runId,
+          step,
+          index,
+        });
+        setEvents((prev) => [...prev, streamEvent]);
+        await callbacks?.onEvent?.({
+          runId,
+          sequence: index + 1,
+          event: streamEvent,
+          contextId: data.source.contextId,
+          fixture: data,
+        });
       }
 
       if (currentRunRef.current !== runToken) return;
-      setEvents((prev) => [...prev, createReactionEvent(data)]);
+      const reactionEvent = createReactionEvent(data);
+      setEvents((prev) => [...prev, reactionEvent]);
+      await callbacks?.onEvent?.({
+        runId,
+        sequence: data.stream.length + 1,
+        event: reactionEvent,
+        contextId: data.source.contextId,
+        fixture: data,
+      });
       setContextStatus("open");
       setSendStatus("idle");
       setTurnSubstateKey(null);
+      currentRunIdRef.current = null;
+      await callbacks?.onRunFinish?.({
+        runId,
+        contextId: data.source.contextId,
+        fixture: data,
+        status: "completed",
+      });
     } catch (error) {
       if (currentRunRef.current !== runToken) return;
       setSendStatus("error");
       setContextStatus("open");
       setTurnSubstateKey(null);
-      setSendError(error instanceof Error ? error.message : String(error));
+      currentRunIdRef.current = null;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setSendError(errorMessage);
+      await callbacks?.onRunFinish?.({
+        runId,
+        contextId: data.source.contextId,
+        fixture: data,
+        status: "error",
+        error: errorMessage,
+      });
     }
-  }, [data, sendStatus]);
+  }, [callbacks, data, sendStatus]);
 
   const thread = useMemo<ThreadValue & { reset: () => void; title: string }>(
     () => ({

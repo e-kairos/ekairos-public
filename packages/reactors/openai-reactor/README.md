@@ -2,6 +2,10 @@
 
 Codex reactor for `@ekairos/thread`.
 
+This package is Codex-only:
+- only `createCodexReactor` is exported,
+- no generic OpenAI model reactor is provided here.
+
 ## Exports
 
 - `createCodexReactor(options)`  

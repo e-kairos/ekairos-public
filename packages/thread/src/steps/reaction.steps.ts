@@ -1,9 +1,10 @@
-﻿import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
+import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
 
 import type { ThreadEnvironment } from "../thread.config.js"
 import type { ThreadModelInit } from "../thread.engine.js"
 import type { ThreadItem, ContextIdentifier } from "../thread.store.js"
-import { OUTPUT_TEXT_ITEM_TYPE } from "../thread.events.js"
+import { OUTPUT_ITEM_TYPE } from "../thread.events.js"
+import { mapAiSdkChunkToThreadEvent } from "../reactors/ai-sdk.chunk-map.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 import { writeThreadTraceEvents } from "./trace.steps.js"
 
@@ -22,22 +23,19 @@ async function readWorkflowMetadata(): Promise<WorkflowMeta | null> {
 }
 
 async function resolveWorkflowRunId(env: ThreadEnvironment, executionId?: string) {
-  const meta = await readWorkflowMetadata()
+  const envRunId = (env as any)?.workflowRunId
   let runId =
-    meta && meta.workflowRunId !== undefined && meta.workflowRunId !== null
-      ? String(meta.workflowRunId)
+    typeof envRunId === "string" && envRunId.trim()
+      ? envRunId.trim()
       : ""
-
-  if (!runId) {
-    const envRunId = (env as any)?.workflowRunId
-    if (typeof envRunId === "string" && envRunId.trim()) {
-      runId = envRunId.trim()
-    }
+  const meta = runId ? null : await readWorkflowMetadata()
+  if (!runId && meta && meta.workflowRunId !== undefined && meta.workflowRunId !== null) {
+    runId = String(meta.workflowRunId)
   }
 
   if (!runId && executionId) {
     try {
-      const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+      const { getThreadRuntime } = await import("../runtime.js")
       const runtime = await getThreadRuntime(env)
       const db: any = (runtime as any)?.db
       if (db) {
@@ -130,7 +128,7 @@ export async function executeReaction(params: {
 }> {
   "use step"
 
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(params.env)
 
   let events: ThreadItem[]
@@ -189,11 +187,16 @@ export async function executeReaction(params: {
 
   let resolveFinish!: (value: ThreadItem) => void
   let rejectFinish!: (reason?: unknown) => void
+  let chunkSequence = 0
 
   const finishPromise = new Promise<ThreadItem>((resolve, reject) => {
     resolveFinish = resolve
     rejectFinish = reject
   })
+
+  const modelId = typeof params.model === "string" ? params.model : ""
+  const mappedProvider =
+    modelId.includes("/") ? modelId.split("/")[0] : undefined
 
   const uiStream = result
     .toUIMessageStream({
@@ -206,7 +209,7 @@ export async function executeReaction(params: {
         const lastMessage = messages[messages.length - 1]
         const event: ThreadItem = {
           id: params.eventId,
-          type: OUTPUT_TEXT_ITEM_TYPE,
+          type: OUTPUT_ITEM_TYPE,
           channel: "web",
           createdAt: new Date().toISOString(),
           content: { parts: lastMessage?.parts ?? [] },
@@ -222,6 +225,27 @@ export async function executeReaction(params: {
     .pipeThrough(
       new TransformStream<UIMessageChunk, UIMessageChunk>({
         transform(chunk, controller) {
+          const contextId =
+            typeof params.contextId === "string" && params.contextId.length > 0
+              ? params.contextId
+              : undefined
+
+          if (contextId) {
+            const mapped = mapAiSdkChunkToThreadEvent({
+              chunk,
+              contextId,
+              executionId: params.executionId,
+              stepId: params.stepId,
+              itemId: params.eventId,
+              provider: mappedProvider,
+              sequence: ++chunkSequence,
+            })
+            controller.enqueue({
+              type: "data-chunk.emitted",
+              data: mapped,
+            } as unknown as UIMessageChunk)
+          }
+
           if (chunk.type === "finish") return
           controller.enqueue(chunk)
         },
@@ -271,7 +295,6 @@ export async function executeReaction(params: {
   const providerMetadataJson = toPlainJson(providerMetadata)
 
   // Derive provider/model from gateway id when available.
-  const modelId = typeof params.model === "string" ? params.model : ""
   const provider =
     modelId.includes("/") ? modelId.split("/")[0] : (providerMetadata?.provider as string | undefined)
   const model = modelId.includes("/") ? modelId.split("/").slice(1).join("/") : (providerMetadata?.model as string | undefined)
@@ -367,6 +390,7 @@ export async function executeReaction(params: {
 
   return { assistantEvent, toolCalls, messagesForModel, llm }
 }
+
 
 
 

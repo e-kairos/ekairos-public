@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
+import { createThread, didToolExecute, INPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
 import { createExecuteCommandTool } from "../executeCommand.tool"
 import { createClearDatasetTool } from "../clearDataset.tool"
@@ -222,7 +222,7 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
 
         const triggerEvent = {
             id: id(),
-            type: INPUT_TEXT_ITEM_TYPE,
+            type: INPUT_ITEM_TYPE,
             channel: WEB_CHANNEL,
             createdAt: new Date().toISOString(),
             content: {

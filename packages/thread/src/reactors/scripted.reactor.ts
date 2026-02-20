@@ -2,16 +2,17 @@ import type { ModelMessage } from "ai"
 
 import type { ThreadEnvironment } from "../thread.config.js"
 import type { ThreadItem } from "../thread.store.js"
+import { OUTPUT_ITEM_TYPE } from "../thread.events.js"
 import type {
   ThreadReactionLLM,
-  ThreadReactionToolCall,
+  ThreadActionRequest,
   ThreadReactor,
   ThreadReactorParams,
 } from "./types.js"
 
 type ScriptedReactionPayload = {
   assistantEvent?: Partial<ThreadItem>
-  toolCalls?: ThreadReactionToolCall[]
+  actionRequests?: ThreadActionRequest[]
   messagesForModel?: ModelMessage[]
   llm?: ThreadReactionLLM
 }
@@ -42,7 +43,7 @@ function normalizeScriptedAssistantEvent<
 ): ThreadItem {
   const fallback: ThreadItem = {
     id: params.eventId,
-    type: "output_text",
+    type: OUTPUT_ITEM_TYPE,
     channel: params.triggerEvent.channel,
     createdAt: new Date().toISOString(),
     content: { parts: [] },
@@ -103,7 +104,7 @@ export function createScriptedReactor<
 
     return {
       assistantEvent: normalizeScriptedAssistantEvent(params, payload.assistantEvent),
-      toolCalls: Array.isArray(payload.toolCalls) ? payload.toolCalls : [],
+      actionRequests: Array.isArray(payload.actionRequests) ? payload.actionRequests : [],
       messagesForModel: Array.isArray(payload.messagesForModel)
         ? payload.messagesForModel
         : [],

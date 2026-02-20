@@ -9,14 +9,14 @@ export const threadDomain: DomainSchemaResult = domain("thread")
                 updatedAt: i.date().optional(),
                 key: i.string().optional().indexed().unique(),
                 name: i.string().optional(),
-                status: i.string().optional().indexed(), // open | streaming | closed | failed
+                status: i.string().optional().indexed(), // idle | streaming
             }),
             thread_contexts: i.entity({
                 createdAt: i.date(),
                 updatedAt: i.date().optional(),
                 // Required for prefix/history queries that use `$like` over context keys.
                 key: i.string().optional().indexed().unique(),
-                status: i.string().optional().indexed(), // open | streaming | closed
+                status: i.string().optional().indexed(), // open | closed
                 content: i.any().optional(),
             }),
             thread_items: i.entity({
@@ -37,13 +37,14 @@ export const threadDomain: DomainSchemaResult = domain("thread")
                 updatedAt: i.date().optional(),
                 status: i.string().optional().indexed(), // running | completed | failed
                 iteration: i.number().indexed(),
-                // Deterministic ids generated in step runtime; stored for convenience/debugging
-                executionId: i.string().indexed(),
-                triggerEventId: i.string().indexed().optional(),
-                reactionEventId: i.string().indexed().optional(),
-                eventId: i.string().indexed(),
-                toolCalls: i.any().optional(),
-                toolExecutionResults: i.any().optional(),
+                // Deterministic ids generated in step runtime; linked to execution/item entities.
+                kind: i.string().optional().indexed(), // message | action_execute | action_result
+                actionName: i.string().optional().indexed(),
+                actionInput: i.any().optional(),
+                actionOutput: i.any().optional(),
+                actionError: i.string().optional(),
+                actionRequests: i.any().optional(),
+                actionResults: i.any().optional(),
                 continueLoop: i.boolean().optional(),
                 errorText: i.string().optional(),
             }),

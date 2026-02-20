@@ -182,7 +182,7 @@ export class InstantStore implements ThreadStore {
       id: String(row?.id ?? ""),
       key: typeof row?.key === "string" ? row.key : null,
       name: typeof row?.name === "string" ? row.name : null,
-      status: (typeof row?.status === "string" ? row.status : "open") as ThreadStatus,
+      status: (typeof row?.status === "string" ? row.status : "idle") as ThreadStatus,
       createdAt: row?.createdAt instanceof Date ? row.createdAt : new Date(row?.createdAt ?? Date.now()),
       updatedAt: row?.updatedAt instanceof Date ? row.updatedAt : row?.updatedAt ? new Date(row.updatedAt) : undefined,
     }
@@ -320,7 +320,7 @@ export class InstantStore implements ThreadStore {
       this.db.tx.thread_threads[threadId].create({
         createdAt: new Date(),
         updatedAt: new Date(),
-        status: "open",
+        status: "idle",
         key,
       }),
     ])
@@ -527,7 +527,7 @@ export class InstantStore implements ThreadStore {
     ]
     if (context.threadId) {
       const thread = await this.getThread({ id: context.threadId })
-      const nextThreadStatus = (status === "closed" ? "closed" : status) as ThreadStatus
+      const nextThreadStatus = "idle" as ThreadStatus
       if (thread && thread.status !== nextThreadStatus) {
         assertThreadTransition(thread.status, nextThreadStatus)
       }
@@ -596,9 +596,10 @@ export class InstantStore implements ThreadStore {
       throw error
     }
 
-    const persisted = await this.getItem(event.id)
-    if (!persisted) throw new Error("InstantStore: failed to read event after save")
-    return persisted
+    return {
+      ...(event as any),
+      status: "stored",
+    } as ThreadItem
   }
 
   async updateItem(eventId: string, event: ThreadItem): Promise<ThreadItem> {
@@ -607,9 +608,11 @@ export class InstantStore implements ThreadStore {
       assertItemTransition(current.status, event.status)
     }
     await this.db.transact([this.db.tx.thread_items[eventId].update(event as any)])
-    const persisted = await this.getItem(eventId)
-    if (!persisted) throw new Error("InstantStore: event not found after update")
-    return persisted
+    return {
+      ...(current as any),
+      ...(event as any),
+      id: eventId,
+    } as ThreadItem
   }
 
   async getItem(eventId: string): Promise<ThreadItem | null> {
@@ -677,6 +680,15 @@ export class InstantStore implements ThreadStore {
     })
 
     const txs: any[] = [execCreate]
+    if (context.status !== "open") {
+      assertContextTransition(context.status, "open")
+      txs.push(
+        this.db.tx.thread_contexts[context.id].update({
+          status: "open",
+          updatedAt: new Date(),
+        }),
+      )
+    }
     txs.push(this.db.tx.thread_executions[executionId].link({ context: context.id }))
     txs.push(this.db.tx.thread_executions[executionId].link({ thread: thread.id }))
     txs.push(this.db.tx.thread_contexts[context.id].link({ currentExecution: executionId }))
@@ -729,10 +741,10 @@ export class InstantStore implements ThreadStore {
     if (currentExecutionStatus !== status) {
       assertExecutionTransition(currentExecutionStatus, status)
     }
-    if (context.status !== "open") {
-      assertContextTransition(context.status, "open")
+    if (context.status !== "closed") {
+      assertContextTransition(context.status, "closed")
     }
-    const nextThreadStatus = status === "failed" ? "failed" : "open"
+    const nextThreadStatus = "idle"
     if (thread.status !== nextThreadStatus) {
       assertThreadTransition(thread.status, nextThreadStatus)
     }
@@ -740,8 +752,12 @@ export class InstantStore implements ThreadStore {
     const txs: any[] = []
     txs.push(this.db.tx.thread_executions[executionId].update({ status, updatedAt: new Date() }))
 
-    // Update context status back to "open" when execution completes
-    txs.push(this.db.tx.thread_contexts[context.id].update({ status: "open", updatedAt: new Date() }))
+    txs.push(
+      this.db.tx.thread_contexts[context.id].update({
+        status: "closed",
+        updatedAt: new Date(),
+      }),
+    )
     txs.push(
       this.db.tx.thread_threads[thread.id].update({
         status: nextThreadStatus,
@@ -755,17 +771,14 @@ export class InstantStore implements ThreadStore {
   async createStep(params: {
     executionId: string
     iteration: number
-  }): Promise<{ id: string; eventId: string }> {
+  }): Promise<{ id: string }> {
     const stepId = id()
-    const eventId = id()
 
     const txs: any[] = [
       this.db.tx.thread_steps[stepId].create({
         createdAt: new Date(),
         status: "running",
         iteration: params.iteration,
-        executionId: params.executionId,
-        eventId,
       }),
     ]
 
@@ -780,7 +793,6 @@ export class InstantStore implements ThreadStore {
           executionId: params.executionId,
           iteration: params.iteration,
           stepId,
-          eventId,
         },
         txs,
         error,
@@ -788,15 +800,20 @@ export class InstantStore implements ThreadStore {
       throw error
     }
 
-    return { id: stepId, eventId }
+    return { id: stepId }
   }
 
   async updateStep(
     stepId: string,
     patch: Partial<{
       status: "running" | "completed" | "failed"
-      toolCalls: any
-      toolExecutionResults: any
+      kind: "message" | "action_execute" | "action_result"
+      actionName: string
+      actionInput: unknown
+      actionOutput: unknown
+      actionError: string
+      actionRequests: any
+      actionResults: any
       continueLoop: boolean
       errorText: string
       updatedAt: Date
@@ -851,76 +868,17 @@ export class InstantStore implements ThreadStore {
   }
 
   async itemsToModelMessages(events: ThreadItem[]): Promise<ModelMessage[]> {
-    // Prefer parts-first reconstruction from thread_parts via the producing step.
-    const eventIds = events.map((e: any) => String(e.id)).filter(Boolean)
-    let eventsWithParts = events
-    if (eventIds.length) {
-      try {
-        // 1) Get steps for these events (eventId is stored on thread_steps)
-        const stepsRes = await this.db.query({
-          thread_steps: {
-            $: {
-              where: { eventId: { $in: eventIds } },
-              fields: ["id", "eventId"],
-              limit: 2000,
-            },
-          },
-        })
-        const steps = (stepsRes.thread_steps as any[]) ?? []
-        const stepIdByEventId = new Map<string, string>()
-        const stepIds: string[] = []
-        for (const s of steps) {
-          const sid = String((s as any).id)
-          const eid = String((s as any).eventId)
-          if (sid && eid) {
-            stepIdByEventId.set(eid, sid)
-            stepIds.push(sid)
-          }
-        }
-
-        // 2) Load parts for those steps
-        const partsByStepId = new Map<string, any[]>()
-        if (stepIds.length) {
-          const partsRes = await this.db.query({
-            thread_parts: {
-              $: {
-                where: { stepId: { $in: stepIds } },
-                order: { idx: "asc" },
-                limit: 5000,
-              },
-            },
-          })
-          const rows = (partsRes.thread_parts as any[]) ?? []
-          for (const r of rows) {
-            const sid = String((r as any).stepId)
-            const arr = partsByStepId.get(sid) ?? []
-            arr.push((r as any).part)
-            partsByStepId.set(sid, arr)
-          }
-        }
-
-        // 3) Attach parts onto events
-        eventsWithParts = events.map((e: any) => {
-          const eid = String(e.id)
-          const sid = stepIdByEventId.get(eid)
-          if (!sid) return e
-          const parts = partsByStepId.get(sid)
-          if (!parts || parts.length === 0) return e
-          return { ...e, content: { ...(e?.content ?? {}), parts } }
-        })
-      } catch {
-        // If schema not pushed yet (or table absent), fallback to embedded parts.
-        eventsWithParts = events
-      }
-    }
+    // `thread_steps` only links to execution.
+    // Item reconstruction uses embedded `item.content.parts` as source for model messages.
+    const eventsWithParts = events
 
     // Default behavior for Instant-backed stories:
-    // - Expand file parts into derived `output_text` events (persisting parsed content into document_documents)
+    // - Expand file parts into derived `message` items (persisting parsed content into document_documents)
     // - Then convert expanded events to model messages
     const expanded = await expandEventsWithInstantDocuments({
       db: this.db,
       events: eventsWithParts,
-      derivedEventType: "output_text",
+      derivedEventType: "output",
     })
     return await convertItemsToModelMessages(expanded)
   }

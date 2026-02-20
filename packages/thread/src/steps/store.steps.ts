@@ -1,7 +1,7 @@
-﻿import type { UIMessageChunk } from "ai"
+import type { UIMessageChunk } from "ai"
 
 import type { ThreadEnvironment } from "../thread.config.js"
-import type { ThreadItem, ContextIdentifier, StoredContext } from "../thread.store.js"
+import type { ThreadItem, ContextIdentifier, StoredContext, ContextStatus } from "../thread.store.js"
 import type { ThreadTraceEventWrite } from "./trace.steps.js"
 import { writeThreadTraceEvents } from "./trace.steps.js"
 import {
@@ -58,17 +58,14 @@ async function resolveWorkflowRunId(params: {
   triggerEventId?: string
   executionId?: string
 }) {
-  const meta = await readWorkflowMetadata()
+  const envRunId = (params.env as any)?.workflowRunId
   let runId =
-    meta && meta.workflowRunId !== undefined && meta.workflowRunId !== null
-      ? String(meta.workflowRunId)
+    typeof envRunId === "string" && envRunId.trim()
+      ? envRunId.trim()
       : ""
-
-  if (!runId) {
-    const envRunId = (params.env as any)?.workflowRunId
-    if (typeof envRunId === "string" && envRunId.trim()) {
-      runId = envRunId.trim()
-    }
+  const meta = runId ? null : await readWorkflowMetadata()
+  if (!runId && meta && meta.workflowRunId !== undefined && meta.workflowRunId !== null) {
+    runId = String(meta.workflowRunId)
   }
 
   if (!runId && params.triggerEventId) {
@@ -96,13 +93,9 @@ async function resolveWorkflowRunId(params: {
 }
 
 function inferDirection(item: ThreadItem): "inbound" | "outbound" | undefined {
-  const type = typeof item?.type === "string" ? item.type : ""
-  if (type.startsWith("output") || type.startsWith("tool") || type.startsWith("assistant")) {
-    return "outbound"
-  }
-  if (type.startsWith("input") || type.startsWith("user")) {
-    return "inbound"
-  }
+  const type = typeof item?.type === "string" ? String(item.type) : ""
+  if (type === "input") return "inbound"
+  if (type === "output") return "outbound"
   return undefined
 }
 
@@ -145,7 +138,7 @@ function logStepDebug(message: string, payload: Record<string, unknown>) {
 }
 
 /**
- * Initializes/ensures the story context exists and emits a single `data-context-id` chunk.
+ * Initializes/ensures the story context exists.
  *
  * This is the "context init" boundary for the story engine.
  */
@@ -156,7 +149,7 @@ export async function initializeContext<C>(
 ): Promise<{ context: StoredContext<C>; isNew: boolean }> {
   "use step"
 
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(env)
   const { store, db } = runtime
 
@@ -172,21 +165,6 @@ export async function initializeContext<C>(
     } else {
       const created = await store.getOrCreateContext<C>(contextIdentifier)
       result = { context: created, isNew: true }
-    }
-  }
-
-  // If we're running in a non-streaming context (e.g. tests or headless usage),
-  // we skip writing stream chunks entirely.
-  if (!opts?.silent && opts?.writable) {
-    const writer = opts.writable.getWriter()
-    try {
-      await writer.write({
-        type: "data-context-id",
-        id: String(result.context.id),
-        data: { contextId: String(result.context.id) },
-      } as any)
-    } finally {
-      writer.releaseLock()
     }
   }
 
@@ -217,7 +195,7 @@ export async function updateContextContent<C>(
   content: C,
 ): Promise<StoredContext<C>> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(env)
   return await store.updateContextContent<C>(contextIdentifier, content)
 }
@@ -225,10 +203,10 @@ export async function updateContextContent<C>(
 export async function updateContextStatus(
   env: ThreadEnvironment,
   contextIdentifier: ContextIdentifier,
-  status: "open" | "streaming" | "closed",
+  status: ContextStatus,
 ): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(env)
   await store.updateContextStatus(contextIdentifier, status)
 }
@@ -239,29 +217,10 @@ export async function saveTriggerItem(
   event: ThreadItem,
 ): Promise<ThreadItem> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(env)
   const saved = await store.saveItem(contextIdentifier, event)
   return saved
-}
-
-export async function emitContextIdChunk(params: {
-  env: ThreadEnvironment
-  contextId: string
-  writable?: WritableStream<UIMessageChunk>
-}) {
-  "use step"
-  if (!params.writable) return
-  const writer = params.writable.getWriter()
-  try {
-    await writer.write({
-      type: "data-context-id",
-      id: String(params.contextId),
-      data: { contextId: String(params.contextId) },
-    } as any)
-  } finally {
-    writer.releaseLock()
-  }
 }
 
 export async function saveTriggerAndCreateExecution(params: {
@@ -275,7 +234,7 @@ export async function saveTriggerAndCreateExecution(params: {
   executionId: string
 }> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(params.env)
   const { store, db } = runtime
   logStepDebug("saveTriggerAndCreateExecution:start", {
@@ -303,18 +262,6 @@ export async function saveTriggerAndCreateExecution(params: {
     typeof uuid === "string"
       ? uuid
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-
-  try {
-    await store.updateContextStatus(params.contextIdentifier, "streaming")
-  } catch (error) {
-    logStepDebug("saveTriggerAndCreateExecution:updateContextStatus:error", {
-      contextIdentifier: summarizeContextIdentifierForLog(params.contextIdentifier),
-      triggerEventId: saved.id,
-      reactionEventId,
-      error: summarizeStepError(error),
-    })
-    throw error
-  }
 
   let execution: { id: string }
   try {
@@ -434,7 +381,7 @@ export async function saveReactionItem(
   },
 ): Promise<ThreadItem> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(env)
   const { store, db } = runtime
   const saved = await store.saveItem(contextIdentifier, event)
@@ -512,7 +459,7 @@ export async function updateItem(
   opts?: { executionId?: string; contextId?: string },
 ): Promise<ThreadItem> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(env)
   const { store, db } = runtime
   const saved = await store.updateItem(eventId, event)
@@ -549,7 +496,7 @@ export async function createExecution(
   reactionEventId: string,
 ): Promise<{ id: string }> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(env)
   return await store.createExecution(contextIdentifier, triggerEventId, reactionEventId)
 }
@@ -560,7 +507,7 @@ export async function createReactionItem(params: {
   triggerEventId: string
 }): Promise<{ reactionEventId: string; executionId: string }> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(params.env)
 
   // Generate a new reaction event id inside the step boundary.
@@ -570,7 +517,6 @@ export async function createReactionItem(params: {
       ? uuid
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-  await store.updateContextStatus(params.contextIdentifier, "streaming")
   const execution = await store.createExecution(
     params.contextIdentifier,
     params.triggerEventId,
@@ -587,7 +533,7 @@ export async function completeExecution(
   status: "completed" | "failed",
 ): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(env)
   const { store, db } = runtime
   await store.completeExecution(contextIdentifier, executionId, status)
@@ -624,7 +570,7 @@ export async function updateExecutionWorkflowRun(params: {
   workflowRunId: string
 }): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(params.env)
   const db: any = (runtime as any)?.db
   if (db) {
@@ -641,15 +587,15 @@ export async function createThreadStep(params: {
   env: ThreadEnvironment
   executionId: string
   iteration: number
-}): Promise<{ stepId: string; eventId: string }> {
+}): Promise<{ stepId: string }> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(params.env)
   const res = await store.createStep({
     executionId: params.executionId,
     iteration: params.iteration,
   })
-  return { stepId: res.id, eventId: res.eventId }
+  return { stepId: res.id }
 }
 
 export async function updateThreadStep(params: {
@@ -660,14 +606,19 @@ export async function updateThreadStep(params: {
   iteration?: number
   patch: {
     status?: "running" | "completed" | "failed"
-    toolCalls?: any
-    toolExecutionResults?: any
+    kind?: "message" | "action_execute" | "action_result"
+    actionName?: string
+    actionInput?: unknown
+    actionOutput?: unknown
+    actionError?: string
+    actionRequests?: any
+    actionResults?: any
     continueLoop?: boolean
     errorText?: string
   }
 }): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(params.env)
   const { store, db } = runtime
   await store.updateStep(params.stepId, {
@@ -692,9 +643,14 @@ export async function updateThreadStep(params: {
         stepId: String(params.stepId),
         payload: {
           status: params.patch.status,
+          kind: params.patch.kind,
+          actionName: params.patch.actionName,
+          actionInput: params.patch.actionInput,
+          actionOutput: params.patch.actionOutput,
+          actionError: params.patch.actionError,
           iteration: params.iteration,
-          toolCalls: params.patch.toolCalls,
-          toolExecutionResults: params.patch.toolExecutionResults,
+          actionRequests: params.patch.actionRequests,
+          actionResults: params.patch.actionResults,
           continueLoop: params.patch.continueLoop,
           errorText: params.patch.errorText,
         },
@@ -709,7 +665,7 @@ export async function linkItemToExecutionStep(params: {
   executionId: string
 }): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const { store } = await getThreadRuntime(params.env)
   await store.linkItemToExecution({ itemId: params.itemId, executionId: params.executionId })
 }
@@ -723,7 +679,7 @@ export async function saveThreadPartsStep(params: {
   parts: any[]
 }): Promise<void> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("../runtime.js")
   const runtime = await getThreadRuntime(params.env)
   const { store, db } = runtime
   await store.saveStepParts({ stepId: params.stepId, parts: params.parts })
@@ -753,4 +709,5 @@ export async function saveThreadPartsStep(params: {
     await maybeWriteTraceEvents(params.env, events)
   }
 }
+
 

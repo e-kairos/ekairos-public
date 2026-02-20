@@ -1,6 +1,6 @@
 import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
 import type { ThreadItem } from "../thread.store.js"
-import { OUTPUT_TEXT_ITEM_TYPE } from "../thread.events.js"
+import { OUTPUT_ITEM_TYPE } from "../thread.events.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 import type { ThreadModelInit } from "../thread.engine.js"
 
@@ -9,7 +9,7 @@ import type { ThreadModelInit } from "../thread.engine.js"
  *
  * - Performs the provider/network call in a step (Node/runtime allowed).
  * - Pipes AI SDK UI message chunks into the workflow-owned writable stream.
- * - Returns the assistant event + extracted tool calls for the workflow loop.
+ * - Returns the assistant event + extracted action requests for the workflow loop.
  */
 export async function doThreadStreamStep(params: {
   model: ThreadModelInit
@@ -94,7 +94,7 @@ export async function doThreadStreamStep(params: {
         const lastMessage = messages[messages.length - 1]
         const event: ThreadItem = {
           id: params.eventId,
-          type: OUTPUT_TEXT_ITEM_TYPE,
+          type: OUTPUT_ITEM_TYPE,
           channel: "web",
           createdAt: new Date().toISOString(),
           content: { parts: lastMessage?.parts ?? [] },
@@ -119,11 +119,17 @@ export async function doThreadStreamStep(params: {
   await uiStream.pipeTo(writable, { preventClose: true })
 
   const assistantEvent = await finishPromise
-  const toolCalls = extractToolCallsFromParts((assistantEvent as any)?.content?.parts)
+  const actionRequests = extractToolCallsFromParts((assistantEvent as any)?.content?.parts).map(
+    (entry: any) => ({
+      actionRef: String(entry.toolCallId),
+      actionName: String(entry.toolName),
+      input: entry.args,
+    }),
+  )
 
   return {
     assistantEvent,
-    toolCalls,
+    actionRequests,
   }
 }
 

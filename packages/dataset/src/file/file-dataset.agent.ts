@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
+import { createThread, didToolExecute, INPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
 import { createDatasetSandboxStep, runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
 import { createGenerateSchemaTool } from "./generateSchema.tool"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
@@ -276,7 +276,7 @@ export function createFileParseStory<Env extends { orgId: string }>(
         async parse(env?: Env, prompt?: string): Promise<{ datasetId: string }> {
         const triggerEvent = {
             id: id(),
-            type: INPUT_TEXT_ITEM_TYPE,
+            type: INPUT_ITEM_TYPE,
             channel: WEB_CHANNEL,
             createdAt: new Date().toISOString(),
             content: {

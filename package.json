@@ -16,7 +16,7 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "build": "node ./scripts/run-build.cjs",
-    "build:publish-packages": "pnpm --filter @ekairos/domain run build && pnpm --filter @ekairos/sandbox run build && pnpm --filter @ekairos/thread run build && pnpm --filter @ekairos/dataset run build && pnpm --filter @ekairos/structure run build && pnpm --filter @ekairos/story-react run build && pnpm --filter @ekairos/openai-reactor run build && pnpm --filter @ekairos/testing run build && pnpm --filter ekairos-cli run build && pnpm --filter ekairos run build",
+    "build:publish-packages": "pnpm --filter @ekairos/domain run build && pnpm --filter @ekairos/sandbox run build && pnpm --filter @ekairos/thread run build && pnpm --filter @ekairos/dataset run build && pnpm --filter @ekairos/structure run build && pnpm --filter @ekairos/story-react run build && pnpm --filter @ekairos/openai-reactor run build && pnpm --filter @ekairos/toolbar run build && pnpm --filter @ekairos/testing run build && pnpm --filter ekairos-cli run build && pnpm --filter ekairos run build",
     "dev": "turbo dev",
     "clean": "turbo clean",
     "typecheck": "turbo typecheck",

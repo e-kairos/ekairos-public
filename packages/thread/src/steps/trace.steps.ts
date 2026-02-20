@@ -1,4 +1,4 @@
-﻿import "../polyfills/dom-events.js";
+import "../polyfills/dom-events.js";
 import type { ThreadEnvironment } from "../thread.config.js";
 import type { ThreadTraceEventKind } from "../thread.contract.js";
 import { lookup } from "@instantdb/admin";
@@ -136,7 +136,7 @@ export async function writeThreadTraceEvents(params: {
   const strict = envTrace?.strict === true || process.env.EKAIROS_TRACES_STRICT === "1";
   // 1) Local trace persistence (InstantDB source of truth).
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime");
+    const { getThreadRuntime } = await import("../runtime.js");
     const runtime = await getThreadRuntime(params.env);
     const db: any = (runtime as any)?.db;
     if (db) {
@@ -332,5 +332,6 @@ export async function writeThreadTraceEvents(params: {
     return;
   }
 }
+
 
 

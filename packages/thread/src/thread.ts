@@ -25,6 +25,6 @@ export {
   type ThreadReactor,
   type ThreadReactorParams,
   type ThreadReactionResult,
-  type ThreadReactionToolCall,
+  type ThreadActionRequest,
   type ThreadReactionLLM,
 } from "./thread.reactor.js"

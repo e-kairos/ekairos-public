@@ -5,6 +5,7 @@ import type { ThreadEnvironment } from "./thread.config.js"
 import { registerThreadEnv } from "./env.js"
 import type { ThreadItem, ContextIdentifier, StoredContext } from "./thread.store.js"
 import { applyToolExecutionResultToParts } from "./thread.toolcalls.js"
+import type { ThreadStreamEvent } from "./thread.stream.js"
 
 import type { SerializableToolForModel } from "./tools-to-model-tools.js"
 import { toolsToModelTools } from "./tools-to-model-tools.js"
@@ -14,14 +15,11 @@ import {
 } from "./thread.reactor.js"
 import {
   closeThreadStream,
-  writeContextSubstate,
-  writeThreadPing,
-  writeToolOutputs,
+  writeThreadEvents,
 } from "./steps/stream.steps.js"
 import {
   completeExecution,
   createThreadStep,
-  emitContextIdChunk,
   initializeContext,
   saveReactionItem,
   saveTriggerAndCreateExecution,
@@ -41,10 +39,10 @@ export interface ThreadOptions<Context = any, Env extends ThreadEnvironment = Th
   onContextCreated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
   onContextUpdated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
   onEventCreated?: (event: ThreadItem) => void | Promise<void>
-  onToolCallExecuted?: (executionEvent: any) => void | Promise<void>
+  onActionExecuted?: (executionEvent: any) => void | Promise<void>
   onEnd?: (
     lastEvent: ThreadItem,
-  ) => void | { end?: boolean } | Promise<void | { end?: boolean }>
+  ) => void | boolean | Promise<void | boolean>
 }
 
 export interface ThreadStreamOptions {
@@ -171,13 +169,90 @@ export type ThreadShouldContinueArgs<
    */
   reactionEvent: ThreadItem
   assistantEvent: ThreadItem
-  toolCalls: any[]
-  toolExecutionResults: Array<{
-    tc: any
+  actionRequests: Array<{
+    actionRef: string
+    actionName: string
+    input: unknown
+  }>
+  actionResults: Array<{
+    actionRequest: {
+      actionRef: string
+      actionName: string
+      input: unknown
+    }
     success: boolean
     output: any
     errorText?: string
   }>
+}
+
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function clipPreview(value: string, max = 240): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}...`
+}
+
+function summarizePartPreview(part: unknown): {
+  partPreview?: string
+  partState?: string
+  partToolCallId?: string
+} {
+  if (!part || typeof part !== "object") return {}
+  const row = part as Record<string, unknown>
+  const partType = typeof row.type === "string" ? row.type : ""
+  const partState = typeof row.state === "string" ? row.state : undefined
+  const partToolCallId =
+    typeof row.toolCallId === "string"
+      ? row.toolCallId
+      : typeof row.id === "string"
+        ? row.id
+        : undefined
+
+  if (typeof row.text === "string" && row.text.trim().length > 0) {
+    return {
+      partPreview: clipPreview(row.text),
+      partState,
+      partToolCallId,
+    }
+  }
+
+  if (partType.startsWith("tool-")) {
+    const payload = {
+      tool: partType,
+      state: partState,
+      input: row.input,
+      output: row.output,
+      errorText: row.errorText,
+    }
+    return {
+      partPreview: clipPreview(JSON.stringify(payload)),
+      partState,
+      partToolCallId,
+    }
+  }
+
+  return {
+    partState,
+    partToolCallId,
+  }
+}
+
+function contextThreadIdOrNull(context: StoredContext<any>): string | null {
+  return typeof context.threadId === "string" && context.threadId.length > 0
+    ? context.threadId
+    : null
+}
+
+async function emitThreadEvents(params: {
+  silent: boolean
+  writable: WritableStream<UIMessageChunk>
+  events: ThreadStreamEvent[]
+}) {
+  if (params.silent || params.events.length === 0) return
+  await writeThreadEvents({ events: params.events, writable: params.writable })
 }
 
 export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvironment> {
@@ -382,16 +457,6 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
       writable = getWritable<UIMessageChunk>({
         namespace: `context:${String(currentContext.id)}`,
       })
-
-      // If the context was created in `initializeContext` (which didn't have a writable yet),
-      // re-emit the context id chunk now so clients can subscribe to the right persisted thread.
-      if (ctxResult.isNew) {
-        await emitContextIdChunk({
-          env: params.env,
-          contextId: String(currentContext.id),
-          writable,
-        })
-      }
     }
 
     // Reactor/steps always receive a stream argument.
@@ -410,6 +475,27 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
         : params.contextIdentifier?.key
           ? { key: params.contextIdentifier.key }
           : { id: String(currentContext.id) }
+    const threadId = contextThreadIdOrNull(currentContext)
+    const resolvedThreadId = threadId ?? String(currentContext.id)
+    await emitThreadEvents({
+      silent,
+      writable,
+      events: [
+        {
+          type: ctxResult.isNew ? "context.created" : "context.resolved",
+          at: nowIso(),
+          contextId: String(currentContext.id),
+          threadId: resolvedThreadId,
+          status: String(currentContext.status ?? "open") as any,
+        },
+        {
+          type: ctxResult.isNew ? "thread.created" : "thread.resolved",
+          at: nowIso(),
+          threadId: resolvedThreadId,
+          status: "idle",
+        },
+      ],
+    })
 
     if (ctxResult.isNew) {
       await story.opts.onContextCreated?.({ env: params.env, context: currentContext })
@@ -423,11 +509,36 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
       triggerEvent,
     })
 
-    // Emit a simple ping chunk early so clients can validate that streaming works end-to-end.
-    // This should be ignored safely by clients that don't care about it.
-    if (!silent) {
-      await writeThreadPing({ label: "thread-start", writable })
-    }
+    await emitThreadEvents({
+      silent,
+      writable,
+      events: [
+        {
+          type: "item.created",
+          at: nowIso(),
+          itemId: triggerEventId,
+          contextId: String(currentContext.id),
+          threadId: resolvedThreadId,
+          status: "stored",
+          itemType: "input",
+          executionId,
+        },
+        {
+          type: "thread.streaming_started",
+          at: nowIso(),
+          threadId: resolvedThreadId,
+          status: "streaming",
+        },
+        {
+          type: "execution.created",
+          at: nowIso(),
+          executionId,
+          contextId: String(currentContext.id),
+          threadId: resolvedThreadId,
+          status: "executing",
+        },
+      ],
+    })
 
     let reactionEvent: ThreadItem | null = null
     // Latest persisted context state for this run (we keep it in memory; store is updated via steps).
@@ -437,6 +548,33 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
     const failExecution = async () => {
       try {
         await completeExecution(params.env, contextSelector, executionId, "failed")
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: [
+            {
+              type: "execution.failed",
+              at: nowIso(),
+              executionId,
+              contextId: String(currentContext.id),
+              threadId: resolvedThreadId,
+              status: "failed",
+            },
+            {
+              type: "context.closed",
+              at: nowIso(),
+              contextId: String(currentContext.id),
+              threadId: resolvedThreadId,
+              status: "closed",
+            },
+            {
+              type: "thread.idle",
+              at: nowIso(),
+              threadId: resolvedThreadId,
+              status: "idle",
+            },
+          ],
+        })
       } catch {
         // noop
       }
@@ -458,6 +596,20 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           iteration: iter,
         })
         currentStepId = stepCreate.stepId
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: [
+            {
+              type: "step.created",
+              at: nowIso(),
+              stepId: String(stepCreate.stepId),
+              executionId,
+              iteration: iter,
+              status: "running",
+            },
+          ],
+        })
 
     // Hook: Thread DSL `context()` (implemented by subclasses via `initialize()`)
         const nextContent = await story.initialize(updatedContext, params.env)
@@ -466,6 +618,18 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           contextSelector,
           nextContent,
         )
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: [
+            {
+              type: "context.content_updated",
+              at: nowIso(),
+              contextId: String(updatedContext.id),
+              threadId: String(contextThreadIdOrNull(updatedContext) ?? ""),
+            },
+          ],
+        })
 
         await story.opts.onContextUpdated?.({ env: params.env, context: updatedContext })
 
@@ -488,7 +652,7 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
         // (step id) and then a second persisted assistant message (reaction id) with the same
         // content once InstantDB updates.
         const reactor = story.getReactor(updatedContext, params.env)
-        const { assistantEvent, toolCalls, messagesForModel } = await reactor({
+        const { assistantEvent, actionRequests, messagesForModel } = await reactor({
           env: params.env,
           context: updatedContext,
           contextIdentifier: contextSelector,
@@ -510,16 +674,16 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
         })
 
         const reviewRequests =
-          toolCalls.length > 0
-            ? (toolCalls as any[]).flatMap((tc) => {
-                const toolDef = (toolsAll as any)[tc.toolName] as any
+          actionRequests.length > 0
+            ? (actionRequests as any[]).flatMap((actionRequest) => {
+                const toolDef = (toolsAll as any)[actionRequest.actionName] as any
                 const auto = toolDef?.auto !== false
-                ;(tc as any).auto = auto
+                ;(actionRequest as any).auto = auto
                 if (auto) return []
                 return [
                   {
-                    toolCallId: String(tc.toolCallId),
-                    toolName: String(tc.toolName ?? ""),
+                    toolCallId: String(actionRequest.actionRef),
+                    toolName: String(actionRequest.actionName ?? ""),
                   },
                 ]
               })
@@ -546,6 +710,22 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           contextId: String(currentContext.id),
           iteration: iter,
         })
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: stepParts.map((part: any, idx: number) => ({
+            type: "part.created" as const,
+            at: nowIso(),
+            partKey: `${String(stepCreate.stepId)}:${idx}`,
+            stepId: String(stepCreate.stepId),
+            idx,
+            partType:
+              part && typeof part.type === "string"
+                ? String(part.type)
+                : undefined,
+            ...summarizePartPreview(part),
+          })),
+        })
 
         // Persist/append the aggregated reaction event (stable `reactionEventId` for the execution).
         if (!reactionEvent) {
@@ -563,6 +743,22 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
               reviewRequests,
             },
           )
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "item.created",
+                at: nowIso(),
+                itemId: String(reactionEvent.id),
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                executionId,
+                status: "pending",
+                itemType: "output",
+              },
+            ],
+          })
         } else {
           const existingReactionParts = Array.isArray(reactionEvent.content?.parts)
             ? reactionEvent.content.parts
@@ -584,12 +780,69 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             nextReactionEvent,
             { executionId, contextId: String(currentContext.id) },
           )
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "item.updated",
+                at: nowIso(),
+                itemId: String(reactionEvent.id),
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                executionId,
+                status: "pending",
+              },
+            ],
+          })
         }
 
         story.opts.onEventCreated?.(assistantEventEffective)
 
+        const firstActionRequest = (actionRequests as any[])?.[0] as
+          | { actionName?: string; actionRef?: string; input?: unknown }
+          | undefined
+        await updateThreadStep({
+          env: params.env,
+          stepId: stepCreate.stepId,
+          patch: firstActionRequest
+            ? {
+                kind: "action_execute",
+                actionName:
+                  typeof firstActionRequest.actionName === "string"
+                    ? firstActionRequest.actionName
+                    : undefined,
+                actionInput: firstActionRequest.input,
+              }
+            : {
+                kind: "message",
+              },
+          executionId,
+          contextId: String(currentContext.id),
+          iteration: iter,
+        })
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: [
+            {
+              type: "step.updated",
+              at: nowIso(),
+              stepId: String(stepCreate.stepId),
+              executionId,
+              iteration: iter,
+              status: "running",
+              kind: firstActionRequest ? "action_execute" : "message",
+              actionName:
+                firstActionRequest && typeof firstActionRequest.actionName === "string"
+                  ? firstActionRequest.actionName
+                  : undefined,
+            },
+          ],
+        })
+
         // Done: no tool calls requested by the model
-        if (!toolCalls.length) {
+        if (!actionRequests.length) {
           const endResult = await story.callOnEnd(assistantEventEffective)
           if (endResult) {
             // Mark iteration step completed (no tools)
@@ -598,14 +851,38 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             stepId: stepCreate.stepId,
             patch: {
               status: "completed",
-              toolCalls: [],
-              toolExecutionResults: [],
+              kind: "message",
+              actionRequests: [],
+              actionResults: [],
               continueLoop: false,
             },
             executionId,
             contextId: String(currentContext.id),
             iteration: iter,
           })
+            await emitThreadEvents({
+              silent,
+              writable,
+              events: [
+                {
+                  type: "step.updated",
+                  at: nowIso(),
+                  stepId: String(stepCreate.stepId),
+                  executionId,
+                  iteration: iter,
+                  status: "completed",
+                  kind: "message",
+                },
+                {
+                  type: "step.completed",
+                  at: nowIso(),
+                  stepId: String(stepCreate.stepId),
+                  executionId,
+                  iteration: iter,
+                  status: "completed",
+                },
+              ],
+            })
 
             // Mark reaction event completed
             await updateItem(
@@ -617,7 +894,49 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
               },
               { executionId, contextId: String(currentContext.id) },
             )
+            await emitThreadEvents({
+              silent,
+              writable,
+              events: [
+                {
+                  type: "item.completed",
+                  at: nowIso(),
+                  itemId: String(reactionEventId),
+                  contextId: String(currentContext.id),
+                  threadId: resolvedThreadId,
+                  executionId,
+                  status: "completed",
+                },
+              ],
+            })
             await completeExecution(params.env, contextSelector, executionId, "completed")
+            await emitThreadEvents({
+              silent,
+              writable,
+              events: [
+                {
+                  type: "execution.completed",
+                  at: nowIso(),
+                  executionId,
+                  contextId: String(currentContext.id),
+                  threadId: resolvedThreadId,
+                  status: "completed",
+                },
+                {
+                  type: "context.closed",
+                  at: nowIso(),
+                  contextId: String(currentContext.id),
+                  threadId: resolvedThreadId,
+                  status: "closed",
+                },
+                {
+                  type: "thread.idle",
+                  at: nowIso(),
+                  threadId: resolvedThreadId,
+                  status: "idle",
+                },
+              ],
+            })
             if (!silent) {
               await closeThreadStream({ preventClose, sendFinish, writable })
             }
@@ -631,26 +950,23 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           }
         }
 
-        // Execute tool calls (workflow context; tool implementations decide step vs workflow)
-        if (!silent && toolCalls.length) {
-          await writeContextSubstate({ key: "actions", transient: true, writable })
-        }
-        const executionResults = await Promise.all(
-          toolCalls.map(async (tc: any) => {
-            const toolDef = (toolsAll as any)[tc.toolName] as any
+        // Execute actions (workflow context; action implementations decide step vs workflow)
+        const actionResults = await Promise.all(
+          actionRequests.map(async (actionRequest: any) => {
+            const toolDef = (toolsAll as any)[actionRequest.actionName] as any
             if (!toolDef || typeof toolDef.execute !== "function") {
               return {
-                tc,
+                actionRequest,
                 success: false,
                 output: null,
-                errorText: `Tool "${tc.toolName}" not found or has no execute().`,
+                errorText: `Action "${actionRequest.actionName}" not found or has no execute().`,
               }
             }
             try {
-              let toolArgs = tc.args
+              let actionInput = actionRequest.input
               if ((toolDef as any)?.auto === false) {
                 const { createHook, createWebhook } = await import("workflow")
-                const toolCallId = String(tc.toolCallId)
+                const toolCallId = String(actionRequest.actionRef)
                 const hookToken = toolApprovalHookToken({ executionId, toolCallId })
                 const webhookToken = toolApprovalWebhookToken({ executionId, toolCallId })
 
@@ -669,32 +985,32 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
 
                 if (!approval || approval.approved !== true) {
                   return {
-                    tc,
+                    actionRequest,
                     success: false,
                     output: null,
                     errorText:
                       approval && "comment" in approval && approval.comment
-                        ? `Tool execution not approved: ${approval.comment}`
-                        : "Tool execution not approved",
+                        ? `Action execution not approved: ${approval.comment}`
+                        : "Action execution not approved",
                   }
                 }
                 if ("args" in approval && approval.args !== undefined) {
-                  toolArgs = approval.args
+                  actionInput = approval.args
                 }
               }
 
-              const output = await toolDef.execute(toolArgs, {
-                toolCallId: tc.toolCallId,
+              const output = await toolDef.execute(actionInput, {
+                toolCallId: actionRequest.actionRef,
                 messages: messagesForModel,
                 eventId: reactionEventId,
                 executionId,
                 triggerEventId,
                 contextId: currentContext.id,
               })
-              return { tc, success: true, output }
+              return { actionRequest, success: true, output }
             } catch (e: any) {
               return {
-                tc,
+                actionRequest,
                 success: false,
                 output: null,
                 errorText: e instanceof Error ? e.message : String(e),
@@ -703,40 +1019,27 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           }),
         )
 
-        // Emit tool outputs to the workflow stream (step)
-        if (!silent) {
-          await writeToolOutputs({
-            results: executionResults.map((r: any) =>
-              r.success
-                ? ({ toolCallId: r.tc.toolCallId, success: true, output: r.output } as const)
-                : ({
-                    toolCallId: r.tc.toolCallId,
-                    success: false,
-                    errorText: r.errorText,
-                  } as const),
-            ),
-            writable,
-          })
-        }
-        // Clear action status once tool execution results have been emitted.
-        if (!silent && toolCalls.length) {
-          await writeContextSubstate({ key: null, transient: true, writable })
-        }
-
-        // Merge tool results into persisted parts (so next LLM call can see them)
+        // Merge action results into persisted parts (so next LLM call can see them)
         if (reactionEvent) {
           let parts = Array.isArray(reactionEvent.content?.parts)
             ? [...reactionEvent.content.parts]
             : []
-          for (const r of executionResults as any[]) {
-            parts = applyToolExecutionResultToParts(parts, r.tc, {
+          for (const r of actionResults as any[]) {
+            parts = applyToolExecutionResultToParts(
+              parts,
+              {
+                toolCallId: r.actionRequest.actionRef,
+                toolName: r.actionRequest.actionName,
+              },
+              {
               success: Boolean(r.success),
               result: r.output,
               message: r.errorText,
-            })
+              },
+            )
           }
 
-          const nextReactionEvent: ThreadItem = {
+          reactionEvent = {
             ...reactionEvent,
             content: {
               ...reactionEvent.content,
@@ -744,18 +1047,12 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             },
             status: "pending",
           }
-          reactionEvent = await updateItem(
-            params.env,
-            reactionEventId,
-            nextReactionEvent,
-            { executionId, contextId: String(currentContext.id) },
-          )
         }
 
         // Callback for observability/integration
-        for (const r of executionResults as any[]) {
-          await story.opts.onToolCallExecuted?.({
-            toolCall: r.tc,
+        for (const r of actionResults as any[]) {
+          await story.opts.onActionExecuted?.({
+            actionRequest: r.actionRequest,
             success: r.success,
             output: r.output,
             errorText: r.errorText,
@@ -772,8 +1069,8 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           context: updatedContext,
           reactionEvent: reactionEvent ?? assistantEventEffective,
           assistantEvent: assistantEventEffective,
-          toolCalls,
-          toolExecutionResults: executionResults as any,
+          actionRequests,
+          actionResults: actionResults as any,
         })
 
         // Persist per-iteration step outcome (tools + continue signal)
@@ -782,14 +1079,82 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
           stepId: stepCreate.stepId,
           patch: {
             status: "completed",
-            toolCalls,
-            toolExecutionResults: executionResults,
+            kind: (actionRequests as any[])?.length ? "action_result" : "message",
+            actionName:
+              typeof (actionResults as any[])?.[0]?.actionRequest?.actionName === "string"
+                ? (actionResults as any[])[0].actionRequest.actionName
+                : undefined,
+            actionInput: (actionResults as any[])?.[0]?.actionRequest?.input,
+            actionOutput:
+              (actionResults as any[])?.[0]?.success === true
+                ? (actionResults as any[])[0]?.output
+                : undefined,
+            actionError:
+              (actionResults as any[])?.[0]?.success === false
+                ? String((actionResults as any[])[0]?.errorText ?? "action_execution_failed")
+                : undefined,
+            actionRequests,
+            actionResults,
             continueLoop: continueLoop !== false,
           },
           executionId,
           contextId: String(currentContext.id),
           iteration: iter,
         })
+        await emitThreadEvents({
+          silent,
+          writable,
+          events: [
+            {
+              type: "step.updated",
+              at: nowIso(),
+              stepId: String(stepCreate.stepId),
+              executionId,
+              iteration: iter,
+              status: "completed",
+              kind: (actionRequests as any[])?.length ? "action_result" : "message",
+              actionName:
+                typeof (actionResults as any[])?.[0]?.actionRequest?.actionName === "string"
+                  ? (actionResults as any[])[0].actionRequest.actionName
+                  : undefined,
+            },
+            {
+              type: "step.completed",
+              at: nowIso(),
+              stepId: String(stepCreate.stepId),
+              executionId,
+              iteration: iter,
+              status: "completed",
+            },
+          ],
+        })
+
+        if (continueLoop !== false && reactionEvent) {
+          reactionEvent = await updateItem(
+            params.env,
+            reactionEventId,
+            {
+              ...reactionEvent,
+              status: "pending",
+            },
+            { executionId, contextId: String(currentContext.id) },
+          )
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "item.updated",
+                at: nowIso(),
+                itemId: String(reactionEventId),
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                executionId,
+                status: "pending",
+              },
+            ],
+          })
+        }
 
         if (continueLoop === false) {
           await updateItem(
@@ -801,7 +1166,49 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             },
             { executionId, contextId: String(currentContext.id) },
           )
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "item.completed",
+                at: nowIso(),
+                itemId: String(reactionEventId),
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                executionId,
+                status: "completed",
+              },
+            ],
+          })
           await completeExecution(params.env, contextSelector, executionId, "completed")
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "execution.completed",
+                at: nowIso(),
+                executionId,
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                status: "completed",
+              },
+              {
+                type: "context.closed",
+                at: nowIso(),
+                contextId: String(currentContext.id),
+                threadId: resolvedThreadId,
+                status: "closed",
+              },
+              {
+                type: "thread.idle",
+                at: nowIso(),
+                threadId: resolvedThreadId,
+                status: "idle",
+              },
+            ],
+          })
           if (!silent) {
             await closeThreadStream({ preventClose, sendFinish, writable })
           }
@@ -830,6 +1237,20 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
             executionId,
             contextId: String(currentContext.id),
           })
+          await emitThreadEvents({
+            silent,
+            writable,
+            events: [
+              {
+                type: "step.failed",
+                at: nowIso(),
+                stepId: String(currentStepId),
+                executionId,
+                status: "failed",
+                errorText: error instanceof Error ? error.message : String(error),
+              },
+            ],
+          })
         } catch {
           // noop
         }
@@ -852,7 +1273,6 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
     if (!this.opts.onEnd) return true
     const result = await this.opts.onEnd(lastEvent)
     if (typeof result === "boolean") return result
-    if (result && typeof result === "object" && "end" in result) return Boolean((result as any).end)
     return true
   }
 }

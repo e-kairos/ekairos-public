@@ -8,7 +8,6 @@ import { z } from "zod"
 import { randomUUID } from "node:crypto"
 
 import {
-  assertThreadStreamTransitions,
   createScriptedReactor,
   createThread,
   didToolExecute,
@@ -52,7 +51,7 @@ function readString(row: Record<string, unknown> | undefined, key: string): stri
 function createTriggerEvent(text: string): ThreadItem {
   return {
     id: randomUUID(),
-    type: "input_text",
+    type: "input",
     channel: "web",
     createdAt: new Date().toISOString(),
     content: {
@@ -130,11 +129,11 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
                   ],
                 },
               },
-              toolCalls: [
+              actionRequests: [
                 {
-                  toolCallId: "tc_set_status_1",
-                  toolName: "set_status",
-                  args: { value: "ready" },
+                  actionRef: "tc_set_status_1",
+                  actionName: "set_status",
+                  input: { value: "ready" },
                 },
               ],
               messagesForModel: [],
@@ -180,7 +179,7 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
         $: { where: { id: result.executionId }, limit: 1 },
       },
       thread_steps: {
-        $: { where: { executionId: result.executionId }, limit: 10 },
+        $: { where: { "execution.id": result.executionId }, limit: 10 },
       },
       thread_items: {
         $: { where: { "context.id": result.contextId }, limit: 20 },
@@ -193,8 +192,8 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
     const stepRow = readRows(snapshot, "thread_steps")[0]
     const itemRows = readRows(snapshot, "thread_items")
 
-    expect(readString(threadRow, "status")).toBe("open")
-    expect(readString(contextRow, "status")).toBe("open")
+    expect(readString(threadRow, "status")).toBe("idle")
+    expect(readString(contextRow, "status")).toBe("closed")
     expect(readString(executionRow, "status")).toBe("completed")
     expect(readString(executionRow, "workflowRunId")).toBe(workflowRunId)
     expect(readString(stepRow, "status")).toBe("completed")
@@ -247,11 +246,11 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
                   ],
                 },
               },
-              toolCalls: [
+              actionRequests: [
                 {
-                  toolCallId: "tc_keep_looping_1",
-                  toolName: "keep_looping",
-                  args: { note: "continue" },
+                  actionRef: "tc_keep_looping_1",
+                  actionName: "keep_looping",
+                  input: { note: "continue" },
                 },
               ],
               messagesForModel: [],
@@ -298,15 +297,15 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
     const executionRow = readRows(failureSnapshot, "thread_executions")[0]
     const executionId = readString(executionRow, "id")
 
-    expect(readString(threadRow, "status")).toBe("failed")
-    expect(readString(contextRow, "status")).toBe("open")
+    expect(readString(threadRow, "status")).toBe("idle")
+    expect(readString(contextRow, "status")).toBe("closed")
     expect(readString(executionRow, "status")).toBe("failed")
     expect(executionId).toBeTruthy()
 
     const stepSnapshot = executionId
       ? await currentDb().query({
           thread_steps: {
-            $: { where: { executionId }, limit: 20 },
+            $: { where: { "execution.id": executionId }, limit: 20 },
           },
         })
       : null
@@ -328,23 +327,14 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
       {
         type: "thread.resolved",
         threadId: "thr_03",
-        status: "open",
+        status: "idle",
         at: "2026-02-19T03:20:00.010Z",
       },
       {
-        type: "context.status.changed",
-        contextId: "ctx_03",
+        type: "thread.streaming_started",
         threadId: "thr_03",
-        from: "open",
-        to: "streaming",
+        status: "streaming",
         at: "2026-02-19T03:20:00.020Z",
-      },
-      {
-        type: "thread.status.changed",
-        threadId: "thr_03",
-        from: "open",
-        to: "streaming",
-        at: "2026-02-19T03:20:00.021Z",
       },
       {
         type: "execution.created",
@@ -372,75 +362,58 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
         at: "2026-02-19T03:20:00.050Z",
       },
       {
-        type: "item.status.changed",
-        itemId: "itm_03",
-        executionId: "exe_03",
-        from: "stored",
-        to: "pending",
-        at: "2026-02-19T03:20:00.060Z",
-      },
-      {
-        type: "step.status.changed",
+        type: "step.completed",
         stepId: "stp_03",
         executionId: "exe_03",
-        from: "running",
-        to: "completed",
-        at: "2026-02-19T03:20:00.070Z",
+        iteration: 0,
+        status: "completed",
+        at: "2026-02-19T03:20:00.060Z",
       },
       {
         type: "part.created",
         partKey: "stp_03:0",
         stepId: "stp_03",
         idx: 0,
-        at: "2026-02-19T03:20:00.071Z",
+        at: "2026-02-19T03:20:00.061Z",
       },
       {
-        type: "item.status.changed",
+        type: "item.completed",
         itemId: "itm_03",
+        contextId: "ctx_03",
+        threadId: "thr_03",
         executionId: "exe_03",
-        from: "pending",
-        to: "completed",
-        at: "2026-02-19T03:20:00.080Z",
+        status: "completed",
+        at: "2026-02-19T03:20:00.070Z",
       },
       {
         type: "chunk.emitted",
-        chunkType: "data-context-id",
+        chunkType: "chunk.start",
         contextId: "ctx_03",
         executionId: "exe_03",
         stepId: "stp_03",
-        at: "2026-02-19T03:20:00.081Z",
+        sequence: 1,
+        at: "2026-02-19T03:20:00.071Z",
       },
       {
-        type: "execution.status.changed",
+        type: "execution.completed",
         executionId: "exe_03",
         contextId: "ctx_03",
         threadId: "thr_03",
-        from: "executing",
-        to: "completed",
+        status: "completed",
+        at: "2026-02-19T03:20:00.080Z",
+      },
+      {
+        type: "context.closed",
+        contextId: "ctx_03",
+        threadId: "thr_03",
+        status: "closed",
         at: "2026-02-19T03:20:00.090Z",
       },
       {
-        type: "context.status.changed",
-        contextId: "ctx_03",
+        type: "thread.idle",
         threadId: "thr_03",
-        from: "streaming",
-        to: "open",
-        at: "2026-02-19T03:20:00.100Z",
-      },
-      {
-        type: "thread.status.changed",
-        threadId: "thr_03",
-        from: "streaming",
-        to: "open",
-        at: "2026-02-19T03:20:00.101Z",
-      },
-      {
-        type: "thread.finished",
-        threadId: "thr_03",
-        contextId: "ctx_03",
-        executionId: "exe_03",
-        result: "completed",
-        at: "2026-02-19T03:20:00.110Z",
+        status: "idle",
+        at: "2026-02-19T03:20:00.091Z",
       },
     ]
 
@@ -458,17 +431,15 @@ describeInstant("thread scripted reactor + Instant runtime", () => {
     expect(createdContexts.length).toBe(0)
 
     expect(() =>
-      assertThreadStreamTransitions(
-        parseThreadStreamEvent({
-          type: "execution.status.changed",
-          executionId: "exe_invalid",
-          contextId: "ctx_invalid",
-          threadId: "thr_invalid",
-          from: "completed",
-          to: "executing",
-          at: "2026-02-19T03:20:00.200Z",
-        }),
-      ),
-    ).toThrow("Invalid execution.status transition")
+      parseThreadStreamEvent({
+        type: "execution.status.changed",
+        executionId: "exe_invalid",
+        contextId: "ctx_invalid",
+        threadId: "thr_invalid",
+        from: "completed",
+        to: "executing",
+        at: "2026-02-19T03:20:00.200Z",
+      }),
+    ).toThrow("Unsupported thread stream event type")
   })
 })

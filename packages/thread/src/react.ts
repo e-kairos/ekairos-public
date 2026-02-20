@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ThreadContextStatus,
-  ThreadContextSubstateKey,
   ThreadThreadStatus,
 } from "./thread.contract.js";
 
@@ -27,24 +26,8 @@ export type ThreadSnapshot<Context = unknown, Item = Record<string, unknown>> = 
 
 export type ThreadStreamChunk =
   | {
-      type: "data-context-id";
+      type: `data-context.${string}`;
       data?: { contextId?: string };
-      id?: string;
-    }
-  | {
-      type: "data-context-substate";
-      data?: { key?: ThreadContextSubstateKey | null };
-      transient?: boolean;
-    }
-  | {
-      type: "tool-output-available";
-      toolCallId?: string;
-      output?: unknown;
-    }
-  | {
-      type: "tool-output-error";
-      toolCallId?: string;
-      errorText?: string;
     }
   | {
       type: string;
@@ -88,7 +71,6 @@ export function useThread<Context = unknown, Item = Record<string, unknown>>(
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [contextId, setContextId] = useState<string | null>(null);
-  const [substateKey, setSubstateKey] = useState<string | null>(null);
 
   const enabled = options.enabled ?? true;
 
@@ -122,7 +104,7 @@ export function useThread<Context = unknown, Item = Record<string, unknown>>(
 
   const applyChunk = useCallback((chunk: ThreadStreamChunk) => {
     if (!chunk || typeof chunk !== "object") return;
-    if (chunk.type === "data-context-id") {
+    if (typeof chunk.type === "string" && chunk.type.startsWith("data-context.")) {
       const payload =
         "data" in chunk && chunk.data && typeof chunk.data === "object"
           ? (chunk.data as { contextId?: unknown })
@@ -130,20 +112,8 @@ export function useThread<Context = unknown, Item = Record<string, unknown>>(
       const candidate =
         typeof payload?.contextId === "string"
           ? payload.contextId
-          : typeof chunk.id === "string"
-            ? chunk.id
-            : null;
+          : null;
       if (candidate) setContextId(candidate);
-      return;
-    }
-    if (chunk.type === "data-context-substate") {
-      const payload =
-        "data" in chunk && chunk.data && typeof chunk.data === "object"
-          ? (chunk.data as { key?: unknown })
-          : undefined;
-      const key = payload?.key;
-      setSubstateKey(typeof key === "string" ? key : null);
-      return;
     }
   }, []);
 
@@ -166,7 +136,6 @@ export function useThread<Context = unknown, Item = Record<string, unknown>>(
     refresh,
     setData,
     contextId,
-    substateKey,
     applyChunk,
     url,
   };

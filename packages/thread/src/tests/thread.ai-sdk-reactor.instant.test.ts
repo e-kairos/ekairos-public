@@ -6,14 +6,18 @@ import { MockLanguageModelV2 } from "ai/test"
 import { configureRuntime } from "@ekairos/domain/runtime"
 import { init } from "@instantdb/admin"
 import { randomUUID } from "node:crypto"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { z } from "zod"
 
 import {
   createAiSdkReactor,
   createThread,
   didToolExecute,
+  parseThreadStreamEvent,
   threadDomain,
   THREAD_STREAM_CHUNK_TYPES,
+  validateThreadStreamTimeline,
   type ThreadItem,
 } from "../index.ts"
 import { describeInstant, itInstant, destroyThreadTestApp, provisionThreadTestApp } from "./_env.ts"
@@ -48,10 +52,72 @@ function readString(row: Record<string, unknown> | undefined, key: string): stri
   return null
 }
 
+function readNumber(row: Record<string, unknown> | undefined, key: string): number | null {
+  if (!row) return null
+  const value = row[key]
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  if (typeof value === "string") {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function toIso(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString()
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString()
+  }
+  return null
+}
+
+function clipText(value: string, max = 240): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}...`
+}
+
+function summarizeChunkForTimeline(chunk: Record<string, unknown>, index: number) {
+  const type = typeof chunk.type === "string" ? chunk.type : "unknown"
+  const data = asRecord(chunk.data)
+  const delta = typeof chunk.delta === "string" ? chunk.delta : null
+  const chunkPreviewSource = data
+    ? JSON.stringify(data)
+    : JSON.stringify(
+        Object.fromEntries(
+          Object.entries(chunk).filter(([key]) => !["type", "id", "data"].includes(key)),
+        ),
+      )
+
+  return {
+    index,
+    chunkType: type,
+    eventType: data ? readString(data, "type") : null,
+    canonicalChunkType: data ? readString(data, "chunkType") : null,
+    providerChunkType: data ? readString(data, "providerChunkType") : null,
+    sequence: data ? readNumber(data, "sequence") : null,
+    at: data ? readString(data, "at") : null,
+    status: data ? readString(data, "status") : null,
+    stepId: data ? readString(data, "stepId") : null,
+    itemId: data ? readString(data, "itemId") : null,
+    executionId: data ? readString(data, "executionId") : null,
+    kind: data ? readString(data, "kind") : null,
+    actionName: data ? readString(data, "actionName") : null,
+    partType: data ? readString(data, "partType") : null,
+    partPreview: data ? readString(data, "partPreview") : null,
+    textDelta: delta,
+    toolName: readString(chunk, "toolName"),
+    toolCallId: readString(chunk, "toolCallId") ?? readString(chunk, "id"),
+    rawPreview: chunkPreviewSource ? clipText(chunkPreviewSource) : null,
+  }
+}
+
 function createTriggerEvent(text: string): ThreadItem {
   return {
     id: randomUUID(),
-    type: "input_text",
+    type: "input",
     channel: "web",
     createdAt: new Date().toISOString(),
     content: {
@@ -79,6 +145,10 @@ function createMockModel(toolName: string): MockLanguageModelV2 {
     doGenerate: async () => ({
       content: [
         {
+          type: "text",
+          text: "I will set status to ready.",
+        },
+        {
           type: "tool-call",
           toolCallId: "tc_set_status_1",
           toolName,
@@ -86,8 +156,20 @@ function createMockModel(toolName: string): MockLanguageModelV2 {
         },
       ],
       finishReason: "tool-calls",
-      usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+      usage: {
+        inputTokens: 13,
+        outputTokens: 21,
+        totalTokens: 34,
+        reasoningTokens: 5,
+        cachedInputTokens: 2,
+      },
       warnings: [],
+      providerMetadata: {
+        "thread-tests": {
+          modelTier: "mock",
+          promptCache: "enabled",
+        },
+      },
     }),
     doStream: async () => ({
       stream: simulateReadableStream({
@@ -95,6 +177,20 @@ function createMockModel(toolName: string): MockLanguageModelV2 {
         chunkDelayInMs: null,
         chunks: [
           { type: "stream-start", warnings: [] },
+          { type: "text-start", id: "text_1" },
+          { type: "text-delta", id: "text_1", delta: "I will set status to ready." },
+          { type: "text-end", id: "text_1" },
+          { type: "reasoning-start", id: "reasoning_1" },
+          {
+            type: "reasoning-delta",
+            id: "reasoning_1",
+            delta: "Need deterministic tool call for status update.",
+          },
+          { type: "reasoning-end", id: "reasoning_1" },
+          { type: "tool-input-start", id: "tc_set_status_1", toolName },
+          { type: "tool-input-delta", id: "tc_set_status_1", delta: "{\"value\":\"re" },
+          { type: "tool-input-delta", id: "tc_set_status_1", delta: "ady\"}" },
+          { type: "tool-input-end", id: "tc_set_status_1" },
           {
             type: "tool-call",
             toolCallId: "tc_set_status_1",
@@ -102,9 +198,27 @@ function createMockModel(toolName: string): MockLanguageModelV2 {
             input: JSON.stringify({ value: "ready" }),
           },
           {
+            type: "response-metadata",
+            id: "resp_1",
+            modelId: "thread-tests-ai-sdk-mock",
+            timestamp: new Date(),
+          },
+          {
             type: "finish",
             finishReason: "tool-calls",
-            usage: { inputTokens: 2, outputTokens: 1, totalTokens: 3 },
+            usage: {
+              inputTokens: 13,
+              outputTokens: 21,
+              totalTokens: 34,
+              reasoningTokens: 5,
+              cachedInputTokens: 2,
+            },
+            providerMetadata: {
+              "thread-tests": {
+                modelTier: "mock",
+                promptCache: "enabled",
+              },
+            },
           },
         ],
       }),
@@ -220,7 +334,7 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
         $: { where: { id: result.executionId }, limit: 1 },
       },
       thread_steps: {
-        $: { where: { executionId: result.executionId }, limit: 10 },
+        $: { where: { "execution.id": result.executionId }, limit: 10 },
       },
       thread_items: {
         $: { where: { "context.id": result.contextId }, limit: 20 },
@@ -233,8 +347,8 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
     const stepRow = readRows(snapshot, "thread_steps")[0]
     const itemRows = readRows(snapshot, "thread_items")
 
-    expect(readString(threadRow, "status")).toBe("open")
-    expect(readString(contextRow, "status")).toBe("open")
+    expect(readString(threadRow, "status")).toBe("idle")
+    expect(readString(contextRow, "status")).toBe("closed")
     expect(readString(executionRow, "status")).toBe("completed")
     expect(readString(executionRow, "workflowRunId")).toBe(workflowRunId)
     expect(readString(stepRow, "status")).toBe("completed")
@@ -256,7 +370,7 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
 
   }, 5 * 60 * 1000)
 
-  itInstant("emits thread custom chunk contract with ai/test mocked model", async () => {
+  itInstant("emits explicit lifecycle chunks with ai/test mocked model", async () => {
     const workflowRunId = `thread-ai-sdk-stream-run-${Date.now()}`
     const contextKey = `thread-ai-sdk-stream-context:${workflowRunId}`
     const { chunks, writable } = createChunkCollector()
@@ -278,7 +392,7 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "set_status"))
       .build()
 
-    await streamingThread.react(createTriggerEvent("set status to ready"), {
+    const result = await streamingThread.react(createTriggerEvent("set status to ready"), {
       env: {
         actorId: "user_thread_tests",
         workflowRunId,
@@ -293,22 +407,142 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
     })
 
     expect(chunks.length).toBeGreaterThan(0)
-    const allowedCustomChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[])
-    const customChunkTypes = chunks
+    const streamEventTypes = chunks
+      .map((chunk) => readString(chunk, "type"))
+      .filter((type): type is string => Boolean(type))
+    expect(streamEventTypes.includes("data-context.created")).toBe(true)
+    expect(streamEventTypes.includes("data-execution.created")).toBe(true)
+    expect(streamEventTypes.includes("data-step.created")).toBe(true)
+    expect(streamEventTypes.includes("data-step.updated")).toBe(true)
+    expect(streamEventTypes.includes("data-step.completed")).toBe(true)
+    expect(streamEventTypes.includes("data-item.created")).toBe(true)
+    expect(streamEventTypes.includes("data-item.completed")).toBe(true)
+    expect(streamEventTypes[streamEventTypes.length - 1]).toBe("finish")
+
+    const allowedChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[])
+    const canonicalChunkTypes = chunks
       .map((chunk) => {
-        const type = chunk.type
-        return typeof type === "string" && allowedCustomChunkTypes.has(type) ? type : null
+        if (readString(chunk, "type") !== "data-chunk.emitted") return null
+        const data = asRecord(chunk.data)
+        const chunkType = data ? readString(data, "chunkType") : null
+        return chunkType && allowedChunkTypes.has(chunkType) ? chunkType : null
       })
       .filter((type): type is string => Boolean(type))
 
-    expect(customChunkTypes.length).toBeGreaterThan(0)
-    expect(customChunkTypes[0]).toBe("data-context-id")
-    expect(customChunkTypes.includes("tool-output-available")).toBe(true)
-    expect(customChunkTypes.includes("tool-output-error")).toBe(false)
-    expect(customChunkTypes[customChunkTypes.length - 1]).toBe("finish")
+    expect(canonicalChunkTypes.length).toBeGreaterThan(0)
+    expect(canonicalChunkTypes.includes("chunk.start")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.start_step")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.text_delta")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.reasoning_start")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.reasoning_delta")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.action_input_start")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.action_input_delta")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.action_input_available")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.finish_step")).toBe(true)
+    expect(canonicalChunkTypes.includes("chunk.finish")).toBe(true)
+
+    const snapshot = await currentDb().query({
+      thread_executions: {
+        $: { where: { id: result.executionId }, limit: 1 },
+      },
+      thread_steps: {
+        $: { where: { "execution.id": result.executionId }, limit: 20 },
+      },
+      thread_items: {
+        $: { where: { "context.id": result.contextId }, limit: 50 },
+      },
+    })
+    const executionRow = readRows(snapshot, "thread_executions")[0]
+    const stepRows = readRows(snapshot, "thread_steps")
+    const itemRows = readRows(snapshot, "thread_items")
+    const usageChunk = chunks
+      .map((chunk) => asRecord(chunk))
+      .find((chunk) => chunk?.type === "finish")
+    const usage = usageChunk ? asRecord(usageChunk.usage) : null
+
+    const streamTimeline = chunks
+      .map((chunk) => asRecord(chunk))
+      .filter((chunk): chunk is Record<string, unknown> => Boolean(chunk))
+      .map((chunk, index) => summarizeChunkForTimeline(chunk, index))
+
+    const parsedEvents = chunks
+      .map((chunk) => asRecord(chunk))
+      .filter((chunk): chunk is Record<string, unknown> => Boolean(chunk))
+      .filter((chunk) => {
+        const type = readString(chunk, "type")
+        return Boolean(type && type.startsWith("data-") && type !== "finish")
+      })
+      .map((chunk) => parseThreadStreamEvent(chunk.data))
+    validateThreadStreamTimeline(parsedEvents)
+
+    const mappedRows = streamTimeline.filter((row) => row.chunkType === "data-chunk.emitted")
+    const sequenceValues = mappedRows
+      .map((row) => row.sequence)
+      .filter((value): value is number => typeof value === "number")
+    const hasSequenceGap = sequenceValues.some((value, index) =>
+      index > 0 ? value !== sequenceValues[index - 1] + 1 : false,
+    )
+    expect(hasSequenceGap).toBe(false)
+
+    const unknownChunkCount = mappedRows.filter(
+      (row) => row.canonicalChunkType === "chunk.unknown",
+    ).length
+    const mappingSummary = mappedRows.reduce<Record<string, number>>((acc, row) => {
+      const providerChunkType = row.providerChunkType ?? "unknown-provider"
+      const canonicalChunkType = row.canonicalChunkType ?? "unknown-canonical"
+      const key = `${providerChunkType}->${canonicalChunkType}`
+      acc[key] = (acc[key] ?? 0) + 1
+      return acc
+    }, {})
+
+    const entityTimeline = [
+      ...stepRows.map((row) => ({
+        entity: "step",
+        id: readString(row, "id"),
+        iteration: readNumber(row, "iteration"),
+        kind: readString(row, "kind"),
+        status: readString(row, "status"),
+        actionName: readString(row, "actionName"),
+        createdAt: toIso(row.createdAt),
+        updatedAt: toIso(row.updatedAt),
+      })),
+      ...itemRows.map((row) => ({
+        entity: "item",
+        id: readString(row, "id"),
+        type: readString(row, "type"),
+        status: readString(row, "status"),
+        createdAt: toIso(row.createdAt),
+        updatedAt: toIso(row.updatedAt),
+      })),
+    ].sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))
+
+    const report = {
+      test: "thread.ai-sdk-reactor.instant.test.ts",
+      mode: "mocked",
+      model: "thread-tests-ai-sdk-mock",
+      workflowRunId,
+      executionId: result.executionId,
+      contextId: result.contextId,
+      reactionEventId: result.reactionEventId,
+      usage,
+      streamTimeline,
+      mappingSummary,
+      unknownChunkCount,
+      hasSequenceGap,
+      entityTimeline,
+      execution: executionRow,
+    }
+    const reportDir = resolve(process.cwd(), ".ekairos", "reports")
+    mkdirSync(reportDir, { recursive: true })
+    const reportPath = resolve(reportDir, `thread-ai-sdk-mock-report-${Date.now()}.json`)
+    writeFileSync(reportPath, JSON.stringify(report, null, 2))
+    // eslint-disable-next-line no-console
+    console.log(`[thread-mock-test-report] ${reportPath}`)
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify(report, null, 2))
   }, 5 * 60 * 1000)
 
-  itInstant("emits tool-output-error chunk when tool execution fails", async () => {
+  itInstant("emits explicit step/item lifecycle when action execution fails", async () => {
     const workflowRunId = `thread-ai-sdk-error-run-${Date.now()}`
     const contextKey = `thread-ai-sdk-error-context:${workflowRunId}`
     const { chunks, writable } = createChunkCollector()
@@ -347,18 +581,28 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
     })
 
     expect(chunks.length).toBeGreaterThan(0)
-    const allowedCustomChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[])
-    const customChunkTypes = chunks
+    const streamEventTypes = chunks
+      .map((chunk) => readString(chunk, "type"))
+      .filter((type): type is string => Boolean(type))
+
+    expect(streamEventTypes.length).toBeGreaterThan(0)
+    expect(streamEventTypes[0]).toBe("data-context.created")
+    expect(streamEventTypes.includes("data-step.updated")).toBe(true)
+    expect(streamEventTypes.includes("data-item.completed")).toBe(true)
+    expect(streamEventTypes[streamEventTypes.length - 1]).toBe("finish")
+
+    const allowedChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[])
+    const canonicalChunkTypes = chunks
       .map((chunk) => {
-        const type = chunk.type
-        return typeof type === "string" && allowedCustomChunkTypes.has(type) ? type : null
+        if (readString(chunk, "type") !== "data-chunk.emitted") return null
+        const data = asRecord(chunk.data)
+        const chunkType = data ? readString(data, "chunkType") : null
+        return chunkType && allowedChunkTypes.has(chunkType) ? chunkType : null
       })
       .filter((type): type is string => Boolean(type))
 
-    expect(customChunkTypes.length).toBeGreaterThan(0)
-    expect(customChunkTypes[0]).toBe("data-context-id")
-    expect(customChunkTypes.includes("tool-output-error")).toBe(true)
-    expect(customChunkTypes[customChunkTypes.length - 1]).toBe("finish")
+    expect(canonicalChunkTypes.length).toBeGreaterThan(0)
+    expect(canonicalChunkTypes.includes("chunk.action_input_available")).toBe(true)
 
     const snapshot = await currentDb().query({
       thread_executions: {

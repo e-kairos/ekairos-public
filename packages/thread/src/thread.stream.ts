@@ -1,16 +1,14 @@
-import {
-  assertContextTransition,
-  assertExecutionTransition,
-  assertItemTransition,
-  assertStepTransition,
-  assertThreadTransition,
-  type ThreadContextStatus,
-  type ThreadExecutionStatus,
-  type ThreadItemStatus,
-  type ThreadStepStatus,
-  type ThreadStreamChunkType,
-  type ThreadThreadStatus,
+import type {
+  ThreadContextStatus,
+  ThreadExecutionStatus,
+  ThreadItemStatus,
+  ThreadItemType,
+  ThreadStepKind,
+  ThreadStepStatus,
+  ThreadStreamChunkType,
+  ThreadThreadStatus,
 } from "./thread.contract.js"
+import { isThreadStreamChunkType } from "./thread.contract.js"
 
 type IsoDateString = string
 
@@ -19,7 +17,6 @@ type ThreadStreamEventBase = {
   at: IsoDateString
 }
 
-// Hierarchy block 1: context
 export type ContextCreatedEvent = ThreadStreamEventBase & {
   type: "context.created"
   contextId: string
@@ -34,15 +31,26 @@ export type ContextResolvedEvent = ThreadStreamEventBase & {
   status: ThreadContextStatus
 }
 
-export type ContextStatusChangedEvent = ThreadStreamEventBase & {
-  type: "context.status.changed"
+export type ContextOpenedEvent = ThreadStreamEventBase & {
+  type: "context.opened"
   contextId: string
   threadId: string
-  from: ThreadContextStatus
-  to: ThreadContextStatus
+  status: "open"
 }
 
-// Hierarchy block 2: thread (execution belongs to thread lifecycle)
+export type ContextClosedEvent = ThreadStreamEventBase & {
+  type: "context.closed"
+  contextId: string
+  threadId: string
+  status: "closed"
+}
+
+export type ContextContentUpdatedEvent = ThreadStreamEventBase & {
+  type: "context.content_updated"
+  contextId: string
+  threadId: string
+}
+
 export type ThreadCreatedEvent = ThreadStreamEventBase & {
   type: "thread.created"
   threadId: string
@@ -55,11 +63,16 @@ export type ThreadResolvedEvent = ThreadStreamEventBase & {
   status: ThreadThreadStatus
 }
 
-export type ThreadStatusChangedEvent = ThreadStreamEventBase & {
-  type: "thread.status.changed"
+export type ThreadStreamingStartedEvent = ThreadStreamEventBase & {
+  type: "thread.streaming_started"
   threadId: string
-  from: ThreadThreadStatus
-  to: ThreadThreadStatus
+  status: "streaming"
+}
+
+export type ThreadIdleEvent = ThreadStreamEventBase & {
+  type: "thread.idle"
+  threadId: string
+  status: "idle"
 }
 
 export type ExecutionCreatedEvent = ThreadStreamEventBase & {
@@ -67,27 +80,25 @@ export type ExecutionCreatedEvent = ThreadStreamEventBase & {
   executionId: string
   contextId: string
   threadId: string
-  status: ThreadExecutionStatus
+  status: "executing"
 }
 
-export type ExecutionStatusChangedEvent = ThreadStreamEventBase & {
-  type: "execution.status.changed"
+export type ExecutionCompletedEvent = ThreadStreamEventBase & {
+  type: "execution.completed"
   executionId: string
   contextId: string
   threadId: string
-  from: ThreadExecutionStatus
-  to: ThreadExecutionStatus
+  status: "completed"
 }
 
-export type ThreadFinishedEvent = ThreadStreamEventBase & {
-  type: "thread.finished"
-  threadId: string
-  contextId: string
+export type ExecutionFailedEvent = ThreadStreamEventBase & {
+  type: "execution.failed"
   executionId: string
-  result: "completed" | "failed"
+  contextId: string
+  threadId: string
+  status: "failed"
 }
 
-// Hierarchy block 3: item
 export type ItemCreatedEvent = ThreadStreamEventBase & {
   type: "item.created"
   itemId: string
@@ -95,40 +106,80 @@ export type ItemCreatedEvent = ThreadStreamEventBase & {
   threadId: string
   executionId?: string
   status: ThreadItemStatus
+  itemType?: ThreadItemType
 }
 
-export type ItemStatusChangedEvent = ThreadStreamEventBase & {
-  type: "item.status.changed"
+export type ItemUpdatedEvent = ThreadStreamEventBase & {
+  type: "item.updated"
   itemId: string
+  contextId: string
+  threadId: string
   executionId?: string
-  from: ThreadItemStatus
-  to: ThreadItemStatus
+  status?: ThreadItemStatus
 }
 
-// Hierarchy block 4: step
+export type ItemPendingEvent = ThreadStreamEventBase & {
+  type: "item.pending"
+  itemId: string
+  contextId: string
+  threadId: string
+  executionId?: string
+  status: "pending"
+}
+
+export type ItemCompletedEvent = ThreadStreamEventBase & {
+  type: "item.completed"
+  itemId: string
+  contextId: string
+  threadId: string
+  executionId?: string
+  status: "completed"
+}
+
 export type StepCreatedEvent = ThreadStreamEventBase & {
   type: "step.created"
   stepId: string
   executionId: string
   iteration: number
-  status: ThreadStepStatus
+  status: "running"
 }
 
-export type StepStatusChangedEvent = ThreadStreamEventBase & {
-  type: "step.status.changed"
+export type StepUpdatedEvent = ThreadStreamEventBase & {
+  type: "step.updated"
   stepId: string
   executionId: string
-  from: ThreadStepStatus
-  to: ThreadStepStatus
+  iteration?: number
+  status?: ThreadStepStatus
+  kind?: ThreadStepKind
+  actionName?: string
 }
 
-// Hierarchy block 5: part
+export type StepCompletedEvent = ThreadStreamEventBase & {
+  type: "step.completed"
+  stepId: string
+  executionId: string
+  iteration?: number
+  status: "completed"
+}
+
+export type StepFailedEvent = ThreadStreamEventBase & {
+  type: "step.failed"
+  stepId: string
+  executionId: string
+  iteration?: number
+  status: "failed"
+  errorText?: string
+}
+
 export type PartCreatedEvent = ThreadStreamEventBase & {
   type: "part.created"
   partKey: string
   stepId: string
   idx: number
-  part?: unknown
+  partType?: string
+  partPreview?: string
+  partState?: string
+  partToolCallId?: string
 }
 
 export type PartUpdatedEvent = ThreadStreamEventBase & {
@@ -136,35 +187,67 @@ export type PartUpdatedEvent = ThreadStreamEventBase & {
   partKey: string
   stepId: string
   idx: number
-  part?: unknown
+  partType?: string
+  partPreview?: string
+  partState?: string
+  partToolCallId?: string
 }
 
-// Hierarchy block 6: chunk
 export type ChunkEmittedEvent = ThreadStreamEventBase & {
   type: "chunk.emitted"
   chunkType: ThreadStreamChunkType
   contextId: string
   executionId?: string
   stepId?: string
+  itemId?: string
+  partKey?: string
+  actionRef?: string
+  provider?: string
+  providerChunkType?: string
+  sequence: number
   data?: unknown
+  raw?: unknown
 }
 
-export type ThreadStreamEvent =
+export type ContextEvent =
   | ContextCreatedEvent
   | ContextResolvedEvent
-  | ContextStatusChangedEvent
+  | ContextOpenedEvent
+  | ContextClosedEvent
+  | ContextContentUpdatedEvent
+
+export type ThreadEvent =
   | ThreadCreatedEvent
   | ThreadResolvedEvent
-  | ThreadStatusChangedEvent
+  | ThreadStreamingStartedEvent
+  | ThreadIdleEvent
+
+export type ExecutionEvent =
   | ExecutionCreatedEvent
-  | ExecutionStatusChangedEvent
-  | ThreadFinishedEvent
+  | ExecutionCompletedEvent
+  | ExecutionFailedEvent
+
+export type ItemEvent =
   | ItemCreatedEvent
-  | ItemStatusChangedEvent
+  | ItemUpdatedEvent
+  | ItemPendingEvent
+  | ItemCompletedEvent
+
+export type StepEvent =
   | StepCreatedEvent
-  | StepStatusChangedEvent
-  | PartCreatedEvent
-  | PartUpdatedEvent
+  | StepUpdatedEvent
+  | StepCompletedEvent
+  | StepFailedEvent
+
+export type PartEvent = PartCreatedEvent | PartUpdatedEvent
+
+export type ThreadStreamEvent =
+  | ContextEvent
+  | ThreadEvent
+  | ExecutionEvent
+  | ItemEvent
+  | StepEvent
+  | PartEvent
   | ChunkEmittedEvent
 
 function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -185,13 +268,24 @@ function assertNumber(value: unknown, label: string): asserts value is number {
   }
 }
 
+function assertOptionalString(value: unknown, label: string) {
+  if (value !== undefined) {
+    assertString(value, label)
+  }
+}
+
+function assertOptionalNumber(value: unknown, label: string) {
+  if (value !== undefined) {
+    assertNumber(value, label)
+  }
+}
+
 export function parseThreadStreamEvent(value: unknown): ThreadStreamEvent {
   assertObject(value, "thread stream event")
   assertString(value.type, "thread stream event.type")
   assertString(value.at, "thread stream event.at")
 
   const type = value.type
-
   switch (type) {
     case "context.created":
     case "context.resolved": {
@@ -200,65 +294,64 @@ export function parseThreadStreamEvent(value: unknown): ThreadStreamEvent {
       assertString(value.status, `${type}.status`)
       return value as ContextCreatedEvent | ContextResolvedEvent
     }
-    case "context.status.changed": {
+    case "context.opened":
+    case "context.closed": {
       assertString(value.contextId, `${type}.contextId`)
       assertString(value.threadId, `${type}.threadId`)
-      assertString(value.from, `${type}.from`)
-      assertString(value.to, `${type}.to`)
-      return value as ContextStatusChangedEvent
+      assertString(value.status, `${type}.status`)
+      return value as ContextOpenedEvent | ContextClosedEvent
+    }
+    case "context.content_updated": {
+      assertString(value.contextId, `${type}.contextId`)
+      assertString(value.threadId, `${type}.threadId`)
+      return value as ContextContentUpdatedEvent
     }
     case "thread.created":
-    case "thread.resolved": {
+    case "thread.resolved":
+    case "thread.streaming_started":
+    case "thread.idle": {
       assertString(value.threadId, `${type}.threadId`)
       assertString(value.status, `${type}.status`)
-      return value as ThreadCreatedEvent | ThreadResolvedEvent
+      return value as
+        | ThreadCreatedEvent
+        | ThreadResolvedEvent
+        | ThreadStreamingStartedEvent
+        | ThreadIdleEvent
     }
-    case "thread.status.changed": {
-      assertString(value.threadId, `${type}.threadId`)
-      assertString(value.from, `${type}.from`)
-      assertString(value.to, `${type}.to`)
-      return value as ThreadStatusChangedEvent
-    }
-    case "execution.created": {
+    case "execution.created":
+    case "execution.completed":
+    case "execution.failed": {
       assertString(value.executionId, `${type}.executionId`)
       assertString(value.contextId, `${type}.contextId`)
       assertString(value.threadId, `${type}.threadId`)
       assertString(value.status, `${type}.status`)
-      return value as ExecutionCreatedEvent
-    }
-    case "execution.status.changed": {
-      assertString(value.executionId, `${type}.executionId`)
-      assertString(value.contextId, `${type}.contextId`)
-      assertString(value.threadId, `${type}.threadId`)
-      assertString(value.from, `${type}.from`)
-      assertString(value.to, `${type}.to`)
-      return value as ExecutionStatusChangedEvent
-    }
-    case "thread.finished": {
-      assertString(value.threadId, `${type}.threadId`)
-      assertString(value.contextId, `${type}.contextId`)
-      assertString(value.executionId, `${type}.executionId`)
-      assertString(value.result, `${type}.result`)
-      return value as ThreadFinishedEvent
+      return value as ExecutionCreatedEvent | ExecutionCompletedEvent | ExecutionFailedEvent
     }
     case "item.created": {
       assertString(value.itemId, `${type}.itemId`)
       assertString(value.contextId, `${type}.contextId`)
       assertString(value.threadId, `${type}.threadId`)
       assertString(value.status, `${type}.status`)
-      if (value.executionId !== undefined) {
-        assertString(value.executionId, `${type}.executionId`)
-      }
+      assertOptionalString(value.executionId, `${type}.executionId`)
+      assertOptionalString(value.itemType, `${type}.itemType`)
       return value as ItemCreatedEvent
     }
-    case "item.status.changed": {
+    case "item.updated": {
       assertString(value.itemId, `${type}.itemId`)
-      assertString(value.from, `${type}.from`)
-      assertString(value.to, `${type}.to`)
-      if (value.executionId !== undefined) {
-        assertString(value.executionId, `${type}.executionId`)
-      }
-      return value as ItemStatusChangedEvent
+      assertString(value.contextId, `${type}.contextId`)
+      assertString(value.threadId, `${type}.threadId`)
+      assertOptionalString(value.executionId, `${type}.executionId`)
+      assertOptionalString(value.status, `${type}.status`)
+      return value as ItemUpdatedEvent
+    }
+    case "item.pending":
+    case "item.completed": {
+      assertString(value.itemId, `${type}.itemId`)
+      assertString(value.contextId, `${type}.contextId`)
+      assertString(value.threadId, `${type}.threadId`)
+      assertOptionalString(value.executionId, `${type}.executionId`)
+      assertString(value.status, `${type}.status`)
+      return value as ItemPendingEvent | ItemCompletedEvent
     }
     case "step.created": {
       assertString(value.stepId, `${type}.stepId`)
@@ -267,57 +360,58 @@ export function parseThreadStreamEvent(value: unknown): ThreadStreamEvent {
       assertString(value.status, `${type}.status`)
       return value as StepCreatedEvent
     }
-    case "step.status.changed": {
+    case "step.updated": {
       assertString(value.stepId, `${type}.stepId`)
       assertString(value.executionId, `${type}.executionId`)
-      assertString(value.from, `${type}.from`)
-      assertString(value.to, `${type}.to`)
-      return value as StepStatusChangedEvent
+      if (value.iteration !== undefined) assertNumber(value.iteration, `${type}.iteration`)
+      assertOptionalString(value.status, `${type}.status`)
+      assertOptionalString(value.kind, `${type}.kind`)
+      assertOptionalString(value.actionName, `${type}.actionName`)
+      return value as StepUpdatedEvent
+    }
+    case "step.completed":
+    case "step.failed": {
+      assertString(value.stepId, `${type}.stepId`)
+      assertString(value.executionId, `${type}.executionId`)
+      if (value.iteration !== undefined) assertNumber(value.iteration, `${type}.iteration`)
+      assertString(value.status, `${type}.status`)
+      if (type === "step.failed") assertOptionalString(value.errorText, `${type}.errorText`)
+      return value as StepCompletedEvent | StepFailedEvent
     }
     case "part.created":
     case "part.updated": {
       assertString(value.partKey, `${type}.partKey`)
       assertString(value.stepId, `${type}.stepId`)
       assertNumber(value.idx, `${type}.idx`)
+      assertOptionalString(value.partType, `${type}.partType`)
+      assertOptionalString(value.partPreview, `${type}.partPreview`)
+      assertOptionalString(value.partState, `${type}.partState`)
+      assertOptionalString(value.partToolCallId, `${type}.partToolCallId`)
       return value as PartCreatedEvent | PartUpdatedEvent
     }
     case "chunk.emitted": {
       assertString(value.chunkType, `${type}.chunkType`)
+      if (!isThreadStreamChunkType(value.chunkType)) {
+        throw new Error(`Invalid ${type}.chunkType: ${String(value.chunkType)}`)
+      }
       assertString(value.contextId, `${type}.contextId`)
-      if (value.executionId !== undefined) {
-        assertString(value.executionId, `${type}.executionId`)
-      }
-      if (value.stepId !== undefined) {
-        assertString(value.stepId, `${type}.stepId`)
-      }
+      assertOptionalString(value.executionId, `${type}.executionId`)
+      assertOptionalString(value.stepId, `${type}.stepId`)
+      assertOptionalString(value.itemId, `${type}.itemId`)
+      assertOptionalString(value.partKey, `${type}.partKey`)
+      assertOptionalString(value.actionRef, `${type}.actionRef`)
+      assertOptionalString(value.provider, `${type}.provider`)
+      assertOptionalString(value.providerChunkType, `${type}.providerChunkType`)
+      assertOptionalNumber(value.sequence, `${type}.sequence`)
       return value as ChunkEmittedEvent
     }
-    default: {
+    default:
       throw new Error(`Unsupported thread stream event type: ${type}`)
-    }
   }
 }
 
-export function assertThreadStreamTransitions(event: ThreadStreamEvent) {
-  switch (event.type) {
-    case "context.status.changed":
-      assertContextTransition(event.from, event.to)
-      return
-    case "thread.status.changed":
-      assertThreadTransition(event.from, event.to)
-      return
-    case "execution.status.changed":
-      assertExecutionTransition(event.from, event.to)
-      return
-    case "item.status.changed":
-      assertItemTransition(event.from, event.to)
-      return
-    case "step.status.changed":
-      assertStepTransition(event.from, event.to)
-      return
-    default:
-      return
-  }
+export function assertThreadStreamTransitions(_event: ThreadStreamEvent) {
+  return
 }
 
 export function validateThreadStreamTimeline(events: readonly ThreadStreamEvent[]) {

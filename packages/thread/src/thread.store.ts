@@ -4,6 +4,7 @@ import type {
   ThreadContextStatus,
   ThreadExecutionStatus,
   ThreadStepStatus as ContractThreadStepStatus,
+  ThreadStepKind,
   ThreadItemStatus,
   ThreadItemType,
   ThreadChannel,
@@ -69,12 +70,13 @@ export type ThreadStep = {
   updatedAt?: Date
   status: ThreadStepStatus
   iteration: number
-  executionId: string
-  triggerEventId?: string
-  reactionEventId?: string
-  eventId: string
-  toolCalls?: any
-  toolExecutionResults?: any
+  kind?: ThreadStepKind
+  actionName?: string
+  actionInput?: unknown
+  actionOutput?: unknown
+  actionError?: string
+  actionRequests?: any
+  actionResults?: any
   continueLoop?: boolean
   errorText?: string
 }
@@ -114,7 +116,7 @@ export interface ThreadStore {
   createStep(params: {
     executionId: string
     iteration: number
-  }): Promise<{ id: string; eventId: string }>
+  }): Promise<{ id: string }>
 
   /**
    * Updates a persisted thread step with completion metadata (tools, errors, continue signal, etc).
@@ -125,8 +127,13 @@ export interface ThreadStore {
       Pick<
         ThreadStep,
         | "status"
-        | "toolCalls"
-        | "toolExecutionResults"
+        | "kind"
+        | "actionName"
+        | "actionInput"
+        | "actionOutput"
+        | "actionError"
+        | "actionRequests"
+        | "actionResults"
         | "continueLoop"
         | "errorText"
         | "updatedAt"

@@ -25,7 +25,7 @@ function textFromParts(parts: unknown): string {
       continue
     }
     if (partType === "input_text") {
-      const value = asString(record.input_text).trim()
+      const value = asString(record.input_text || record.text).trim()
       if (value) out.push(value)
       continue
     }

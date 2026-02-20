@@ -2,6 +2,12 @@
 
 Durable AI threads for production apps.
 
+## Specification
+
+Normative contract and compatibility profile:
+
+- `SPEC.md`
+
 `@ekairos/thread` gives you an execution model that is:
 
 - workflow-compatible,
@@ -33,7 +39,7 @@ This design supports long-running, resumable agent runs without losing state.
 - `Reactor`: pluggable reaction implementation (`AI SDK`, `Codex`, `Claude`, `Cursor`, ...).
 - `Thread Key`: stable public identifier (`thread.key`) for continuity.
 - `Context`: typed persistent state attached to a thread.
-- `Item`: normalized event (`input_text`, `output_text`, etc).
+- `Item`: normalized timeline record (`message`, `action_execute`, `action_result`, ...).
 - `Execution`: one run for a trigger/reaction pair.
 - `Step`: one loop iteration inside an execution.
 - `Part`: normalized content fragment persisted by step.

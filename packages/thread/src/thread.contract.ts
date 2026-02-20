@@ -3,10 +3,10 @@ export type Transition<From extends string, To extends string> = {
   to: To
 }
 
-export const THREAD_STATUSES = ["open", "streaming", "closed", "failed"] as const
+export const THREAD_STATUSES = ["idle", "streaming"] as const
 export type ThreadThreadStatus = (typeof THREAD_STATUSES)[number]
 
-export const THREAD_CONTEXT_STATUSES = ["open", "streaming", "closed"] as const
+export const THREAD_CONTEXT_STATUSES = ["open", "closed"] as const
 export type ThreadContextStatus = (typeof THREAD_CONTEXT_STATUSES)[number]
 
 export const THREAD_EXECUTION_STATUSES = ["executing", "completed", "failed"] as const
@@ -15,10 +15,20 @@ export type ThreadExecutionStatus = (typeof THREAD_EXECUTION_STATUSES)[number]
 export const THREAD_STEP_STATUSES = ["running", "completed", "failed"] as const
 export type ThreadStepStatus = (typeof THREAD_STEP_STATUSES)[number]
 
+export const THREAD_STEP_KINDS = [
+  "message",
+  "action_execute",
+  "action_result",
+] as const
+export type ThreadStepKind = (typeof THREAD_STEP_KINDS)[number]
+
 export const THREAD_ITEM_STATUSES = ["stored", "pending", "completed"] as const
 export type ThreadItemStatus = (typeof THREAD_ITEM_STATUSES)[number]
 
-export const THREAD_ITEM_TYPES = ["input_text", "output_text", "ekairos:system"] as const
+export const THREAD_ITEM_TYPES = [
+  "input",
+  "output",
+] as const
 export type ThreadItemType = (typeof THREAD_ITEM_TYPES)[number]
 
 export const THREAD_CHANNELS = ["web", "whatsapp", "email"] as const
@@ -38,38 +48,78 @@ export const THREAD_TRACE_EVENT_KINDS = [
 ] as const
 export type ThreadTraceEventKind = (typeof THREAD_TRACE_EVENT_KINDS)[number]
 
+export const THREAD_STREAM_LIFECYCLE_CHUNK_TYPES = [
+  "chunk.start",
+  "chunk.start_step",
+  "chunk.finish_step",
+  "chunk.finish",
+] as const
+
+export const THREAD_STREAM_TEXT_CHUNK_TYPES = [
+  "chunk.text_start",
+  "chunk.text_delta",
+  "chunk.text_end",
+] as const
+
+export const THREAD_STREAM_REASONING_CHUNK_TYPES = [
+  "chunk.reasoning_start",
+  "chunk.reasoning_delta",
+  "chunk.reasoning_end",
+] as const
+
+export const THREAD_STREAM_ACTION_CHUNK_TYPES = [
+  "chunk.action_input_start",
+  "chunk.action_input_delta",
+  "chunk.action_input_available",
+  "chunk.action_output_available",
+  "chunk.action_output_error",
+] as const
+
+export const THREAD_STREAM_SOURCE_CHUNK_TYPES = [
+  "chunk.source_url",
+  "chunk.source_document",
+  "chunk.file",
+] as const
+
+export const THREAD_STREAM_METADATA_CHUNK_TYPES = [
+  "chunk.message_metadata",
+  "chunk.response_metadata",
+] as const
+
+export const THREAD_STREAM_ERROR_CHUNK_TYPES = [
+  "chunk.error",
+  "chunk.unknown",
+] as const
+
 export const THREAD_STREAM_CHUNK_TYPES = [
-  "data-context-id",
-  "data-context-substate",
-  "data-thread-ping",
-  "tool-output-available",
-  "tool-output-error",
-  "finish",
+  ...THREAD_STREAM_LIFECYCLE_CHUNK_TYPES,
+  ...THREAD_STREAM_TEXT_CHUNK_TYPES,
+  ...THREAD_STREAM_REASONING_CHUNK_TYPES,
+  ...THREAD_STREAM_ACTION_CHUNK_TYPES,
+  ...THREAD_STREAM_SOURCE_CHUNK_TYPES,
+  ...THREAD_STREAM_METADATA_CHUNK_TYPES,
+  ...THREAD_STREAM_ERROR_CHUNK_TYPES,
 ] as const
 export type ThreadStreamChunkType = (typeof THREAD_STREAM_CHUNK_TYPES)[number]
 
-export const THREAD_CONTEXT_SUBSTATE_KEYS = ["actions"] as const
-export type ThreadContextSubstateKey = (typeof THREAD_CONTEXT_SUBSTATE_KEYS)[number]
+export function isThreadStreamChunkType(value: string): value is ThreadStreamChunkType {
+  return (THREAD_STREAM_CHUNK_TYPES as readonly string[]).includes(value)
+}
 
-export type ThreadTransition = Transition<"open" | "streaming" | "failed", "open" | "streaming" | "closed" | "failed">
-export type ContextTransition = Transition<"open" | "streaming", "streaming" | "open" | "closed">
+export type ThreadTransition = Transition<"idle" | "streaming", "idle" | "streaming">
+export type ContextTransition = Transition<"open" | "closed", "open" | "closed">
 export type ExecutionTransition = Transition<"executing", "completed" | "failed">
 export type StepTransition = Transition<"running", "completed" | "failed">
 export type ItemTransition = Transition<"stored" | "pending", "pending" | "completed">
 
 export const THREAD_THREAD_TRANSITIONS: readonly ThreadTransition[] = [
-  { from: "open", to: "streaming" },
-  { from: "streaming", to: "open" },
-  { from: "streaming", to: "closed" },
-  { from: "streaming", to: "failed" },
-  { from: "failed", to: "open" },
+  { from: "idle", to: "streaming" },
+  { from: "streaming", to: "idle" },
 ]
 
 export const THREAD_CONTEXT_TRANSITIONS: readonly ContextTransition[] = [
-  { from: "open", to: "streaming" },
-  { from: "streaming", to: "open" },
   { from: "open", to: "closed" },
-  { from: "streaming", to: "closed" },
+  { from: "closed", to: "open" },
 ]
 
 export const THREAD_EXECUTION_TRANSITIONS: readonly ExecutionTransition[] = [

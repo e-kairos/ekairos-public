@@ -138,7 +138,7 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
 
   const verificationQuery = await adminDb.query({
     thread_steps: {
-      $: { where: { executionId }, limit: 50 },
+      $: { where: { "execution.id": executionId }, limit: 50 },
     },
     thread_items: {
       $: { where: { "context.id": streamContextId }, limit: 50 },
@@ -149,10 +149,10 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
   expect(stepRows.length).toBeGreaterThan(0);
   expect(stepRows.some((step) => readString(step, "status") === "completed")).toBe(true);
   expect(itemRows.length).toBeGreaterThan(0);
-  const reaction = itemRows.find((item) => readString(item, "type") === "output_text");
+  const reaction = itemRows.find((item) => readString(item, "type") === "output");
   expect(reaction).toBeTruthy();
   if (!reaction) {
-    throw new Error("Missing output_text reaction item for execution.");
+    throw new Error("Missing output reaction item for execution.");
   }
   expect(readString(reaction, "status")).toBe("completed");
   const reactionContent = asRecord(reaction.content);
@@ -270,7 +270,7 @@ test("story smoke emits tool-output-error chunk in workflow runtime", async ({ r
 
   const verificationQuery = await adminDb.query({
     thread_steps: {
-      $: { where: { executionId }, limit: 50 },
+      $: { where: { "execution.id": executionId }, limit: 50 },
     },
     thread_items: {
       $: { where: { "context.id": streamContextId }, limit: 50 },
@@ -287,10 +287,10 @@ test("story smoke emits tool-output-error chunk in workflow runtime", async ({ r
   });
   expect(hasPersistedToolError).toBe(true);
   expect(itemRows.length).toBeGreaterThan(0);
-  const reaction = itemRows.find((item) => readString(item, "type") === "output_text");
+  const reaction = itemRows.find((item) => readString(item, "type") === "output");
   expect(reaction).toBeTruthy();
   if (!reaction) {
-    throw new Error("Missing output_text reaction item for execution.");
+    throw new Error("Missing output reaction item for execution.");
   }
   expect(readString(reaction, "status")).toBe("completed");
   const reactionContent = asRecord(reaction.content);
