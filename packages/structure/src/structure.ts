@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
+import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/thread"
 import {
   getDatasetOutputPath,
   getDatasetOutputSchemaPath,
@@ -615,7 +615,7 @@ export function structure<Env extends { orgId: string }>(
       function makeUserMessageEvent(text: string) {
         return {
           id: createUuidV4(),
-          type: INPUT_ITEM_TYPE,
+          type: INPUT_TEXT_ITEM_TYPE,
           channel: WEB_CHANNEL,
           createdAt: new Date().toISOString(),
           content: { parts: [{ type: "text", text }] },

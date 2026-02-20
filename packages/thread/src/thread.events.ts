@@ -3,6 +3,7 @@ import type { ThreadItem } from "./thread.store.js"
 
 export const INPUT_ITEM_TYPE = "input"
 export const OUTPUT_ITEM_TYPE = "output"
+export const INPUT_TEXT_ITEM_TYPE = INPUT_ITEM_TYPE
 
 export const WEB_CHANNEL = "web"
 export const AGENT_CHANNEL = "whatsapp"

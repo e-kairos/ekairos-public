@@ -52,6 +52,7 @@ export { didToolExecute, extractToolCallsFromParts } from "./thread.toolcalls.js
 
 export {
   INPUT_ITEM_TYPE,
+  INPUT_TEXT_ITEM_TYPE,
   OUTPUT_ITEM_TYPE,
   WEB_CHANNEL,
   AGENT_CHANNEL,
