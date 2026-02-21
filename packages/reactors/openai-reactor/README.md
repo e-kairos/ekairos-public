@@ -10,6 +10,10 @@ This package is Codex-only:
 
 - `createCodexReactor(options)`  
   Codex App Server reactor for direct Thread execution (no tool indirection).
+- `mapCodexChunkType(providerChunkType)`  
+  Maps provider chunk types to canonical Thread chunk types.
+- `defaultMapCodexChunk(providerChunk)`  
+  Default provider-chunk mapper used by the reactor.
 
 ## Codex Reactor Example
 
@@ -50,6 +54,26 @@ const codingThread = createThread<any>("code.agent")
   .build();
 ```
 
+## Provider stream -> Thread mapping
+
+For each provider chunk you emit via `emitChunk(providerChunk)`, the reactor writes:
+
+- SSE chunk event: `data-chunk.emitted` with canonical `chunkType` (`chunk.text_delta`, `chunk.action_input_available`, etc.)
+- `codex-event` part metadata on the persisted output item:
+  - `streamTrace.totalChunks`
+  - `streamTrace.chunkTypes`
+  - `streamTrace.providerChunkTypes`
+  - `streamTrace.chunks[]` (configurable)
+
+Default behavior persists stream trace summary and mapped chunks in the final `codex-event`.
+
+Config options:
+
+- `includeStreamTraceInOutput` (default: `true`)
+- `includeRawProviderChunksInOutput` (default: `false`)
+- `maxPersistedStreamChunks` (default: `300`)
+- `onMappedChunk(chunk, params)` hook for custom telemetry pipelines
+
 ## Workflow Compatibility
 
 `resolveConfig` and `executeTurn` should be implemented as workflow-safe step functions when they perform I/O.
@@ -57,3 +81,8 @@ const codingThread = createThread<any>("code.agent")
 ## AI SDK generic reactor
 
 `createAiSdkReactor(...)` is provider-agnostic and lives in `@ekairos/thread`.
+
+## TODO
+
+- Continuity across machines should be validated end-to-end with persisted session state.
+- Current continuity assumption in local tests is: keep the same `contextId` and reuse the same provider `threadId` between turns.

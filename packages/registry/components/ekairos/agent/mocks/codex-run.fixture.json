@@ -15,42 +15,114 @@
       "approvalPolicy": "never"
     }
   },
-  "stream": [
+  "notifications": [
     {
-      "delayMs": 200,
-      "phase": "runtime.connecting",
-      "label": "Connecting to Codex runtime",
-      "state": "output-streaming"
-    },
-    {
-      "delayMs": 240,
-      "phase": "thread.started",
-      "label": "Thread started",
-      "state": "output-streaming"
+      "delayMs": 220,
+      "notification": {
+        "method": "thread/started",
+        "params": {
+          "thread": {
+            "id": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e"
+          }
+        }
+      }
     },
     {
       "delayMs": 220,
-      "phase": "turn.started",
-      "label": "Turn started",
-      "state": "output-streaming"
+      "notification": {
+        "method": "turn/started",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turn": {
+            "id": "turn-scripted-001",
+            "status": "inProgress"
+          }
+        }
+      }
     },
     {
-      "delayMs": 280,
-      "phase": "item.started",
-      "label": "agentMessage started",
-      "state": "output-streaming"
+      "delayMs": 240,
+      "notification": {
+        "method": "item/started",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turnId": "turn-scripted-001",
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-scripted-001",
+            "text": ""
+          }
+        }
+      }
     },
     {
-      "delayMs": 340,
-      "phase": "item.completed",
-      "label": "agentMessage completed",
-      "state": "output-streaming"
+      "delayMs": 250,
+      "notification": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turnId": "turn-scripted-001",
+          "itemId": "msg-scripted-001",
+          "delta": "README.md contains a short description"
+        }
+      }
     },
     {
-      "delayMs": 260,
-      "phase": "turn.completed",
-      "label": "Turn completed",
-      "state": "output-available"
+      "delayMs": 240,
+      "notification": {
+        "method": "item/agentMessage/delta",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turnId": "turn-scripted-001",
+          "itemId": "msg-scripted-001",
+          "delta": " for the Ekairos coding agent trace test."
+        }
+      }
+    },
+    {
+      "delayMs": 220,
+      "notification": {
+        "method": "item/completed",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turnId": "turn-scripted-001",
+          "item": {
+            "type": "agentMessage",
+            "id": "msg-scripted-001",
+            "text": "README.md contains a short description for the Ekairos coding agent trace test."
+          }
+        }
+      }
+    },
+    {
+      "delayMs": 210,
+      "notification": {
+        "method": "thread/tokenUsage/updated",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turnId": "turn-scripted-001",
+          "tokenUsage": {
+            "total": {
+              "totalTokens": 128,
+              "inputTokens": 103,
+              "outputTokens": 25
+            }
+          }
+        }
+      }
+    },
+    {
+      "delayMs": 180,
+      "notification": {
+        "method": "turn/completed",
+        "params": {
+          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "turn": {
+            "id": "turn-scripted-001",
+            "status": "completed"
+          }
+        }
+      }
     }
   ],
   "reaction": {

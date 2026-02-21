@@ -1,0 +1,127 @@
+{
+  "id": "registry-ai-sdk-run",
+  "title": "AI SDK reactor replay",
+  "source": {
+    "runId": "run:ai-sdk:demo:001",
+    "executionId": "exe:ai-sdk:demo:001",
+    "contextId": "ctx:ai-sdk:demo:001",
+    "threadId": "thr:ai-sdk:demo:001"
+  },
+  "request": {
+    "prompt": "Analyze the current README changes and produce a concise impact summary.",
+    "runtime": {
+      "mode": "local",
+      "provider": "ai-sdk",
+      "model": "openai/gpt-5.2-codex"
+    }
+  },
+  "chunks": [
+    {
+      "delayMs": 120,
+      "chunk": {
+        "chunkType": "chunk.start",
+        "providerChunkType": "ai-sdk/turn.started",
+        "label": "Thread started"
+      }
+    },
+    {
+      "delayMs": 90,
+      "chunk": {
+        "chunkType": "chunk.reasoning_start",
+        "providerChunkType": "ai-sdk/reasoning.start",
+        "label": "Reasoning started"
+      }
+    },
+    {
+      "delayMs": 110,
+      "chunk": {
+        "chunkType": "chunk.reasoning_delta",
+        "providerChunkType": "ai-sdk/reasoning.delta",
+        "label": "reasoning delta",
+        "text": "Inspecting README sections and release notes."
+      }
+    },
+    {
+      "delayMs": 90,
+      "chunk": {
+        "chunkType": "chunk.reasoning_end",
+        "providerChunkType": "ai-sdk/reasoning.end",
+        "label": "Reasoning completed"
+      }
+    },
+    {
+      "delayMs": 110,
+      "chunk": {
+        "chunkType": "chunk.text_start",
+        "providerChunkType": "ai-sdk/message.start",
+        "label": "assistant text started"
+      }
+    },
+    {
+      "delayMs": 80,
+      "chunk": {
+        "chunkType": "chunk.text_delta",
+        "providerChunkType": "ai-sdk/message.delta",
+        "label": "assistant text delta",
+        "text": "README now documents additional public exports and stream trace controls."
+      }
+    },
+    {
+      "delayMs": 80,
+      "chunk": {
+        "chunkType": "chunk.action_input_available",
+        "providerChunkType": "ai-sdk/tool.input",
+        "label": "tool input available",
+        "actionRef": "toolcall:list-files"
+      }
+    },
+    {
+      "delayMs": 120,
+      "chunk": {
+        "chunkType": "chunk.action_output_available",
+        "providerChunkType": "ai-sdk/tool.output",
+        "label": "tool output available",
+        "actionRef": "toolcall:list-files",
+        "text": "Discovered README.md edits under openai-reactor docs and tests."
+      }
+    },
+    {
+      "delayMs": 80,
+      "chunk": {
+        "chunkType": "chunk.text_delta",
+        "providerChunkType": "ai-sdk/message.delta",
+        "label": "assistant text delta",
+        "text": "Continuity assumptions are explicit: same contextId and same provider threadId."
+      }
+    },
+    {
+      "delayMs": 80,
+      "chunk": {
+        "chunkType": "chunk.response_metadata",
+        "providerChunkType": "ai-sdk/usage.updated",
+        "label": "token usage updated"
+      }
+    },
+    {
+      "delayMs": 70,
+      "chunk": {
+        "chunkType": "chunk.text_end",
+        "providerChunkType": "ai-sdk/message.end",
+        "label": "assistant text completed"
+      }
+    },
+    {
+      "delayMs": 70,
+      "chunk": {
+        "chunkType": "chunk.finish",
+        "providerChunkType": "ai-sdk/turn.completed",
+        "label": "Turn completed"
+      }
+    }
+  ],
+  "reaction": {
+    "text": "Impact summary: stronger reactor docs, explicit continuity assumptions, and richer stream telemetry guidance for UI consumers.",
+    "reasoning": "Compared stream chunks, persisted trace counters, and README sections touched by this iteration.",
+    "status": "completed"
+  }
+}

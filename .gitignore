@@ -67,3 +67,6 @@ packages/ekairos/local_dev.md
 # generated workflow-smoke well-known output
 packages/structure/workflow-smoke/src/app/.well-known/
 .ekairos/
+
+# local codex reactor audit artifacts
+packages/reactors/openai-reactor/.tmp-audit-*.json

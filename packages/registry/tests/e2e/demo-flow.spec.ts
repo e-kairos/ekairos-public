@@ -1,12 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 const EXPECTED_STREAM_LABELS = [
-  "Connecting to Codex runtime",
+  "thread/started",
   "Thread started",
-  "Turn started",
-  "agentMessage started",
-  "agentMessage completed",
   "Turn completed",
+  "assistant text completed",
 ];
 
 test.describe("registry demo UI", () => {
