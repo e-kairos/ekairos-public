@@ -1,8 +1,8 @@
-import { storySmoke, storySmokeToolError } from "./story-smoke.story";
+import { storySmoke, storySmokeScripted, storySmokeToolError } from "./story-smoke.story";
 import type { ContextEvent } from "@ekairos/thread";
 import { getWritable } from "workflow";
 
-export type StorySmokeWorkflowMode = "success" | "tool-error";
+export type StorySmokeWorkflowMode = "success" | "tool-error" | "scripted";
 
 export async function storySmokeWorkflow(mode: StorySmokeWorkflowMode = "success") {
   "use workflow";
@@ -17,7 +17,12 @@ export async function storySmokeWorkflow(mode: StorySmokeWorkflowMode = "success
     },
   };
 
-  const thread = mode === "tool-error" ? storySmokeToolError : storySmoke;
+  const thread =
+    mode === "tool-error"
+      ? storySmokeToolError
+      : mode === "scripted"
+        ? storySmokeScripted
+        : storySmoke;
 
   return await thread.react(triggerEvent, {
     env: { mode },

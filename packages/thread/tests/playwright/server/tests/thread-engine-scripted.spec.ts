@@ -12,7 +12,6 @@ const __dirname = dirname(__filename);
 const smokeDir = resolve(__dirname, "..");
 const repoRoot = resolve(smokeDir, "..", "..", "..", "..", "..");
 
-// Ensure the test process has Instant env (not just the Next server).
 dotenvConfig({ path: resolve(smokeDir, ".env.local"), quiet: true });
 dotenvConfig({ path: resolve(smokeDir, ".env"), quiet: true });
 dotenvConfig({ path: resolve(repoRoot, ".env.local"), quiet: true });
@@ -82,11 +81,11 @@ function getRecentWorkflowRunArtifacts(sinceEpochMs: number) {
   return { count: files.length, files };
 }
 
-test("story smoke runs thread engine with AI SDK mocked model in workflow runtime", async ({ request }) => {
+test("story smoke runs thread engine with scripted reactor in workflow runtime", async ({ request }) => {
   test.setTimeout(180_000);
   const startedAt = Date.now();
 
-  const res = await request.post("/api/internal/workflow/story-smoke?mode=success");
+  const res = await request.post("/api/internal/workflow/story-smoke?mode=scripted");
   expect(res.status()).toBe(200);
   expect(String(res.headers()["content-type"] ?? "")).toContain("text/event-stream");
 
@@ -119,7 +118,15 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
       return type === "data-context.created" || type === "data-context.resolved";
     }),
   ).toBe(true);
+  expect(streamEvents.some((event) => readString(event, "type") === "data-step.created")).toBe(true);
+  expect(streamEvents.some((event) => readString(event, "type") === "data-step.completed")).toBe(
+    true,
+  );
+  expect(streamEvents.some((event) => readString(event, "type") === "data-item.completed")).toBe(
+    true,
+  );
   expect(streamEvents.some((event) => event.type === "finish")).toBe(true);
+
   const allowedCustomChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[]);
   const customChunkTypes = streamEvents
     .map((event) => {
@@ -129,10 +136,9 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
       return chunkType && allowedCustomChunkTypes.has(chunkType) ? chunkType : null;
     })
     .filter((type): type is string => Boolean(type));
-  expect(customChunkTypes.length).toBeGreaterThan(0);
-  expect(customChunkTypes.includes("chunk.start")).toBe(true);
-  expect(customChunkTypes.includes("chunk.finish")).toBe(true);
+
   expect(customChunkTypes.includes("chunk.error")).toBe(false);
+
   const contextChunk = streamEvents.find((event) => {
     const type = readString(event, "type");
     return type === "data-context.created" || type === "data-context.resolved";
@@ -172,19 +178,20 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
   });
   const stepRows = readRows(verificationQuery, "thread_steps");
   const itemRows = readRows(verificationQuery, "thread_items");
+
   expect(stepRows.length).toBeGreaterThan(0);
   expect(stepRows.some((step) => readString(step, "status") === "completed")).toBe(true);
   expect(itemRows.length).toBeGreaterThan(0);
+
   const reaction = itemRows.find((item) => readString(item, "type") === "output");
   expect(reaction).toBeTruthy();
   if (!reaction) {
     throw new Error("Missing output reaction item for execution.");
   }
+
   expect(readString(reaction, "status")).toBe("completed");
   const reactionContent = asRecord(reaction.content);
-  const reactionParts = Array.isArray(reactionContent?.parts)
-    ? reactionContent.parts
-    : [];
+  const reactionParts = Array.isArray(reactionContent?.parts) ? reactionContent.parts : [];
   const hasToolOutput = reactionParts.some((part) => {
     const row = asRecord(part);
     if (!row) return false;
@@ -192,21 +199,12 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
   });
   expect(hasToolOutput).toBe(true);
 
-  const reactionPartStates = reactionParts
-    .map((part) => {
-      const row = asRecord(part);
-      return {
-        type: readString(row ?? undefined, "type"),
-        state: readString(row ?? undefined, "state"),
-      };
-    })
-    .filter((part) => part.type || part.state);
   const recentWorkflowArtifacts = getRecentWorkflowRunArtifacts(startedAt);
   expect(recentWorkflowArtifacts.count).toBeGreaterThan(0);
 
   emitThreadE2EReport({
-    test: "story smoke runs thread engine with AI SDK mocked model in workflow runtime",
-    mode: "success",
+    test: "story smoke runs thread engine with scripted reactor in workflow runtime",
+    mode: "scripted",
     runId,
     streamContextId,
     executionId,
@@ -217,158 +215,6 @@ test("story smoke runs thread engine with AI SDK mocked model in workflow runtim
     stepCount: stepRows.length,
     itemCount: itemRows.length,
     reactionStatus: readString(reaction, "status"),
-    reactionPartStates,
-    workflowRunArtifactsCount: recentWorkflowArtifacts.count,
-    workflowRunArtifacts: recentWorkflowArtifacts.files,
-  });
-});
-
-test("story smoke emits tool-output-error chunk in workflow runtime", async ({ request }) => {
-  test.setTimeout(180_000);
-  const startedAt = Date.now();
-
-  const res = await request.post("/api/internal/workflow/story-smoke?mode=tool-error");
-  expect(res.status()).toBe(200);
-  expect(String(res.headers()["content-type"] ?? "")).toContain("text/event-stream");
-
-  const runId = String(res.headers()["x-workflow-run-id"] ?? "");
-  expect(runId).toBeTruthy();
-
-  const streamPayloads: string[] = [];
-  const streamEvents: Record<string, unknown>[] = [];
-  const rawBody = await res.body();
-  const text = rawBody.toString("utf8");
-  const lines = text.split("\n");
-  for (const line of lines) {
-    if (!line.startsWith("data: ")) continue;
-    const payload = line.slice(6).trim();
-    if (!payload) continue;
-
-    streamPayloads.push(payload);
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
-      streamEvents.push(parsed);
-    } catch {
-      // Ignore non-JSON chunks
-    }
-  }
-
-  expect(streamPayloads.length).toBeGreaterThan(0);
-  expect(
-    streamEvents.some((event) => {
-      const type = readString(event, "type");
-      return type === "data-context.created" || type === "data-context.resolved";
-    }),
-  ).toBe(true);
-  expect(streamEvents.some((event) => event.type === "finish")).toBe(true);
-  const allowedCustomChunkTypes = new Set<string>(THREAD_STREAM_CHUNK_TYPES as readonly string[]);
-  const customChunkTypes = streamEvents
-    .map((event) => {
-      if (readString(event, "type") !== "data-chunk.emitted") return null;
-      const data = asRecord(event.data);
-      const chunkType = data ? readString(data, "chunkType") : null;
-      return chunkType && allowedCustomChunkTypes.has(chunkType) ? chunkType : null;
-    })
-    .filter((type): type is string => Boolean(type));
-  expect(customChunkTypes.length).toBeGreaterThan(0);
-  expect(customChunkTypes.includes("chunk.start")).toBe(true);
-  expect(customChunkTypes.includes("chunk.finish")).toBe(true);
-  const contextChunk = streamEvents.find((event) => {
-    const type = readString(event, "type");
-    return type === "data-context.created" || type === "data-context.resolved";
-  });
-  const streamContextId = readString(asRecord(contextChunk?.data) ?? undefined, "contextId");
-  expect(streamContextId).toBeTruthy();
-
-  const adminDb = getAdminDb();
-  const deadline = Date.now() + 60_000;
-  let executions: Record<string, unknown>[] = [];
-
-  while (Date.now() < deadline) {
-    const queryResult = await adminDb.query({
-      thread_executions: {
-        $: { where: { workflowRunId: runId }, limit: 50 },
-      },
-    });
-    executions = readRows(queryResult, "thread_executions");
-    if (executions.length > 0) break;
-    await new Promise((r) => setTimeout(r, 750));
-  }
-  expect(executions.length).toBeGreaterThan(0);
-
-  const execution = executions[0];
-  expect(readString(execution, "status")).toBe("completed");
-
-  const executionId = readString(execution, "id");
-  expect(executionId).toBeTruthy();
-
-  const verificationQuery = await adminDb.query({
-    thread_steps: {
-      $: { where: { "execution.id": executionId }, limit: 50 },
-    },
-    thread_items: {
-      $: { where: { "context.id": streamContextId }, limit: 50 },
-    },
-  });
-  const stepRows = readRows(verificationQuery, "thread_steps");
-  const itemRows = readRows(verificationQuery, "thread_items");
-  expect(stepRows.length).toBeGreaterThan(0);
-  expect(stepRows.some((step) => readString(step, "status") === "completed")).toBe(true);
-  const hasPersistedToolError = stepRows.some((step) => {
-    const raw =
-      step.actionResults ??
-      step.actionError ??
-      step.errorText ??
-      null;
-    const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? {});
-    return text.includes("echo_failed");
-  });
-  expect(hasPersistedToolError).toBe(true);
-  expect(itemRows.length).toBeGreaterThan(0);
-  const reaction = itemRows.find((item) => readString(item, "type") === "output");
-  expect(reaction).toBeTruthy();
-  if (!reaction) {
-    throw new Error("Missing output reaction item for execution.");
-  }
-  expect(readString(reaction, "status")).toBe("completed");
-  const reactionContent = asRecord(reaction.content);
-  const reactionParts = Array.isArray(reactionContent?.parts)
-    ? reactionContent.parts
-    : [];
-  const hasToolErrorOutput = reactionParts.some((part) => {
-    const row = asRecord(part);
-    if (!row) return false;
-    return row.type === "tool-echo" && row.state === "output-error";
-  });
-  expect(hasToolErrorOutput).toBe(true);
-
-  const reactionPartStates = reactionParts
-    .map((part) => {
-      const row = asRecord(part);
-      return {
-        type: readString(row ?? undefined, "type"),
-        state: readString(row ?? undefined, "state"),
-      };
-    })
-    .filter((part) => part.type || part.state);
-  const recentWorkflowArtifacts = getRecentWorkflowRunArtifacts(startedAt);
-  expect(recentWorkflowArtifacts.count).toBeGreaterThan(0);
-
-  emitThreadE2EReport({
-    test: "story smoke emits tool-output-error chunk in workflow runtime",
-    mode: "tool-error",
-    runId,
-    streamContextId,
-    executionId,
-    executionStatus: readString(execution, "status"),
-    streamPayloadCount: streamPayloads.length,
-    customChunkTypes,
-    customChunkTypesUnique: [...new Set(customChunkTypes)],
-    stepCount: stepRows.length,
-    itemCount: itemRows.length,
-    hasPersistedToolError,
-    reactionStatus: readString(reaction, "status"),
-    reactionPartStates,
     workflowRunArtifactsCount: recentWorkflowArtifacts.count,
     workflowRunArtifacts: recentWorkflowArtifacts.files,
   });
