@@ -34,26 +34,6 @@ import {
   toolApprovalWebhookToken,
 } from "./thread.hooks.js"
 
-function createNoopWritable<T>(): WritableStream<T> {
-  const writer: WritableStreamDefaultWriter<T> = {
-    closed: Promise.resolve(undefined),
-    desiredSize: 1,
-    ready: Promise.resolve(undefined),
-    abort: async () => undefined,
-    close: async () => undefined,
-    write: async () => undefined,
-    releaseLock: () => undefined,
-  } as WritableStreamDefaultWriter<T>
-
-  return {
-    locked: false,
-    abort: async () => undefined,
-    close: async () => undefined,
-    getWriter: () => writer,
-  } as WritableStream<T>
-}
-
-
 export interface ThreadOptions<Context = any, Env extends ThreadEnvironment = ThreadEnvironment> {
   onContextCreated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
   onContextUpdated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
@@ -267,10 +247,10 @@ function contextThreadIdOrNull(context: StoredContext<any>): string | null {
 
 async function emitThreadEvents(params: {
   silent: boolean
-  writable: WritableStream<UIMessageChunk>
+  writable?: WritableStream<UIMessageChunk>
   events: ThreadStreamEvent[]
 }) {
-  if (params.silent || params.events.length === 0) return
+  if (params.silent || !params.writable || params.events.length === 0) return
   await writeThreadEvents({ events: params.events, writable: params.writable })
 }
 
@@ -476,12 +456,6 @@ export abstract class Thread<Context, Env extends ThreadEnvironment = ThreadEnvi
       writable = getWritable<UIMessageChunk>({
         namespace: `context:${String(currentContext.id)}`,
       })
-    }
-
-    // Reactor/steps always receive a stream argument.
-    // In silent mode (or when no workflow writable is available), we use an in-memory sink.
-    if (!writable) {
-      writable = createNoopWritable<UIMessageChunk>()
     }
 
     const contextSelector: ContextIdentifier =

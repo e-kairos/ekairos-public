@@ -51,7 +51,7 @@ export type ThreadReactorParams<
   maxModelSteps: number
   sendStart: boolean
   silent: boolean
-  writable: WritableStream<UIMessageChunk>
+  writable?: WritableStream<UIMessageChunk>
 }
 
 export type ThreadReactor<

@@ -105,7 +105,7 @@ export async function executeReaction(params: {
   maxSteps: number
   sendStart?: boolean
   silent?: boolean
-  writable: WritableStream<UIMessageChunk>
+  writable?: WritableStream<UIMessageChunk>
   executionId?: string
   contextId?: string
   stepId?: string
@@ -252,7 +252,19 @@ export async function executeReaction(params: {
       }),
     )
 
-  await uiStream.pipeTo(params.writable, { preventClose: true })
+  if (params.writable) {
+    await uiStream.pipeTo(params.writable, { preventClose: true })
+  } else {
+    const reader = uiStream.getReader()
+    try {
+      while (true) {
+        const { done } = await reader.read()
+        if (done) break
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
 
   const assistantEvent = await finishPromise
   const finishedAtMs = Date.now()
