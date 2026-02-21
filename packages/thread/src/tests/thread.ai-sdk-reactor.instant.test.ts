@@ -79,6 +79,37 @@ function clipText(value: string, max = 240): string {
   return `${value.slice(0, max)}...`
 }
 
+function isInstantTimeoutError(error: unknown): boolean {
+  const text =
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error ?? "")
+  return /query took too long|timed out/i.test(text)
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function withInstantRetry<T>(
+  run: () => Promise<T>,
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<T> {
+  const attempts = options.attempts ?? 3
+  const delayMs = options.delayMs ?? 250
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      lastError = error
+      if (!isInstantTimeoutError(error) || attempt >= attempts) break
+      await delay(delayMs)
+    }
+  }
+  throw lastError
+}
+
 function summarizeChunkForTimeline(chunk: Record<string, unknown>, index: number) {
   const type = typeof chunk.type === "string" ? chunk.type : "unknown"
   const data = asRecord(chunk.data)
@@ -309,37 +340,41 @@ describeInstant("thread ai sdk reactor + ai/test mock model", () => {
       workflowRunId,
     }
 
-    const result = await aiSdkThread.react(createTriggerEvent("set status to ready"), {
-      env,
-      context: { key: contextKey },
-      options: {
-        silent: true,
-        maxIterations: 3,
-        maxModelSteps: 1,
-      },
+    const { result, snapshot } = await withInstantRetry(async () => {
+      const result = await aiSdkThread.react(createTriggerEvent("set status to ready"), {
+        env,
+        context: { key: contextKey },
+        options: {
+          silent: true,
+          maxIterations: 3,
+          maxModelSteps: 1,
+        },
+      })
+
+      const snapshot = await currentDb().query({
+        thread_threads: {
+          $: { where: { key: contextKey }, limit: 1 },
+        },
+        thread_contexts: {
+          $: { where: { id: result.contextId }, limit: 1 },
+        },
+        thread_executions: {
+          $: { where: { id: result.executionId }, limit: 1 },
+        },
+        thread_steps: {
+          $: { where: { "execution.id": result.executionId }, limit: 10 },
+        },
+        thread_items: {
+          $: { where: { "context.id": result.contextId }, limit: 20 },
+        },
+      })
+
+      return { result, snapshot }
     })
 
     expect(resolveConfigCalls).toBeGreaterThan(0)
     expect(selectModelCalls).toBeGreaterThan(0)
     expect(selectMaxModelStepsCalls).toBeGreaterThan(0)
-
-    const snapshot = await currentDb().query({
-      thread_threads: {
-        $: { where: { key: contextKey }, limit: 1 },
-      },
-      thread_contexts: {
-        $: { where: { id: result.contextId }, limit: 1 },
-      },
-      thread_executions: {
-        $: { where: { id: result.executionId }, limit: 1 },
-      },
-      thread_steps: {
-        $: { where: { "execution.id": result.executionId }, limit: 10 },
-      },
-      thread_items: {
-        $: { where: { "context.id": result.contextId }, limit: 20 },
-      },
-    })
 
     const threadRow = readRows(snapshot, "thread_threads")[0]
     const contextRow = readRows(snapshot, "thread_contexts")[0]
