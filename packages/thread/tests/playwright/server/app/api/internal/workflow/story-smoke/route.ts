@@ -15,7 +15,12 @@ export async function POST(request: Request) {
   try {
     const url = new URL(request.url);
     const modeParam = url.searchParams.get("mode");
-    const mode = modeParam === "tool-error" ? "tool-error" : "success";
+    const mode =
+      modeParam === "tool-error"
+        ? "tool-error"
+        : modeParam === "scripted"
+          ? "scripted"
+          : "success";
 
     const run = await start(storySmokeWorkflow, [mode]);
     const stream = run.getReadable();

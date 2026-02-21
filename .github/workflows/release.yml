@@ -50,6 +50,9 @@ jobs:
     name: Check - thread unit
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      INSTANT_PERSONAL_ACCESS_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
+      INSTANT_CLI_AUTH_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -72,8 +75,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Instant token availability
+        shell: bash
+        run: |
+          if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread unit checks."
+            exit 1
+          fi
+
       - name: Run @ekairos/thread AI SDK unit tests
         run: pnpm --filter @ekairos/thread run test:ai-sdk-reactor
+
+      - name: Run @ekairos/thread scripted reactor unit tests
+        run: pnpm --filter @ekairos/thread run test:scripted-reactor
 
   check-thread-e2e:
     name: Check - thread workflow e2e
