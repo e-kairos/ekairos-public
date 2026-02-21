@@ -25,6 +25,7 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ekairos/tools/tool";
+import { CodexStepsParts } from "./reactors/codex-steps-parts";
 import { FileIcon } from "@/components/ekairos/prompt/file-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -153,6 +154,23 @@ const MessageParts = memo(function MessageParts({
       const toolName =
         typeof p?.type === "string" ? String(p.type).replace(/^tool-/, "") : "";
       if (toolName === "createMessage") return idx;
+    }
+    return -1;
+  }, [message?.parts]);
+
+  const codexParts = useMemo(
+    () =>
+      (Array.isArray(message?.parts) ? message.parts : []).filter(
+        (p: any) => p && typeof p === "object" && p.type === "codex-event"
+      ),
+    [message?.parts],
+  );
+
+  const firstCodexPartIdx = useMemo(() => {
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    for (let idx = 0; idx < parts.length; idx += 1) {
+      const p = parts[idx];
+      if (p && typeof p === "object" && p.type === "codex-event") return idx;
     }
     return -1;
   }, [message?.parts]);
@@ -457,6 +475,11 @@ const MessageParts = memo(function MessageParts({
       {message.parts.map((part: any, i: number) => {
         if (part.type === "reasoning") return null;
 
+        if (part.type === "codex-event") {
+          if (i !== firstCodexPartIdx) return null;
+          return <CodexStepsParts key={`codex-steps:${i}`} parts={codexParts} />;
+        }
+
         if (part.type === "text") {
           return (
             <Fragment key={i}>
@@ -503,7 +526,7 @@ const MessageParts = memo(function MessageParts({
 
         if (
           typeof part.type === "string" &&
-          (part.type.startsWith("tool-") || part.type === "codex-event")
+          part.type.startsWith("tool-")
         ) {
           return renderTool(part, i);
         }

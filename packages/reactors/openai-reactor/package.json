@@ -19,7 +19,9 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:reactor": "vitest run src/tests/codex.reactor.test.ts --reporter=verbose"
   },
   "peerDependencies": {
     "@ekairos/thread": "*"
@@ -28,7 +30,8 @@
     "@ekairos/thread": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.8"
   },
   "repository": {
     "type": "git",

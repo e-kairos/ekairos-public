@@ -28,6 +28,7 @@ export type CodexTurnResult = {
   diff?: string
   toolParts?: unknown[]
   metadata?: Record<string, unknown>
+  usage?: Record<string, unknown>
 }
 
 export type CodexExecuteTurnArgs<
@@ -56,6 +57,24 @@ export type CodexChunkMappingResult = {
   actionRef?: string
   data?: unknown
   raw?: unknown
+  skip?: boolean
+}
+
+export type CodexMappedChunk = {
+  at: string
+  sequence: number
+  chunkType: ThreadStreamChunkType
+  providerChunkType?: string
+  actionRef?: string
+  data?: unknown
+  raw?: unknown
+}
+
+export type CodexStreamTrace = {
+  totalChunks: number
+  chunkTypes: Record<string, number>
+  providerChunkTypes: Record<string, number>
+  chunks?: CodexMappedChunk[]
 }
 
 export type CreateCodexReactorOptions<
@@ -83,7 +102,14 @@ export type CreateCodexReactorOptions<
   executeTurn: (
     args: CodexExecuteTurnArgs<Context, Config, Env>,
   ) => Promise<CodexTurnResult>
-  mapChunk?: (providerChunk: unknown) => CodexChunkMappingResult
+  mapChunk?: (providerChunk: unknown) => CodexChunkMappingResult | null
+  includeStreamTraceInOutput?: boolean
+  includeRawProviderChunksInOutput?: boolean
+  maxPersistedStreamChunks?: number
+  onMappedChunk?: (
+    chunk: CodexMappedChunk,
+    params: ThreadReactorParams<Context, Env>,
+  ) => Promise<void> | void
 }
 
 function toJsonSafe(value: unknown): unknown {
@@ -94,7 +120,7 @@ function toJsonSafe(value: unknown): unknown {
   }
 }
 
-function mapCodexChunkType(providerChunkType: string): ThreadStreamChunkType {
+export function mapCodexChunkType(providerChunkType: string): ThreadStreamChunkType {
   const value = providerChunkType.toLowerCase()
 
   if (value.includes("start_step")) return "chunk.start_step"
@@ -142,7 +168,149 @@ function mapCodexChunkType(providerChunkType: string): ThreadStreamChunkType {
   return "chunk.unknown"
 }
 
-function defaultMapCodexChunk(providerChunk: unknown): CodexChunkMappingResult {
+function normalizeLower(value: unknown): string {
+  return asString(value).trim().toLowerCase()
+}
+
+function isActionItemType(itemType: string): boolean {
+  if (!itemType) return false
+  if (itemType === "agentmessage") return false
+  if (itemType === "reasoning") return false
+  if (itemType === "usermessage") return false
+  return (
+    itemType.includes("commandexecution") ||
+    itemType.includes("filechange") ||
+    itemType.includes("mcptoolcall") ||
+    itemType.includes("tool") ||
+    itemType.includes("action")
+  )
+}
+
+function resolveActionRef(params: AnyRecord, item: AnyRecord): string | undefined {
+  const fromParams =
+    asString(params.itemId) ||
+    asString(params.toolCallId) ||
+    asString(params.id)
+  if (fromParams) return fromParams
+  const fromItem = asString(item.id) || asString(item.toolCallId)
+  if (fromItem) return fromItem
+  return undefined
+}
+
+export function mapCodexAppServerNotification(
+  providerChunk: unknown,
+): CodexChunkMappingResult | null {
+  const chunk = asRecord(providerChunk)
+  const method = asString(chunk.method).trim()
+  if (!method) return null
+
+  if (method.startsWith("codex/event/")) {
+    return {
+      chunkType: "chunk.unknown",
+      providerChunkType: method,
+      data: toJsonSafe({
+        ignored: true,
+        reason: "legacy_channel_disabled",
+        method,
+      }),
+      raw: toJsonSafe(providerChunk),
+      skip: true,
+    }
+  }
+
+  const params = asRecord(chunk.params)
+  const item = asRecord(params.item)
+  const itemType = normalizeLower(item.type)
+  const itemStatus = normalizeLower(item.status)
+  const actionRef = resolveActionRef(params, item)
+  const hasItemError = Boolean(item.error)
+
+  const mappedData = toJsonSafe({
+    method,
+    params,
+  })
+
+  const map = (chunkType: ThreadStreamChunkType): CodexChunkMappingResult => ({
+    chunkType,
+    providerChunkType: method,
+    actionRef: chunkType.startsWith("chunk.action_") ? actionRef : undefined,
+    data: mappedData,
+    raw: toJsonSafe(providerChunk),
+  })
+
+  switch (method) {
+    case "turn/started":
+      return map("chunk.start")
+    case "turn/completed":
+      return map("chunk.finish")
+    case "turn/diff/updated":
+    case "turn/plan/updated":
+    case "thread/tokenUsage/updated":
+    case "account/rateLimits/updated":
+      return map("chunk.response_metadata")
+    case "thread/started":
+    case "thread/archived":
+    case "thread/unarchived":
+    case "thread/name/updated":
+    case "account/updated":
+    case "app/list/updated":
+    case "authStatusChange":
+    case "sessionConfigured":
+    case "loginChatGptComplete":
+    case "mcpServer/oauthLogin/completed":
+      return map("chunk.message_metadata")
+    case "item/agentMessage/delta":
+      return map("chunk.text_delta")
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/textDelta":
+      return map("chunk.reasoning_delta")
+    case "item/reasoning/summaryPartAdded":
+      return map("chunk.reasoning_start")
+    case "item/commandExecution/outputDelta":
+    case "item/fileChange/outputDelta":
+    case "item/mcpToolCall/progress":
+      return map("chunk.action_output_available")
+    case "item/started": {
+      if (itemType === "agentmessage") return map("chunk.text_start")
+      if (itemType === "reasoning") return map("chunk.reasoning_start")
+      if (itemType === "usermessage") return map("chunk.message_metadata")
+      if (isActionItemType(itemType)) return map("chunk.action_input_available")
+      return map("chunk.message_metadata")
+    }
+    case "item/completed": {
+      if (itemType === "agentmessage") return map("chunk.text_end")
+      if (itemType === "reasoning") return map("chunk.reasoning_end")
+      if (itemType === "usermessage") return map("chunk.message_metadata")
+      if (isActionItemType(itemType)) {
+        if (hasItemError || itemStatus === "failed" || itemStatus === "declined") {
+          return map("chunk.action_output_error")
+        }
+        return map("chunk.action_output_available")
+      }
+      if (hasItemError || itemStatus === "failed" || itemStatus === "declined") {
+        return map("chunk.error")
+      }
+      return map("chunk.message_metadata")
+    }
+    case "error":
+      return map("chunk.error")
+    default:
+      if (method.startsWith("item/") || method.startsWith("turn/")) {
+        return map("chunk.response_metadata")
+      }
+      if (method.startsWith("thread/") || method.startsWith("account/")) {
+        return map("chunk.message_metadata")
+      }
+      return map("chunk.unknown")
+  }
+}
+
+export function defaultMapCodexChunk(providerChunk: unknown): CodexChunkMappingResult {
+  const appServerMapped = mapCodexAppServerNotification(providerChunk)
+  if (appServerMapped) {
+    return appServerMapped
+  }
+
   const chunk = asRecord(providerChunk)
   const providerChunkType = asString(chunk.type) || "unknown"
   const actionRef = asString(chunk.actionRef) || asString(chunk.toolCallId) || asString(chunk.id) || undefined
@@ -161,6 +329,60 @@ function defaultMapCodexChunk(providerChunk: unknown): CodexChunkMappingResult {
       toolCallId: chunk.toolCallId,
     }),
     raw: toJsonSafe(providerChunk),
+  }
+}
+
+function asFiniteNumber(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(n)) return undefined
+  return n
+}
+
+function getNestedRecord(source: unknown, key: string): AnyRecord | undefined {
+  const record = asRecord(source)
+  const nested = record[key]
+  if (!nested || typeof nested !== "object") return undefined
+  return asRecord(nested)
+}
+
+function extractUsageMetrics(usageSource: unknown) {
+  const usage = asRecord(usageSource)
+  const promptTokens =
+    asFiniteNumber(usage.promptTokens) ??
+    asFiniteNumber(usage.prompt_tokens) ??
+    asFiniteNumber(usage.inputTokens) ??
+    asFiniteNumber(usage.input_tokens) ??
+    0
+
+  const completionTokens =
+    asFiniteNumber(usage.completionTokens) ??
+    asFiniteNumber(usage.completion_tokens) ??
+    asFiniteNumber(usage.outputTokens) ??
+    asFiniteNumber(usage.output_tokens) ??
+    0
+
+  const totalTokens =
+    asFiniteNumber(usage.totalTokens) ??
+    asFiniteNumber(usage.total_tokens) ??
+    promptTokens + completionTokens
+
+  const promptDetails = getNestedRecord(usage, "prompt_tokens_details")
+  const inputDetails = getNestedRecord(usage, "input_tokens_details")
+  const cachedPromptTokens =
+    asFiniteNumber(usage.promptTokensCached) ??
+    asFiniteNumber(usage.cached_prompt_tokens) ??
+    asFiniteNumber(promptDetails?.cached_tokens) ??
+    asFiniteNumber(inputDetails?.cached_tokens) ??
+    0
+
+  const promptTokensUncached = Math.max(0, promptTokens - cachedPromptTokens)
+
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    promptTokensCached: cachedPromptTokens,
+    promptTokensUncached,
   }
 }
 
@@ -183,11 +405,21 @@ export function createCodexReactor<
 ): ThreadReactor<Context, Env> {
   const toolName = asString(options.toolName).trim() || "codex"
   const includeReasoningPart = Boolean(options.includeReasoningPart)
-  let chunkSequence = 0
+  const includeStreamTraceInOutput =
+    options.includeStreamTraceInOutput !== undefined
+      ? Boolean(options.includeStreamTraceInOutput)
+      : true
+  const includeRawProviderChunksInOutput = Boolean(options.includeRawProviderChunksInOutput)
+  const maxPersistedStreamChunks = Math.max(0, Number(options.maxPersistedStreamChunks ?? 300))
 
   return async (
     params: ThreadReactorParams<Context, Env>,
   ): Promise<ThreadReactionResult> => {
+    let chunkSequence = 0
+    const chunkTypeCounters = new Map<string, number>()
+    const providerChunkTypeCounters = new Map<string, number>()
+    const capturedChunks: CodexMappedChunk[] = []
+
     const context = asRecord(params.context.content)
     const instruction = (
       options.buildInstruction
@@ -210,26 +442,64 @@ export function createCodexReactor<
       iteration: params.iteration,
     })
 
+    const startedAtMs = Date.now()
+
     const emitChunk = async (providerChunk: unknown) => {
       if (params.silent) return
       const mapped = options.mapChunk
         ? options.mapChunk(providerChunk)
         : defaultMapCodexChunk(providerChunk)
+      if (!mapped || mapped.skip) return
+      const now = new Date().toISOString()
+      chunkSequence += 1
+
+      const mappedChunk: CodexMappedChunk = {
+        at: now,
+        sequence: chunkSequence,
+        chunkType: mapped.chunkType,
+        providerChunkType: mapped.providerChunkType,
+        actionRef: mapped.actionRef,
+        data: mapped.data,
+        raw: includeRawProviderChunksInOutput
+          ? mapped.raw ?? toJsonSafe(providerChunk)
+          : undefined,
+      }
+
+      chunkTypeCounters.set(
+        mapped.chunkType,
+        (chunkTypeCounters.get(mapped.chunkType) ?? 0) + 1,
+      )
+      const providerType = mapped.providerChunkType || "unknown"
+      providerChunkTypeCounters.set(
+        providerType,
+        (providerChunkTypeCounters.get(providerType) ?? 0) + 1,
+      )
+      if (includeStreamTraceInOutput && capturedChunks.length < maxPersistedStreamChunks) {
+        capturedChunks.push(mappedChunk)
+      }
+
+      if (options.onMappedChunk) {
+        try {
+          await options.onMappedChunk(mappedChunk, params)
+        } catch {
+          // hooks are non-critical
+        }
+      }
 
       const payload = {
         type: "chunk.emitted",
-        at: new Date().toISOString(),
-        chunkType: mapped.chunkType,
+        at: now,
+        chunkType: mappedChunk.chunkType,
         contextId: params.contextId,
         executionId: params.executionId,
         stepId: params.stepId,
         itemId: params.eventId,
-        actionRef: mapped.actionRef,
+        actionRef: mappedChunk.actionRef,
         provider: "codex",
-        providerChunkType: mapped.providerChunkType,
-        sequence: ++chunkSequence,
-        data: mapped.data,
-        raw: mapped.raw ?? toJsonSafe(providerChunk),
+        providerChunkType: mappedChunk.providerChunkType,
+        sequence: mappedChunk.sequence,
+        data: mappedChunk.data,
+        raw: mappedChunk.raw ?? mapped.raw ?? toJsonSafe(providerChunk),
       }
 
       const writer = params.writable.getWriter()
@@ -258,6 +528,19 @@ export function createCodexReactor<
       silent: params.silent,
       emitChunk,
     })
+    const finishedAtMs = Date.now()
+
+    const streamTrace: CodexStreamTrace | undefined = includeStreamTraceInOutput
+      ? {
+          totalChunks: chunkSequence,
+          chunkTypes: Object.fromEntries(chunkTypeCounters.entries()),
+          providerChunkTypes: Object.fromEntries(providerChunkTypeCounters.entries()),
+          chunks: capturedChunks,
+        }
+      : undefined
+
+    const usagePayload = toJsonSafe(turn.usage ?? asRecord(turn.metadata).usage)
+    const usageMetrics = extractUsageMetrics(usagePayload)
 
     const assistantEvent: ThreadItem = {
       id: params.eventId,
@@ -271,6 +554,7 @@ export function createCodexReactor<
           includeReasoningPart,
           result: turn,
           instruction,
+          streamTrace,
         }),
       },
     }
@@ -282,6 +566,25 @@ export function createCodexReactor<
       llm: {
         provider: "codex",
         model: asString(config.model || "codex"),
+        promptTokens: usageMetrics.promptTokens,
+        promptTokensCached: usageMetrics.promptTokensCached,
+        promptTokensUncached: usageMetrics.promptTokensUncached,
+        completionTokens: usageMetrics.completionTokens,
+        totalTokens: usageMetrics.totalTokens,
+        latencyMs: Math.max(0, finishedAtMs - startedAtMs),
+        rawUsage: usagePayload,
+        rawProviderMetadata: toJsonSafe({
+          threadId: turn.threadId,
+          turnId: turn.turnId,
+          metadata: turn.metadata ?? null,
+          streamTrace: streamTrace
+            ? {
+                totalChunks: streamTrace.totalChunks,
+                chunkTypes: streamTrace.chunkTypes,
+                providerChunkTypes: streamTrace.providerChunkTypes,
+              }
+            : undefined,
+        }),
       },
     }
   }

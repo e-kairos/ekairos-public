@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MessageList } from "@/components/ekairos/agent/ui/message-list";
 import { useScriptedCodexThread } from "@/components/ekairos/agent/mocks/use-scripted-codex-thread";
+import { useScriptedAiSdkThread } from "@/components/ekairos/agent/mocks/use-scripted-ai-sdk-thread";
 
 const VISITOR_STORAGE_KEY = "ekairos.registry.demo.visitorId";
 const APP_STORAGE_KEY = "ekairos.registry.demo.appId";
@@ -42,10 +43,42 @@ type StreamTimelineRow = {
   eventId: string;
   eventType: string;
   eventStatus: string;
+  inputType: string;
   partType: string;
   partState: string;
   phase: string;
+  chunkType: string;
+  providerType: string;
   label: string;
+  detail: string;
+};
+
+type ReactorMode = "codex" | "ai_sdk";
+
+type ReactorThreadProfile = {
+  reactor: "codex" | "ai_sdk";
+  runtimeMode: string;
+  provider: string;
+  model: string | null;
+  appServerUrl: string | null;
+  approvalPolicy: string | null;
+  threadId: string;
+  executionId: string;
+  fixtureId: string;
+};
+
+type ReactorLayoutLane = {
+  id: string;
+  title: string;
+  description: string;
+  events: string[];
+  count: number;
+};
+
+type ReactorLayoutDefinition = {
+  title: string;
+  subtitle: string;
+  lanes: ReactorLayoutLane[];
 };
 
 type SyncLogEntry = {
@@ -106,6 +139,21 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function countBy<T>(rows: readonly T[], keyOf: (row: T) => string): Array<[string, number]> {
+  const counters = new Map<string, number>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    if (!key) continue;
+    counters.set(key, (counters.get(key) ?? 0) + 1);
+  }
+  return Array.from(counters.entries()).sort((a, b) => b[1] - a[1]);
+}
+
+function matchesAny(value: string, candidates: string[]): boolean {
+  const normalized = value.toLowerCase();
+  return candidates.some((candidate) => normalized.includes(candidate.toLowerCase()));
+}
+
 export default function DemoPage() {
   const [tenant, setTenant] = useState<TenantPayload | null>(null);
   const [statusText, setStatusText] = useState("Initializing tenant...");
@@ -113,9 +161,11 @@ export default function DemoPage() {
   const [destroying, setDestroying] = useState(false);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [syncingEntities, setSyncingEntities] = useState(false);
+  const [reactorMode, setReactorMode] = useState<ReactorMode>("codex");
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [entities, setEntities] = useState<TenantEntitiesSnapshot | null>(null);
   const [syncLog, setSyncLog] = useState<SyncLogEntry[]>([]);
+  const [selectedStreamKey, setSelectedStreamKey] = useState<string | null>(null);
   const streamViewportRef = useRef<HTMLDivElement | null>(null);
   const syncViewportRef = useRef<HTMLDivElement | null>(null);
   const previousEntitiesRef = useRef<TenantEntitiesSnapshot | null>(null);
@@ -153,11 +203,12 @@ export default function DemoPage() {
     }
   }, [tenant?.appId]);
 
-  const thread = useScriptedCodexThread({
+  const codexThread = useScriptedCodexThread({
     onRunStart: async ({ runId }) => {
       await persistReplayAction({
         action: "start",
         runId,
+        reactor: "codex",
       });
       await fetchEntities();
     },
@@ -167,6 +218,7 @@ export default function DemoPage() {
         runId,
         sequence,
         event,
+        reactor: "codex",
       });
       await fetchEntities();
     },
@@ -174,16 +226,58 @@ export default function DemoPage() {
       await persistReplayAction({
         action: "finish",
         runId,
+        reactor: "codex",
       });
       await fetchEntities();
     },
     onReset: async () => {
       await persistReplayAction({
         action: "reset",
+        reactor: "codex",
       });
       await fetchEntities();
     },
   });
+
+  const aiSdkThread = useScriptedAiSdkThread({
+    onRunStart: async ({ runId }) => {
+      await persistReplayAction({
+        action: "start",
+        runId,
+        reactor: "ai_sdk",
+      });
+      await fetchEntities();
+    },
+    onEvent: async ({ runId, sequence, event }) => {
+      await persistReplayAction({
+        action: "event",
+        runId,
+        sequence,
+        event,
+        reactor: "ai_sdk",
+      });
+      await fetchEntities();
+    },
+    onRunFinish: async ({ runId }) => {
+      await persistReplayAction({
+        action: "finish",
+        runId,
+        reactor: "ai_sdk",
+      });
+      await fetchEntities();
+    },
+    onReset: async () => {
+      await persistReplayAction({
+        action: "reset",
+        reactor: "ai_sdk",
+      });
+      await fetchEntities();
+    },
+  });
+
+  const thread = reactorMode === "codex" ? codexThread : aiSdkThread;
+  const profile: ReactorThreadProfile = thread.profile;
+
   const [prompt, setPrompt] = useState(
     "Inspect README.md and reply with a short summary of what it contains.",
   );
@@ -204,10 +298,14 @@ export default function DemoPage() {
           eventId: event.id,
           eventType: event.type,
           eventStatus: pickString(event.status),
+          inputType: "none",
           partType: "none",
           partState: "none",
           phase: "",
+          chunkType: "",
+          providerType: "",
           label: "",
+          detail: "",
         });
         order += 1;
         continue;
@@ -220,6 +318,10 @@ export default function DemoPage() {
           (part.metadata as Record<string, unknown> | undefined) ?? {};
         const input = (part.input as Record<string, unknown> | undefined) ?? {};
         const output = (part.output as Record<string, unknown> | undefined) ?? {};
+        const detailRecord =
+          ((output.detail as Record<string, unknown> | undefined) ??
+            (input.detail as Record<string, unknown> | undefined) ??
+            {}) as Record<string, unknown>;
         const label =
           pickString(metadata.label) ||
           pickString(output.label) ||
@@ -229,6 +331,20 @@ export default function DemoPage() {
           pickString(metadata.phase) ||
           pickString(output.phase) ||
           pickString(input.phase);
+        const providerType =
+          pickString(metadata.providerChunkType) ||
+          pickString(output.providerChunkType) ||
+          pickString(input.providerChunkType);
+        const chunkType =
+          pickString(metadata.chunkType) ||
+          pickString(output.chunkType) ||
+          pickString(input.chunkType) ||
+          phase;
+        const inputType =
+          pickString((input.item as Record<string, unknown> | undefined)?.type) ||
+          pickString(input.type) ||
+          "none";
+        const detail = JSON.stringify(detailRecord);
 
         rows.push({
           key: `${event.id}:${partIndex}:${order}`,
@@ -237,10 +353,14 @@ export default function DemoPage() {
           eventId: event.id,
           eventType: event.type,
           eventStatus: pickString(event.status),
+          inputType,
           partType: pickString(part.type) || "unknown",
           partState: pickString(part.state) || "none",
           phase,
+          chunkType,
+          providerType,
           label,
+          detail,
         });
         order += 1;
       }
@@ -248,6 +368,127 @@ export default function DemoPage() {
 
     return rows;
   }, [thread.events]);
+
+  const streamStats = useMemo(() => {
+    const byPartType = countBy(streamRows, (row) => row.partType || "unknown");
+    const byPhase = countBy(streamRows, (row) => row.phase || "none");
+    const byProvider = countBy(streamRows, (row) => row.providerType || "n/a");
+    const byChunkType = countBy(streamRows, (row) => row.chunkType || "none");
+    return { byPartType, byPhase, byProvider, byChunkType };
+  }, [streamRows]);
+
+  const reactorLayout = useMemo<ReactorLayoutDefinition>(() => {
+    if (reactorMode === "codex") {
+      const lifecycleEvents = ["thread/started", "turn/started", "turn/completed"];
+      const itemEvents = ["item/started", "item/agentmessage/delta", "item/completed"];
+      const telemetryEvents = ["thread/tokenusage/updated"];
+
+      return {
+        title: "Codex reactor layout",
+        subtitle:
+          "Codex App Server notifications are normalized into thread parts and then persisted as thread entities.",
+        lanes: [
+          {
+            id: "codex-provider",
+            title: "Provider notifications",
+            description: "Raw app-server lifecycle and turn stream.",
+            events: ["thread/started", "turn/started", "item/started", "item/*", "turn/completed"],
+            count: streamRows.filter((row) => row.providerType && !row.providerType.startsWith("ai-sdk/")).length,
+          },
+          {
+            id: "codex-message",
+            title: "Assistant generation",
+            description: "Reasoning, text deltas, and final assistant output.",
+            events: ["item/agentMessage/delta", "reasoning", "text", "reaction"],
+            count: streamRows.filter((row) =>
+              matchesAny(row.providerType, itemEvents) ||
+              row.partType === "reasoning" ||
+              row.partType === "text",
+            ).length,
+          },
+          {
+            id: "codex-telemetry",
+            title: "Usage + completion",
+            description: "Token usage updates and run completion boundaries.",
+            events: ["thread/tokenUsage/updated", "turn/completed"],
+            count: streamRows.filter(
+              (row) =>
+                matchesAny(row.providerType, telemetryEvents) ||
+                matchesAny(row.providerType, lifecycleEvents),
+            ).length,
+          },
+        ],
+      };
+    }
+
+    const reasoningEvents = ["reasoning.start", "reasoning.delta", "reasoning.end"];
+    const messageEvents = ["message.start", "message.delta", "message.end"];
+    const actionEvents = ["tool.input", "tool.output", "action_input_available", "action_output_available"];
+    const completionEvents = ["usage.updated", "turn.completed", "chunk.finish"];
+
+    return {
+      title: "AI SDK reactor layout",
+      subtitle:
+        "AI SDK chunk stream is mapped into typed thread parts, preserving reasoning, tool, and output semantics.",
+      lanes: [
+        {
+          id: "ai-sdk-reasoning",
+          title: "Reasoning lane",
+          description: "Model chain-of-thought lifecycle boundaries and deltas.",
+          events: ["chunk.reasoning_start", "chunk.reasoning_delta", "chunk.reasoning_end"],
+          count: streamRows.filter(
+            (row) => matchesAny(row.providerType, reasoningEvents) || matchesAny(row.chunkType, ["chunk.reasoning_"]),
+          ).length,
+        },
+        {
+          id: "ai-sdk-output",
+          title: "Output lane",
+          description: "Assistant text start/delta/end and persisted message output.",
+          events: ["chunk.text_start", "chunk.text_delta", "chunk.text_end", "reaction"],
+          count: streamRows.filter(
+            (row) => matchesAny(row.providerType, messageEvents) || matchesAny(row.chunkType, ["chunk.text_"]) || row.partType === "text",
+          ).length,
+        },
+        {
+          id: "ai-sdk-actions",
+          title: "Action + telemetry lane",
+          description: "Tool/action inputs/outputs and usage/completion metadata.",
+          events: ["chunk.action_input_available", "chunk.action_output_available", "chunk.response_metadata", "chunk.finish"],
+          count: streamRows.filter(
+            (row) =>
+              matchesAny(row.providerType, actionEvents) ||
+              matchesAny(row.providerType, completionEvents) ||
+              matchesAny(row.chunkType, ["chunk.action_", "chunk.response_metadata", "chunk.finish"]),
+          ).length,
+        },
+      ],
+    };
+  }, [reactorMode, streamRows]);
+
+  const selectedStreamRow = useMemo(
+    () => streamRows.find((row) => row.key === selectedStreamKey) ?? streamRows[streamRows.length - 1] ?? null,
+    [selectedStreamKey, streamRows],
+  );
+
+  const reactorPalette = useMemo(
+    () =>
+      reactorMode === "codex"
+        ? {
+            badge: "Codex reactor",
+            shell: "bg-neutral-950 text-emerald-200 border-emerald-700/40",
+            accent: "text-emerald-300/90",
+            subaccent: "text-cyan-300/90",
+            panel: "border-emerald-700/40",
+          }
+        : {
+            badge: "AI SDK reactor",
+            shell: "bg-slate-950 text-sky-200 border-sky-700/40",
+            accent: "text-sky-300/90",
+            subaccent: "text-indigo-300/90",
+            panel: "border-sky-700/40",
+          },
+    [reactorMode],
+  );
 
   const pollIntervalRef = useRef<number | null>(null);
 
@@ -536,6 +777,17 @@ export default function DemoPage() {
   }, [streamRows.length]);
 
   useEffect(() => {
+    if (streamRows.length === 0) {
+      setSelectedStreamKey(null);
+      return;
+    }
+    setSelectedStreamKey((prev) => {
+      if (prev && streamRows.some((row) => row.key === prev)) return prev;
+      return streamRows[streamRows.length - 1]?.key ?? null;
+    });
+  }, [streamRows]);
+
+  useEffect(() => {
     const viewport = syncViewportRef.current;
     if (!viewport) return;
     viewport.scrollTop = viewport.scrollHeight;
@@ -566,9 +818,10 @@ export default function DemoPage() {
               Registry demo runtime
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              Tenant-aware thread demo
+              Reactor observability studio
             </h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">
+              Compare Codex and AI SDK reactor behavior with the same thread contract.
               Each browser visitor gets an isolated Instant app. The browser only stores
               <code className="mx-1 rounded bg-muted px-1 py-0.5">appId</code>;
               admin credentials stay server-side.
@@ -678,11 +931,29 @@ export default function DemoPage() {
           <div className="registry-demo-thread-header flex h-12 items-center justify-between border-b bg-muted/40 px-4">
             <div className="flex items-center gap-3">
               <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Codex replay
+                {reactorPalette.badge}
               </span>
               <span className="text-xs text-muted-foreground">{thread.title}</span>
             </div>
-            <span className="text-[11px] text-muted-foreground">context: {thread.contextId}</span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={reactorMode === "codex" ? "default" : "outline"}
+                onClick={() => setReactorMode("codex")}
+                data-testid="registry-demo-reactor-codex"
+              >
+                Codex
+              </Button>
+              <Button
+                size="sm"
+                variant={reactorMode === "ai_sdk" ? "default" : "outline"}
+                onClick={() => setReactorMode("ai_sdk")}
+                data-testid="registry-demo-reactor-ai-sdk"
+              >
+                AI SDK
+              </Button>
+              <span className="text-[11px] text-muted-foreground">context: {thread.contextId}</span>
+            </div>
           </div>
 
           <div
@@ -743,16 +1014,153 @@ export default function DemoPage() {
           className="registry-demo-observability-panel space-y-4 rounded-2xl border border-border bg-card p-3"
         >
           <div
+            data-testid="registry-demo-reactor-runtime"
+            className="registry-demo-reactor-runtime rounded-xl border border-border/70 bg-background p-3"
+          >
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Reactor runtime
+            </p>
+            <div className="grid gap-1 font-mono text-[11px]">
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">reactor</span>
+                <span className="truncate">{profile.reactor}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">provider</span>
+                <span className="truncate">{profile.provider}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">model</span>
+                <span className="truncate">{profile.model || "-"}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">mode</span>
+                <span className="truncate">{profile.runtimeMode}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">threadId</span>
+                <span className="truncate">{profile.threadId}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">executionId</span>
+                <span className="truncate">{profile.executionId}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">appServer</span>
+                <span className="truncate">{profile.appServerUrl || "-"}</span>
+              </div>
+              <div className="grid grid-cols-[96px_minmax(0,1fr)] gap-2">
+                <span className="text-muted-foreground">approval</span>
+                <span className="truncate">{profile.approvalPolicy || "-"}</span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            data-testid="registry-demo-reactor-layout"
+            className="registry-demo-reactor-layout rounded-xl border border-border/70 bg-background p-3"
+          >
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {reactorLayout.title}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{reactorLayout.subtitle}</p>
+            <div className="mt-3 grid gap-2">
+              {reactorLayout.lanes.map((lane) => (
+                <div
+                  key={lane.id}
+                  data-testid="registry-demo-reactor-layout-lane"
+                  className="rounded border border-border/70 bg-muted/20 p-2"
+                >
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">
+                      {lane.title}
+                    </p>
+                    <span className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {lane.count}
+                    </span>
+                  </div>
+                  <p className="mb-2 text-[11px] text-muted-foreground">{lane.description}</p>
+                  <div className="flex flex-wrap gap-1">
+                    {lane.events.map((eventName) => (
+                      <span
+                        key={`${lane.id}:${eventName}`}
+                        className="rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                      >
+                        {eventName}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            data-testid="registry-demo-reactor-summary"
+            className="registry-demo-reactor-summary rounded-xl border border-border/70 bg-background p-3"
+          >
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              {reactorPalette.badge} mapping summary
+            </p>
+            <div className="grid gap-2 md:grid-cols-4">
+              <div className="rounded border border-border/70 bg-muted/30 p-2">
+                <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Part types</p>
+                <div className="space-y-1 font-mono text-[11px]">
+                  {streamStats.byPartType.slice(0, 6).map(([key, value]) => (
+                    <div key={`part:${key}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{key}</span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded border border-border/70 bg-muted/30 p-2">
+                <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Chunk types</p>
+                <div className="space-y-1 font-mono text-[11px]">
+                  {streamStats.byChunkType.slice(0, 6).map(([key, value]) => (
+                    <div key={`chunk:${key}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{key}</span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded border border-border/70 bg-muted/30 p-2">
+                <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Thread chunk phases</p>
+                <div className="space-y-1 font-mono text-[11px]">
+                  {streamStats.byPhase.slice(0, 6).map(([key, value]) => (
+                    <div key={`phase:${key}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{key}</span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded border border-border/70 bg-muted/30 p-2">
+                <p className="mb-1 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Provider events</p>
+                <div className="space-y-1 font-mono text-[11px]">
+                  {streamStats.byProvider.slice(0, 6).map(([key, value]) => (
+                    <div key={`provider:${key}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{key}</span>
+                      <span>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
             data-testid="registry-demo-stream-panel"
-            className="registry-demo-stream-panel rounded-xl border border-border/70 bg-neutral-950 p-3 text-emerald-200 shadow-inner"
+            className={`registry-demo-stream-panel rounded-xl border border-border/70 p-3 shadow-inner ${reactorPalette.shell}`}
           >
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300/90">
+              <p className={`text-xs font-semibold uppercase tracking-[0.16em] ${reactorPalette.accent}`}>
                 Stream terminal
               </p>
               <span
                 data-testid="registry-demo-stream-count"
-                className="font-mono text-xs text-emerald-300/80"
+                className={`font-mono text-xs ${reactorPalette.accent}`}
               >
                 {streamRows.length}
               </span>
@@ -760,24 +1168,29 @@ export default function DemoPage() {
             <div
               ref={streamViewportRef}
               data-testid="registry-demo-stream-list"
-              className="registry-demo-stream-list max-h-64 space-y-1 overflow-y-auto rounded border border-emerald-700/40 bg-neutral-950 p-2 font-mono text-[11px]"
+              className={`registry-demo-stream-list max-h-64 space-y-1 overflow-y-auto rounded border p-2 font-mono text-[11px] ${reactorPalette.panel}`}
             >
               {streamRows.map((row) => (
                 <div
                   key={row.key}
                   data-testid="registry-demo-stream-row"
                   data-event-order={row.order}
-                  className="registry-demo-stream-row grid grid-cols-[34px_78px_98px_minmax(0,1fr)_76px] items-center gap-2 rounded border border-transparent px-2 py-1 text-[11px] hover:border-emerald-600/40"
+                  onClick={() => setSelectedStreamKey(row.key)}
+                  className={`registry-demo-stream-row grid cursor-pointer grid-cols-[34px_78px_98px_120px_minmax(0,1fr)_76px] items-center gap-2 rounded border px-2 py-1 text-[11px] ${
+                    selectedStreamRow?.key === row.key
+                      ? "border-current/60 bg-white/5"
+                      : "border-transparent"
+                  }`}
                 >
                   <span
                     data-testid="registry-demo-stream-order"
-                    className="text-emerald-300/70"
+                    className={reactorPalette.accent}
                   >
                     {row.order}
                   </span>
                   <span
                     data-testid="registry-demo-stream-time"
-                    className="text-cyan-300/90"
+                    className={reactorPalette.subaccent}
                   >
                     {formatClock(row.createdAt)}
                   </span>
@@ -786,6 +1199,12 @@ export default function DemoPage() {
                     className="truncate text-amber-300"
                   >
                     {row.partType}/{row.partState || "none"}
+                  </span>
+                  <span
+                    data-testid="registry-demo-stream-provider"
+                    className="truncate text-sky-200/90"
+                  >
+                    {row.providerType || row.chunkType || "-"}
                   </span>
                   <span
                     data-testid="registry-demo-stream-label"
@@ -802,6 +1221,61 @@ export default function DemoPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div
+            data-testid="registry-demo-stream-inspector"
+            className="registry-demo-stream-inspector rounded-xl border border-border/70 bg-background p-3"
+          >
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Selected stream event
+            </p>
+            {selectedStreamRow ? (
+              <div className="space-y-2 font-mono text-[11px]">
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">eventId</span>
+                  <span className="truncate">{selectedStreamRow.eventId}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">eventType</span>
+                  <span className="truncate">{selectedStreamRow.eventType}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">eventStatus</span>
+                  <span className="truncate">{selectedStreamRow.eventStatus || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">partType</span>
+                  <span className="truncate">{selectedStreamRow.partType}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">inputType</span>
+                  <span className="truncate">{selectedStreamRow.inputType || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">phase</span>
+                  <span className="truncate">{selectedStreamRow.phase || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">chunkType</span>
+                  <span className="truncate">{selectedStreamRow.chunkType || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">provider</span>
+                  <span className="truncate">{selectedStreamRow.providerType || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">label</span>
+                  <span className="truncate">{selectedStreamRow.label || "-"}</span>
+                </div>
+                <div className="grid grid-cols-[98px_minmax(0,1fr)] gap-2">
+                  <span className="text-muted-foreground">detail</span>
+                  <span className="truncate">{selectedStreamRow.detail || "-"}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No stream events yet.</p>
+            )}
           </div>
 
           <div

@@ -31,6 +31,7 @@ type CachedTenantCredentials = {
 
 export type DemoTenantInfo = {
   appId: string;
+  adminToken: string;
   title: string;
   visitorId: string;
   created: boolean;
@@ -168,6 +169,7 @@ export async function ensureDemoTenant(params: {
       if (cached) {
         return {
           appId: existing.id,
+          adminToken: cached.adminToken,
           title: existing.title,
           visitorId,
           created: false,
@@ -197,6 +199,7 @@ export async function ensureDemoTenant(params: {
 
   return {
     appId: app.id,
+    adminToken: app.adminToken,
     title: app.title,
     visitorId,
     created: true,

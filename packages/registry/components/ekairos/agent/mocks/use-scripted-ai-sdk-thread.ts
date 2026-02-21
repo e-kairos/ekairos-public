@@ -9,11 +9,21 @@ import type {
 } from "@/components/ekairos/thread/context";
 import { ASSISTANT_MESSAGE_TYPE, INPUT_TEXT_ITEM_TYPE } from "@/components/ekairos/thread/context";
 
-import fixture from "./codex-run.fixture.json";
+import fixture from "./ai-sdk-run.fixture.json";
 
-type FixtureNotificationStep = {
+type FixtureChunk = {
+  chunkType: string;
+  providerChunkType?: string;
+  actionRef?: string;
+  label?: string;
+  text?: string;
+  state?: string;
+  data?: Record<string, unknown>;
+};
+
+type FixtureChunkStep = {
   delayMs: number;
-  notification: Record<string, unknown>;
+  chunk: FixtureChunk;
 };
 
 type FixtureData = {
@@ -29,11 +39,11 @@ type FixtureData = {
     prompt: string;
     runtime: {
       mode: string;
-      appServerUrl: string;
-      approvalPolicy: string;
+      provider: string;
+      model: string;
     };
   };
-  notifications: FixtureNotificationStep[];
+  chunks: FixtureChunkStep[];
   reaction: {
     text: string;
     reasoning: string;
@@ -64,74 +74,6 @@ type ScriptedThreadLifecycleCallbacks = {
   }) => Promise<void> | void;
   onReset?: (params: { contextId: string; fixture: FixtureData }) => Promise<void> | void;
 };
-
-type CodexChunkMappingResult = {
-  skip?: boolean;
-  chunkType: string;
-  providerChunkType?: string;
-  actionRef?: string | null;
-  data?: Record<string, unknown>;
-};
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function mapCodexAppServerNotification(
-  notification: Record<string, unknown>,
-): CodexChunkMappingResult | null {
-  const method = typeof notification.method === "string" ? notification.method : "";
-  const params = asRecord(notification.params);
-
-  if (!method) return null;
-
-  switch (method) {
-    case "turn/started":
-      return {
-        chunkType: "chunk.start",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "turn/completed":
-      return {
-        chunkType: "chunk.finish",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "item/started":
-      return {
-        chunkType: "chunk.text_start",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "item/agentMessage/delta":
-      return {
-        chunkType: "chunk.text_delta",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "item/completed":
-      return {
-        chunkType: "chunk.text_end",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "thread/tokenUsage/updated":
-      return {
-        chunkType: "chunk.response_metadata",
-        providerChunkType: method,
-        data: { params },
-      };
-    case "thread/started":
-      return {
-        chunkType: "chunk.message_metadata",
-        providerChunkType: method,
-        data: { params },
-      };
-    default:
-      return { skip: true, chunkType: "chunk.message_metadata", providerChunkType: method, data: { params } };
-  }
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -170,7 +112,9 @@ function extractPromptText(parts: any[]): string {
     .trim();
 }
 
-function toOutputState(chunkType: string): "output-streaming" | "output-available" | "output-error" {
+function toOutputState(chunkType: string, state?: string): "output-streaming" | "output-available" | "output-error" {
+  if (state === "output-error") return "output-error";
+  if (state === "output-available") return "output-available";
   if (chunkType === "chunk.error" || chunkType.endsWith("_error")) return "output-error";
   if (
     chunkType === "chunk.finish" ||
@@ -183,27 +127,6 @@ function toOutputState(chunkType: string): "output-streaming" | "output-availabl
     return "output-available";
   }
   return "output-streaming";
-}
-
-function toChunkLabel(chunk: CodexChunkMappingResult): string {
-  const data = (chunk.data as Record<string, unknown> | undefined) ?? {};
-  const params = (data.params as Record<string, unknown> | undefined) ?? {};
-  if (chunk.chunkType === "chunk.start") return "Turn started";
-  if (chunk.chunkType === "chunk.finish") return "Turn completed";
-  if (chunk.chunkType === "chunk.text_start") return "assistant text started";
-  if (chunk.chunkType === "chunk.text_end") return "assistant text completed";
-  if (chunk.chunkType === "chunk.reasoning_start") return "reasoning started";
-  if (chunk.chunkType === "chunk.reasoning_end") return "reasoning completed";
-  if (chunk.chunkType === "chunk.text_delta") {
-    const delta = typeof params.delta === "string" ? params.delta : "";
-    return delta || "assistant text delta";
-  }
-  if (chunk.chunkType === "chunk.reasoning_delta") {
-    const delta = typeof params.delta === "string" ? params.delta : "";
-    return delta || "reasoning delta";
-  }
-  if (chunk.providerChunkType) return chunk.providerChunkType;
-  return chunk.chunkType;
 }
 
 function createUserEvent(text: string): ContextEventForUI {
@@ -219,17 +142,17 @@ function createUserEvent(text: string): ContextEventForUI {
   };
 }
 
-function createCodexStreamEvent(params: {
+function createAiSdkStreamEvent(params: {
   contextId: string;
   executionId: string;
   runId: string;
-  chunk: CodexChunkMappingResult;
+  chunk: FixtureChunk;
   sequence: number;
 }): ContextEventForUI {
-  const eventId = makeId(`codex-stream-${params.sequence}`);
-  const label = toChunkLabel(params.chunk);
-  const chunkType = params.chunk.chunkType;
-  const providerChunkType = params.chunk.providerChunkType || "unknown";
+  const eventId = makeId(`ai-sdk-stream-${params.sequence}`);
+  const chunkType = String(params.chunk.chunkType || "chunk.message_metadata");
+  const providerChunkType = String(params.chunk.providerChunkType || "ai-sdk/unknown");
+  const label = String(params.chunk.label || params.chunk.text || chunkType);
   const payload = {
     phase: chunkType,
     label,
@@ -256,15 +179,15 @@ function createCodexStreamEvent(params: {
     content: {
       parts: [
         {
-          type: "codex-event",
-          state: toOutputState(chunkType),
+          type: "ai-sdk-event",
+          state: toOutputState(chunkType, params.chunk.state),
           input: payload,
           output: payload,
           metadata: {
-            source: "codex.stream.event",
+            source: "ai-sdk.stream.chunk",
             phase: chunkType,
             label,
-            eventType: "codex-event",
+            eventType: "ai-sdk-event",
             sequence: params.sequence,
             chunkType,
             providerChunkType,
@@ -294,20 +217,20 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
           text: data.reaction.text,
         },
         {
-          type: "codex-event",
+          type: "ai-sdk-event",
           state: "output-available",
           input: {
-            phase: "turn.completed",
+            phase: "chunk.finish",
             label: "Turn completed",
           },
           output: {
-            phase: "turn.completed",
+            phase: "chunk.finish",
             label: "Turn completed",
           },
           metadata: {
-            source: "codex.stream.event",
-            phase: "turn.completed",
-            eventType: "codex-event",
+            source: "ai-sdk.stream.chunk",
+            phase: "chunk.finish",
+            eventType: "ai-sdk-event",
           },
         },
       ],
@@ -315,13 +238,13 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
   };
 }
 
-export function useScriptedCodexThread(
+export function useScriptedAiSdkThread(
   callbacks?: ScriptedThreadLifecycleCallbacks,
 ): ThreadValue & {
   reset: () => void;
   title: string;
   profile: {
-    reactor: "codex";
+    reactor: "ai_sdk";
     runtimeMode: string;
     provider: string;
     model: string | null;
@@ -380,7 +303,7 @@ export function useScriptedCodexThread(
     setSendError(null);
     setSendStatus("submitting");
     setContextStatus("streaming");
-    setTurnSubstateKey("code.runtime.connecting");
+    setTurnSubstateKey("thread.loop.running");
     const userEvent = createUserEvent(promptText);
     setEvents((prev) => [...prev, userEvent]);
     await callbacks?.onRunStart?.({
@@ -399,22 +322,16 @@ export function useScriptedCodexThread(
 
     try {
       let emittedSequence = 1;
-      for (let index = 0; index < data.notifications.length; index += 1) {
-        const step = data.notifications[index];
+      for (let index = 0; index < data.chunks.length; index += 1) {
+        const step = data.chunks[index];
         await wait(step.delayMs);
         if (currentRunRef.current !== runToken) return;
 
-        const mapped = mapCodexAppServerNotification(step.notification);
-        if (!mapped || mapped.skip) continue;
-
-        if (mapped.chunkType === "chunk.start") {
-          setTurnSubstateKey("code.runtime.ready");
-        }
-        const streamEvent = createCodexStreamEvent({
+        const streamEvent = createAiSdkStreamEvent({
           contextId: data.source.contextId,
           executionId: data.source.executionId,
           runId: runId,
-          chunk: mapped,
+          chunk: step.chunk,
           sequence: emittedSequence,
         });
         setEvents((prev) => [...prev, streamEvent]);
@@ -466,12 +383,12 @@ export function useScriptedCodexThread(
     }
   }, [callbacks, data, sendStatus]);
 
-  const thread = useMemo<
+  return useMemo<
     ThreadValue & {
       reset: () => void;
       title: string;
       profile: {
-        reactor: "codex";
+        reactor: "ai_sdk";
         runtimeMode: string;
         provider: string;
         model: string | null;
@@ -496,12 +413,12 @@ export function useScriptedCodexThread(
       reset,
       title: data.title,
       profile: {
-        reactor: "codex",
+        reactor: "ai_sdk",
         runtimeMode: data.request.runtime.mode,
-        provider: "codex-app-server",
-        model: null,
-        appServerUrl: data.request.runtime.appServerUrl,
-        approvalPolicy: data.request.runtime.approvalPolicy,
+        provider: data.request.runtime.provider,
+        model: data.request.runtime.model,
+        appServerUrl: null,
+        approvalPolicy: null,
         threadId: data.source.threadId,
         executionId: data.source.executionId,
         fixtureId: data.id,
@@ -509,6 +426,4 @@ export function useScriptedCodexThread(
     }),
     [append, contextStatus, data.source.contextId, data.title, events, reset, sendError, sendStatus, stop, turnSubstateKey],
   );
-
-  return thread;
 }

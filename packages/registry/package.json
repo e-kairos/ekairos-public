@@ -3,7 +3,7 @@
     "version":  "1.21.83-beta.0",
     "private":  true,
     "scripts":  {
-                    "dev":  "next dev --port 3030",
+                    "dev":  "node scripts/dev.mjs",
                     "typecheck":  "tsc --noEmit --pretty",
                     "typecheck:verbose":  "tsc --noEmit --listFiles",
                     "schema:push":  "npx instant-cli@latest push schema",
@@ -17,6 +17,7 @@
                          "@ai-sdk/openai":  "catalog:",
                          "@clerk/nextjs":  "^6.35.5",
                          "@ekairos/domain":  "workspace:*",
+                         "@ekairos/openai-reactor":  "workspace:*",
                          "@ekairos/thread":  "workspace:*",
                          "@excalidraw/excalidraw":  "^0.17.0",
                          "@instantdb/admin":  "0.22.126",
@@ -69,6 +70,7 @@
                          "ts-morph":  "^27.0.2",
                          "use-stick-to-bottom":  "^1.1.1",
                          "vaul":  "^1.1.2",
+                         "ws":  "^8.18.0",
                          "zod":  "^4.1.12"
                      },
     "devDependencies":  {

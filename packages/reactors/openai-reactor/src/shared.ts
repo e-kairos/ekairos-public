@@ -54,6 +54,7 @@ export function buildCodexParts(params: {
     metadata?: Record<string, unknown>
   }
   instruction: string
+  streamTrace?: unknown
 }) {
   const parts: AnyRecord[] = []
   const assistantText = asString(params.result.assistantText).trim()
@@ -72,6 +73,7 @@ export function buildCodexParts(params: {
     turnId: params.result.turnId,
     diff: params.result.diff ?? "",
     toolParts: params.result.toolParts ?? [],
+    streamTrace: params.streamTrace,
     ...(params.result.metadata ?? {}),
   }
 
