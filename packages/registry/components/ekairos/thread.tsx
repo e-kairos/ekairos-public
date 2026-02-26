@@ -1,18 +1,15 @@
-import React from "react"
+﻿import React from "react";
 import {
   Conversation as AIEConversation,
   ConversationContent as AIEConversationContent,
   ConversationScrollButton as AIEConversationScrollButton,
-} from "@/components/ai-elements/conversation"
+} from "@/components/ai-elements/conversation";
 
-export function Thread({ children, className }: { children?: React.ReactNode; className?: string }) {
-  return (
-    <AIEConversation className={className}>{children as any}</AIEConversation>
-  )
+export type ThreadProps = React.ComponentProps<typeof AIEConversation>;
+
+export function Thread(props: ThreadProps) {
+  return <AIEConversation {...props} />;
 }
 
-export const ThreadContent = AIEConversationContent
-export const ThreadScrollButton = AIEConversationScrollButton
-
-
-
+export const ThreadContent = AIEConversationContent;
+export const ThreadScrollButton = AIEConversationScrollButton;

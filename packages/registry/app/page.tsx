@@ -16,7 +16,18 @@ function getInstallCommand(componentName: string) {
 }
 
 function getFeatured(items: RegistryItem[]) {
-  const featuredNames = ["agent", "full-agent", "prompt", "message", "chain-of-thought"];
+  const featuredNames = [
+    "agent",
+    "full-agent",
+    "prompt",
+    "message",
+    "chain-of-thought",
+    "thread",
+    "use-thread",
+    "event",
+    "voice-provider",
+  ];
+
   const selected = featuredNames
     .map((name) => items.find((item) => item.name === name))
     .filter(Boolean) as RegistryItem[];
@@ -137,6 +148,12 @@ export default async function HomePage() {
         <div className="mt-3 grid gap-2 font-mono text-xs md:grid-cols-2">
           <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
             npx shadcn@latest add @ekairos/agent
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
+            npx shadcn@latest add @ekairos/thread
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
+            npx shadcn@latest add @ekairos/use-thread
           </div>
           <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
             GET /registry.json

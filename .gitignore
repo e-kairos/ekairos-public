@@ -68,5 +68,9 @@ packages/ekairos/local_dev.md
 packages/structure/workflow-smoke/src/app/.well-known/
 .ekairos/
 
+# Thread playwright local artifacts
+packages/thread/tests/playwright/server/*.log
+packages/thread/tests/playwright/server/test-results/
+
 # local codex reactor audit artifacts
 packages/reactors/openai-reactor/.tmp-audit-*.json
