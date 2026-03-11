@@ -1,4 +1,4 @@
-import type { ThreadItem } from "@ekairos/thread"
+import type { ThreadItem } from "@ekairos/events"
 
 export type AnyRecord = Record<string, unknown>
 

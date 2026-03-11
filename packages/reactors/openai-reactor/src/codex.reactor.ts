@@ -5,8 +5,8 @@ import {
   type ThreadReactor,
   type ThreadReactorParams,
   type ThreadStreamChunkType,
-} from "@ekairos/thread"
-import type { ThreadEnvironment } from "@ekairos/thread/runtime"
+} from "@ekairos/events"
+import type { ThreadEnvironment } from "@ekairos/events/runtime"
 
 import { asRecord, asString, buildCodexParts, defaultInstructionFromTrigger, type AnyRecord } from "./shared.js"
 
@@ -387,7 +387,7 @@ function extractUsageMetrics(usageSource: unknown) {
 }
 
 /**
- * Codex App Server reactor for @ekairos/thread.
+ * Codex App Server reactor for @ekairos/events.
  *
  * This maps one Thread loop iteration to one Codex turn and returns a persisted
  * assistant event compatible with the Thread engine.

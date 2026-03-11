@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
-import type { ThreadEnvironment } from "@ekairos/thread/runtime"
-import type { ThreadItem, ThreadReactorParams } from "@ekairos/thread"
+import type { ThreadEnvironment } from "@ekairos/events/runtime"
+import type { ThreadItem, ThreadReactorParams } from "@ekairos/events"
 
 import {
   createCodexReactor,
