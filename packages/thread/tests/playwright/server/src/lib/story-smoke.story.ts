@@ -1,4 +1,4 @@
-import { createThread, createScriptedReactor, didToolExecute } from "@ekairos/thread";
+import { createThread, createScriptedReactor, didToolExecute } from "@ekairos/events";
 import { tool } from "ai";
 import { z } from "zod";
 import {

@@ -3,7 +3,7 @@
  */
 
 import { domain } from "@ekairos/domain";
-import { threadDomain } from "@ekairos/thread";
+import { threadDomain } from "@ekairos/events";
 
 const appDomain = domain("story-workflow-smoke")
   .includes(threadDomain)

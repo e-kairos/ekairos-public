@@ -72,7 +72,7 @@ function ensureWorkspaceBuild() {
   if (!needsBuild) return;
 
   const isWin = process.platform === "win32";
-  const buildArgs = ["--filter", "@ekairos/domain", "--filter", "@ekairos/thread", "build"];
+  const buildArgs = ["--filter", "@ekairos/domain", "--filter", "@ekairos/events", "build"];
 
   const res = spawnSync("pnpm", buildArgs, {
     cwd: repoRoot,

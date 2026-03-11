@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  transpilePackages: ["@ekairos/thread", "@ekairos/domain"],
+  transpilePackages: ["@ekairos/events", "@ekairos/domain"],
 };
 
 export default withRuntime(withWorkflow(nextConfig) as any, {

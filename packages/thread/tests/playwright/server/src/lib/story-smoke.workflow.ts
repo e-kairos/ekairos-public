@@ -1,5 +1,5 @@
 import { storySmoke, storySmokeScripted, storySmokeToolError } from "./story-smoke.story";
-import type { ContextEvent } from "@ekairos/thread";
+import type { ContextEvent } from "@ekairos/events";
 import { getWritable } from "workflow";
 
 export type StorySmokeWorkflowMode = "success" | "tool-error" | "scripted";
