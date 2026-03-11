@@ -1,5 +1,5 @@
 import { configureRuntime } from "@ekairos/domain/runtime";
-import { threadDomain } from "@ekairos/thread";
+import { threadDomain } from "@ekairos/events";
 import { init } from "@instantdb/admin";
 import { domain } from "@ekairos/domain";
 import { config as dotenvConfig } from "dotenv";
