@@ -1,5 +1,5 @@
 {
-    "name":  "@ekairos/thread-workflow-smoke",
+    "name":  "@ekairos/events-workflow-smoke",
     "private":  true,
     "version":  "1.21.83-beta.0",
     "type":  "module",
@@ -16,7 +16,7 @@
                 },
     "dependencies":  {
                          "@ekairos/domain":  "workspace:*",
-                         "@ekairos/thread":  "workspace:*",
+                         "@ekairos/events":  "workspace:*",
                          "@instantdb/admin":  "0.22.126",
                          "ai":  "^5.0.98",
                          "dotenv":  "^17.2.3",

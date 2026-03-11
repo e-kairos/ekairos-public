@@ -61,7 +61,7 @@ export async function getThreadEnv(): Promise<ThreadEnvironment> {
   const fallback = getDefaultEnv()
   if (fallback) return fallback
   throw new Error(
-    "@ekairos/thread: env is not configured for this workflow run. " +
+    "@ekairos/events: env is not configured for this workflow run. " +
       "Call registerThreadEnv(env) at workflow start or ensure the thread runtime registers env.",
   )
 }

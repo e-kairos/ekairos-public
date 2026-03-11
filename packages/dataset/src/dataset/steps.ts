@@ -1,4 +1,4 @@
-import { getThreadRuntime, getThreadEnv } from "@ekairos/thread/runtime"
+import { getThreadRuntime, getThreadEnv } from "@ekairos/events/runtime"
 import { DatasetService } from "../service"
 
 async function resolveEnv(env?: any) {

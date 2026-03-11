@@ -1,7 +1,7 @@
 {
   "name": "@ekairos/openai-reactor",
   "version": "1.22.0",
-  "description": "Codex-only reactor for @ekairos/thread",
+  "description": "Codex-only reactor for @ekairos/events",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,10 +24,10 @@
     "test:reactor": "vitest run src/tests/codex.reactor.test.ts --reporter=verbose"
   },
   "peerDependencies": {
-    "@ekairos/thread": "*"
+    "@ekairos/events": "*"
   },
   "devDependencies": {
-    "@ekairos/thread": "workspace:*",
+    "@ekairos/events": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "typescript": "^5.9.2",

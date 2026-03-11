@@ -120,7 +120,7 @@ function ensureDomainRouteFile(bootstrapModule: string) {
     `__ekairosBootstrap?.runtimeConfig?.setup?.()`,
     `import { NextResponse } from "next/server"`,
     `import { getRuntimeConfig, resolveRuntime } from "@ekairos/domain/runtime"`,
-    `import { verifyOidcToken } from "@ekairos/thread/oidc"`,
+    `import { verifyOidcToken } from "@ekairos/events/oidc"`,
     ``,
     `function listKeys(value) {`,
     `  return value ? Object.keys(value) : []`,

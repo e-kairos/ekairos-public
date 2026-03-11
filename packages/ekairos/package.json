@@ -74,7 +74,7 @@
   "dependencies": {
     "@ekairos/dataset": "^1.21.85-beta.0",
     "@ekairos/domain": "^1.22.0",
-    "@ekairos/thread": "^1.22.0",
+    "@ekairos/events": "^1.22.0",
     "@instantdb/admin": "0.22.126",
     "ekairos-cli": "^1.22.0"
   },

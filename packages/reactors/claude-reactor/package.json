@@ -1,7 +1,7 @@
 {
     "name":  "@ekairos/claude-reactor",
     "version":  "1.21.83-beta.0",
-    "description":  "Claude reactor scaffolding for @ekairos/thread",
+    "description":  "Claude reactor scaffolding for @ekairos/events",
     "type":  "module",
     "main":  "./dist/index.js",
     "types":  "./dist/index.d.ts",
@@ -22,10 +22,10 @@
                     "typecheck":  "tsc --noEmit"
                 },
     "peerDependencies":  {
-                             "@ekairos/thread":  "*"
+                             "@ekairos/events":  "*"
                          },
     "devDependencies":  {
-                            "@ekairos/thread":  "workspace:*",
+                            "@ekairos/events":  "workspace:*",
                             "@ekairos/tsconfig":  "workspace:*",
                             "@types/node":  "^24.5.0",
                             "typescript":  "^5.9.2"

@@ -1,4 +1,4 @@
-import { getThreadEnv } from "@ekairos/thread/runtime"
+import { getThreadEnv } from "@ekairos/events/runtime"
 import { datasetPreviewRowsStep } from "../dataset/steps"
 import { createTransformDatasetStory } from "./transform-dataset.agent"
 

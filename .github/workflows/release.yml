@@ -83,11 +83,11 @@ jobs:
             exit 1
           fi
 
-      - name: Run @ekairos/thread AI SDK unit tests
-        run: pnpm --filter @ekairos/thread run test:ai-sdk-reactor
+      - name: Run @ekairos/events AI SDK unit tests
+        run: pnpm --filter @ekairos/events run test:ai-sdk-reactor
 
-      - name: Run @ekairos/thread scripted reactor unit tests
-        run: pnpm --filter @ekairos/thread run test:scripted-reactor
+      - name: Run @ekairos/events scripted reactor unit tests
+        run: pnpm --filter @ekairos/events run test:scripted-reactor
 
   check-thread-e2e:
     name: Check - thread workflow e2e
@@ -129,7 +129,7 @@ jobs:
       - name: Install Playwright browser (chromium)
         run: pnpm --dir packages/thread/tests/playwright/server exec playwright install --with-deps chromium
 
-      - name: Run @ekairos/thread workflow smoke e2e
+      - name: Run @ekairos/events workflow smoke e2e
         run: pnpm --dir packages/thread/tests/playwright/server run test:e2e:thread-engine
 
   publish:

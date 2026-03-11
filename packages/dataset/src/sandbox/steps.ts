@@ -1,4 +1,4 @@
-import { getThreadRuntime } from "@ekairos/thread/runtime"
+import { getThreadRuntime } from "@ekairos/events/runtime"
 
 export type DatasetSandboxId = string
 

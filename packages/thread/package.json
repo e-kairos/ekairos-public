@@ -1,5 +1,5 @@
 {
-  "name": "@ekairos/thread",
+  "name": "@ekairos/events",
   "version": "1.22.0",
   "description": "Pulzar Thread - Workflow-based AI Threads",
   "type": "module",

@@ -1,5 +1,5 @@
-// Re-export agent functionality from @ekairos/thread
-export * from '@ekairos/thread';
+// Re-export agent functionality from @ekairos/events
+export * from '@ekairos/events';
 
 
 

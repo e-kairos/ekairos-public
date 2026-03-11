@@ -1,4 +1,4 @@
-import type { ThreadRuntime } from "@ekairos/thread/runtime"
+import type { ThreadRuntime } from "@ekairos/events/runtime"
 
 export type StructureContextContent = {
   /**
@@ -34,7 +34,7 @@ export async function structureGetOrCreateContextStep(params: {
 }): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const ctx = await runtime.store.getOrCreateContext({ key: params.contextKey })
     return { ok: true, data: ctx }
@@ -50,7 +50,7 @@ export async function structureGetContextStep(params: {
 }): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const ctx = await runtime.store.getContext({ key: params.contextKey })
     if (!ctx) return { ok: false, error: "Context not found" }
@@ -68,7 +68,7 @@ export async function structureUpdateContextContentStep(params: {
 }): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const updated = await runtime.store.updateContextContent({ key: params.contextKey }, params.content)
     return { ok: true, data: updated }
@@ -85,7 +85,7 @@ export async function structurePatchContextContentStep(params: {
 }): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const existing = await runtime.store.getOrCreateContext({ key: params.contextKey })
     const existingContent = (existing?.content ?? {}) as Record<string, unknown>
@@ -113,7 +113,7 @@ export async function structureUploadRowsOutputJsonlStep(params: {
   "use step"
   const startedAt = Date.now()
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const db = runtime.db
     const storagePath = `/structure/${params.structureId}/output.jsonl`
@@ -142,7 +142,7 @@ export async function structureLinkRowsOutputFileToContextStep(params: {
   "use step"
   const startedAt = Date.now()
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const store = runtime.store
     const db = runtime.db
@@ -168,7 +168,7 @@ export async function structureUnlinkRowsOutputFileFromContextStep(params: {
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const store = runtime.store
     const db = runtime.db
@@ -190,7 +190,7 @@ export async function structureGetContextWithRowsOutputFileStep(params: {
 }): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
   "use step"
   try {
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const db = runtime.db
     const query = (await db.query({
@@ -216,7 +216,7 @@ export async function structureReadRowsOutputJsonlStep(params: {
   const startedAt = Date.now()
   try {
     const contextKey = `structure:${params.structureId}`
-    const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+    const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const db = runtime.db
     const query = (await db.query({

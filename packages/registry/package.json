@@ -18,7 +18,7 @@
                          "@clerk/nextjs":  "^6.35.5",
                          "@ekairos/domain":  "workspace:*",
                          "@ekairos/openai-reactor":  "workspace:*",
-                         "@ekairos/thread":  "workspace:*",
+                         "@ekairos/events":  "workspace:*",
                          "@excalidraw/excalidraw":  "^0.17.0",
                          "@instantdb/admin":  "0.22.126",
                          "@instantdb/platform":  "0.22.142",

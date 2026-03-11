@@ -5,8 +5,8 @@ import type {
   ExecutionStatus,
   StoredContext,
   StoryStore,
-} from "@ekairos/thread"
-import { convertItemsToModelMessages } from "@ekairos/thread"
+} from "@ekairos/events"
+import { convertItemsToModelMessages } from "@ekairos/events"
 import type { ModelMessage } from "ai"
 
 type ContextRow = StoredContext<any>

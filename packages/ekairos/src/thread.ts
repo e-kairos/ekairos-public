@@ -1,1 +1,1 @@
-export * from "@ekairos/thread";
+export * from "@ekairos/events";

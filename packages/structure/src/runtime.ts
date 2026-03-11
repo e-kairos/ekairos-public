@@ -7,7 +7,7 @@
  * - Using a dynamic import keeps the symbol resolution local to the step runtime.
  */
 export async function getThreadRuntime(env: any) {
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("@ekairos/events/runtime")
   return await getThreadRuntime(env)
 }
 

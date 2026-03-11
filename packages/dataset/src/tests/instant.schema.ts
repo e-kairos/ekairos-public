@@ -18,12 +18,12 @@
 
 import { domain } from "@ekairos/domain"
 import { sandboxDomain } from "@ekairos/sandbox"
-import { threadDomain } from "@ekairos/thread"
+import { threadDomain } from "@ekairos/events"
 import { datasetDomain } from "../schema"
 
 // Compose what tests need:
 // - dataset + sandbox (for FileParseStory + sandbox steps)
-// - story (InstantStore persistence used by @ekairos/thread)
+// - story (InstantStore persistence used by @ekairos/events)
 const appDomain = domain("dataset-tests")
   .includes(datasetDomain)
   .includes(sandboxDomain)

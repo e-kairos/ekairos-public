@@ -14,7 +14,7 @@
                          "@ekairos/domain":  "workspace:*",
                          "@ekairos/sandbox":  "workspace:*",
                          "@ekairos/structure":  "workspace:*",
-                         "@ekairos/thread":  "workspace:*",
+                         "@ekairos/events":  "workspace:*",
                          "@instantdb/admin":  "0.22.126",
                          "dotenv":  "^17.2.3",
                          "next":  "16.0.7",

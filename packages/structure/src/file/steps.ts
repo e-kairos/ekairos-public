@@ -3,7 +3,7 @@ export async function readInstantFileStep(params: {
   fileId: string
 }): Promise<{ contentBase64: string; contentDisposition?: string }> {
   "use step"
-  const { getThreadRuntime } = await import("@ekairos/thread/runtime")
+  const { getThreadRuntime } = await import("@ekairos/events/runtime")
   const runtime = (await getThreadRuntime(params.env)) as { db: unknown }
   const db = runtime.db
   const { DatasetService } = await import("../service.js")

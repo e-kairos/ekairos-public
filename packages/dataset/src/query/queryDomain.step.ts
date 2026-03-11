@@ -1,5 +1,5 @@
 import { id as newId } from "@instantdb/admin"
-import { getThreadRuntime, getThreadEnv } from "@ekairos/thread/runtime"
+import { getThreadRuntime, getThreadEnv } from "@ekairos/events/runtime"
 import { DatasetService } from "../service"
 
 export type QueryDomainStepInput = {

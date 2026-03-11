@@ -39,7 +39,7 @@ export async function provisionThreadTestApp(params: {
   const token = getInstantProvisionToken()
   if (!token) {
     throw new Error(
-      "INSTANT_PERSONAL_ACCESS_TOKEN is required for @ekairos/thread Instant tests.",
+      "INSTANT_PERSONAL_ACCESS_TOKEN is required for @ekairos/events Instant tests.",
     )
   }
 

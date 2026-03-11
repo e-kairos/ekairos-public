@@ -1,4 +1,4 @@
-import { getThreadRuntime } from "@ekairos/thread/runtime"
+import { getThreadRuntime } from "@ekairos/events/runtime"
 
 export async function readInstantFileStep(params: { env: any; fileId: string }): Promise<{
   url: string

@@ -46,11 +46,11 @@
     "zod": "^4.1.8"
   },
   "peerDependencies": {
-    "@ekairos/thread": "workspace:*"
+    "@ekairos/events": "workspace:*"
   },
   "devDependencies": {
     "@ekairos/sandbox": "workspace:*",
-    "@ekairos/thread": "workspace:*",
+    "@ekairos/events": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "dotenv": "^17.2.2",

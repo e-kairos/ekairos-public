@@ -1,12 +1,12 @@
 /**
- * Runtime-only entrypoint for @ekairos/thread.
+ * Runtime-only entrypoint for @ekairos/events.
  *
  * This file intentionally exports the "wiring" pieces that connect durable steps to a concrete
  * store runtime (Instant/Postgres/etc).
  *
  * IMPORTANT:
  * - Do NOT import this entrypoint from client/browser code.
- * - Keep `@ekairos/thread` main entrypoint safe to import from schema/domain modules.
+ * - Keep `@ekairos/events` main entrypoint safe to import from schema/domain modules.
  */
 
 if (typeof (globalThis as any).Event === "undefined") {

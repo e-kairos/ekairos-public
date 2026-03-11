@@ -190,7 +190,7 @@ type EnsureIncludesSchema<
  * This is a generic helper that works with any database type wrapper.
  * Consumers should wrap it with their specific DB type (e.g., InstantAdminDatabase).
  * 
- * Usage in @ekairos/thread:
+ * Usage in @ekairos/events:
  * ```ts
  * import type { InstantAdminDatabase } from "@instantdb/admin";
  * 

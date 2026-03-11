@@ -1,6 +1,6 @@
 import { i } from "@instantdb/core"
 import { domain } from "@ekairos/domain"
-import { threadDomain } from "@ekairos/thread/schema"
+import { threadDomain } from "@ekairos/events/schema"
 import { sandboxDomain } from "@ekairos/sandbox/schema"
 
 const entities = {

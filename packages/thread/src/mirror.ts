@@ -2,7 +2,7 @@ import type { ThreadItem, StoredContext } from "./thread.store.js";
 
 /**
  * Wire-safe (JSON) mirror types shared by:
- * - the workflow sender (`@ekairos/thread` steps)
+ * - the workflow sender (`@ekairos/events` steps)
  * - the ekairos-core receiver (`/api/thread`)
  *
  * Note: `StoredContext` contains Date objects, but over HTTP we send ISO strings.

@@ -32,7 +32,7 @@
                          "@xyflow/react":  "^12.9.3",
                          "@ekairos/domain":  "workspace:*",
                          "@ekairos/testing":  "workspace:*",
-                         "@ekairos/thread":  "workspace:*",
+                         "@ekairos/events":  "workspace:*",
                          "@instantdb/admin":  "0.22.126",
                          "@instantdb/react":  "0.22.126",
                          "ai":  "^5.0.98",

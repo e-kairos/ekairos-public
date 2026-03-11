@@ -1,7 +1,7 @@
 import { init } from "@instantdb/admin"
 import { configureRuntime } from "@ekairos/domain/runtime"
 import { domain } from "@ekairos/domain"
-import { threadDomain } from "@ekairos/thread"
+import { threadDomain } from "@ekairos/events"
 import { datasetDomain } from "../schema"
 import { sandboxDomain } from "@ekairos/sandbox"
 
