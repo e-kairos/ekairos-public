@@ -37,6 +37,7 @@ import { createCompleteRowsTool } from "./completeRows.tool.js"
 import { createCompleteObjectTool } from "./completeObject.tool.js"
 import { persistObjectResultFromStoryStep } from "./steps/persistObjectFromStory.step.js"
 import { structureCommitFromEventsStep } from "./steps/commitFromEvents.step.js"
+import { ensureExecutionTrailStep } from "./steps/ensureExecutionTrail.step.js"
 import type { SandboxConfig } from "@ekairos/sandbox"
 
 export type StructureSource =
@@ -622,57 +623,6 @@ export function structure<Env extends { orgId: string }>(
         } as any
       }
 
-      async function ensureExecutionTrail(params: { status: "success" | "failed"; requestItemId: string; error?: unknown }) {
-        const { getThreadRuntime } = await import("@ekairos/events/runtime")
-        const runtime = (await getThreadRuntime(env)) as any
-        const store = runtime.store as any
-        if (!store?.saveItem || !store?.createExecution || !store?.linkItemToExecution || !store?.getItems) {
-          return
-        }
-
-        const items = await store.getItems({ key: contextKey })
-        const hasRequest = items.some((item: any) => item?.id === params.requestItemId)
-        let requestItemId = params.requestItemId
-
-        if (!hasRequest) {
-          const requestItem = await store.saveItem({ key: contextKey }, {
-            type: INPUT_TEXT_ITEM_TYPE,
-            channel: WEB_CHANNEL,
-            createdAt: new Date().toISOString(),
-            content: {
-              parts: [{ type: "text", text: "[structure-trace] request (recreated)" }],
-              structure_build: {
-                datasetId,
-                status: "input",
-              },
-            },
-          } as any)
-          if (!requestItem?.id) return
-          requestItemId = requestItem.id
-        }
-
-        const outputItem = await store.saveItem({ key: contextKey }, {
-          type: OUTPUT_ITEM_TYPE,
-          channel: WEB_CHANNEL,
-          createdAt: new Date().toISOString(),
-          content: {
-            parts: [{ type: "text", text: `structure:${datasetId} ${params.status}` }],
-            structure_build: {
-              datasetId,
-              status: params.status,
-              output,
-              orgId: (env as any)?.orgId,
-              error: params.error ? String(params.error) : undefined,
-            },
-          },
-        } as any)
-        if (!outputItem?.id) return
-
-        const execution = await store.createExecution({ key: contextKey }, requestItemId, outputItem.id)
-        await store.linkItemToExecution({ itemId: requestItemId, executionId: execution.id })
-        await store.linkItemToExecution({ itemId: outputItem.id, executionId: execution.id })
-      }
-
       async function markBuildFailed(error: unknown) {
         try {
           await structurePatchContextContentStep({
@@ -795,7 +745,11 @@ export function structure<Env extends { orgId: string }>(
           throw new Error("Object output not completed")
         }
 
-        await ensureExecutionTrail({
+        await ensureExecutionTrailStep({
+          env,
+          contextKey,
+          datasetId,
+          output,
           status: "success",
           requestItemId: initialRequestEvent.id,
         })
@@ -881,7 +835,11 @@ export function structure<Env extends { orgId: string }>(
         return output === "object" ? { datasetId, reader, dataset: ctx } : { datasetId, reader }
       } catch (error) {
         await markBuildFailed(error)
-        await ensureExecutionTrail({
+        await ensureExecutionTrailStep({
+          env,
+          contextKey,
+          datasetId,
+          output,
           status: "failed",
           requestItemId: initialRequestEvent.id,
           error,
