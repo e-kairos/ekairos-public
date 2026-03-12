@@ -1,6 +1,7 @@
 import { getDatasetOutputPath, getDatasetWorkstation } from "./datasetFiles.js"
 import { readDatasetSandboxFileStep, runDatasetSandboxCommandStep } from "./sandbox/steps.js"
 import type { StructureRowsOutputPagingCursor } from "./rowsOutputPaging.js"
+import { linkStructureOutputFileToContextByKey } from "./contextPersistence.js"
 import { getThreadRuntime } from "./runtime.js"
 
 export type StructureSplitRowsOutputToDatasetResult = {
@@ -129,7 +130,7 @@ export async function structureSplitRowsOutputToDatasetStep(params: {
   if (!ctxId) throw new Error("Failed to create child dataset context")
 
   // Link the output file to the context (used by DatasetService.readRecordsFromFile).
-  await db.transact([db.tx.thread_contexts[ctxId].link({ structure_output_file: fileId })])
+  await linkStructureOutputFileToContextByKey(db, { contextKey, fileId })
 
   // Patch metadata under `structure` namespace (never clobber Story runtime keys).
   const existingContent = (ctx?.content ?? {}) as Record<string, any>

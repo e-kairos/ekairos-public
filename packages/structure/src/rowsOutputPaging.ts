@@ -1,5 +1,6 @@
 import { getDatasetOutputPath, getDatasetWorkstation } from "./datasetFiles.js"
 import { createDatasetSandboxStep, runDatasetSandboxCommandStep } from "./sandbox/steps.js"
+import { findStructureContextByKey } from "./contextPersistence.js"
 import { getThreadRuntime } from "./runtime.js"
 
 export type StructureRowsOutputPagingCursor = {
@@ -67,13 +68,8 @@ export async function structureDownloadRowsOutputToSandboxStep(params: {
   const db = storyRuntime.db
 
   const contextKey = `structure:${params.structureId}`
-  const query = (await db.query({
-    thread_contexts: {
-      $: { where: { key: contextKey }, limit: 1 },
-      structure_output_file: {},
-    },
-  })) as any
-  const ctx = query.thread_contexts?.[0]
+  const persisted = await findStructureContextByKey(db, contextKey, { includeOutputFile: true })
+  const ctx = persisted?.row
   const linked = Array.isArray(ctx?.structure_output_file) ? ctx.structure_output_file[0] : ctx.structure_output_file
   const url = linked?.url
   if (!url) {

@@ -40,11 +40,11 @@ async function resolveWorkflowRunId(env: ThreadEnvironment, executionId?: string
       const db: any = (runtime as any)?.db
       if (db) {
         const q = await db.query({
-          thread_executions: {
+          event_executions: {
             $: { where: { id: String(executionId) }, limit: 1 },
           },
         })
-        const row = (q as any)?.thread_executions?.[0]
+        const row = (q as any)?.event_executions?.[0]
         if (row?.workflowRunId) {
           runId = String(row.workflowRunId)
         }

@@ -155,10 +155,10 @@ export class InstantStore implements ThreadStore {
     )
     await this.syncLegacyThreadRowBestEffort(thread.id)
 
-    const txs: any[] = [this.db.tx.thread_contexts[context.id].link({ thread: thread.id })]
+    const txs: any[] = [this.db.tx.event_contexts[context.id].link({ thread: thread.id })]
     if (!context.key && thread.key) {
       txs.push(
-        this.db.tx.thread_contexts[context.id].update({
+        this.db.tx.event_contexts[context.id].update({
           key: thread.key,
           updatedAt: new Date(),
         }),
@@ -207,12 +207,12 @@ export class InstantStore implements ThreadStore {
     let contextKey: string | null = null
     try {
       const res = await this.db.query({
-        thread_contexts: {
+        event_contexts: {
           $: { where: { id: contextId as any }, limit: 1 },
           thread: {},
         },
       })
-      const ctx = (res?.thread_contexts as any[])?.[0]
+      const ctx = (res?.event_contexts as any[])?.[0]
       contextKey = typeof ctx?.key === "string" ? ctx.key : null
       const threadNode = Array.isArray(ctx?.thread) ? ctx.thread[0] : ctx?.thread
       if (threadNode) {
@@ -234,21 +234,21 @@ export class InstantStore implements ThreadStore {
 
     try {
       const res = await this.db.query({
-        thread_threads: {
+        event_threads: {
           $: { where: { "contexts.id": contextId }, limit: 1 },
         },
       })
-      const row = (res?.thread_threads as any[])?.[0]
+      const row = (res?.event_threads as any[])?.[0]
       return row ? this.normalizeThread(row) : null
     } catch {
       try {
         const executionFallback = await this.db.query({
-          thread_executions: {
+          event_executions: {
             $: { where: { "context.id": contextId }, limit: 1 },
             thread: {},
           },
         })
-        const executionRow = (executionFallback?.thread_executions as any[])?.[0]
+        const executionRow = (executionFallback?.event_executions as any[])?.[0]
         const executionThread = Array.isArray(executionRow?.thread)
           ? executionRow.thread[0]
           : executionRow?.thread
@@ -263,22 +263,22 @@ export class InstantStore implements ThreadStore {
   private async getContextByThreadId<C>(threadId: string): Promise<StoredContext<C> | null> {
     try {
       const res = await this.db.query({
-        thread_contexts: {
+        event_contexts: {
           $: { where: { thread: threadId as any }, limit: 1 },
         },
       })
-      const row = (res?.thread_contexts as any[])?.[0]
+      const row = (res?.event_contexts as any[])?.[0]
       if (!row) return null
       const thread = await this.getThread({ id: threadId })
       return this.normalizeContext<C>(row, thread)
     } catch {
       try {
         const res = await this.db.query({
-          thread_contexts: {
+          event_contexts: {
             $: { where: { "thread.id": threadId }, limit: 1 },
           },
         })
-        const row = (res?.thread_contexts as any[])?.[0]
+        const row = (res?.event_contexts as any[])?.[0]
         if (!row) return null
         const thread = await this.getThread({ id: threadId })
         return this.normalizeContext<C>(row, thread)
@@ -296,7 +296,7 @@ export class InstantStore implements ThreadStore {
     if (context.key === expectedKey) return context
 
     await this.db.transact([
-      this.db.tx.thread_contexts[context.id].update({
+      this.db.tx.event_contexts[context.id].update({
         key: expectedKey,
         updatedAt: new Date(),
       }),
@@ -317,7 +317,7 @@ export class InstantStore implements ThreadStore {
       (threadIdentifier?.id ? String(threadIdentifier.id) : null)
 
     await this.db.transact([
-      this.db.tx.thread_threads[threadId].create({
+      this.db.tx.event_threads[threadId].create({
         createdAt: new Date(),
         updatedAt: new Date(),
         status: "idle",
@@ -349,20 +349,20 @@ export class InstantStore implements ThreadStore {
     try {
       if (threadIdentifier.id) {
         const res = await this.db.query({
-          thread_threads: {
+          event_threads: {
             $: { where: { id: threadIdentifier.id as any }, limit: 1 },
           },
         })
-        const row = (res?.thread_threads as any[])?.[0]
+        const row = (res?.event_threads as any[])?.[0]
         return row ? this.normalizeThread(row) : null
       }
 
       const res = await this.db.query({
-        thread_threads: {
+        event_threads: {
           $: { where: { key: threadIdentifier.key }, limit: 1 },
         },
       })
-      const row = (res?.thread_threads as any[])?.[0]
+      const row = (res?.event_threads as any[])?.[0]
       return row ? this.normalizeThread(row) : null
     } catch (error: any) {
       throw new Error("InstantStore: Error getting thread: " + error.message)
@@ -379,7 +379,7 @@ export class InstantStore implements ThreadStore {
       assertThreadTransition(thread.status, status)
     }
     await this.db.transact([
-      this.db.tx.thread_threads[thread.id].update({
+      this.db.tx.event_threads[thread.id].update({
         status,
         updatedAt: new Date(),
       }),
@@ -434,8 +434,8 @@ export class InstantStore implements ThreadStore {
     const newContextId = contextId ?? id()
 
     await this.db.transact([
-      this.db.tx.thread_contexts[newContextId].create(contextData),
-      this.db.tx.thread_contexts[newContextId].link({ thread: thread.id }),
+      this.db.tx.event_contexts[newContextId].create(contextData),
+      this.db.tx.event_contexts[newContextId].link({ thread: thread.id }),
     ])
 
     const ctx = await this.getContext<C>({ id: newContextId })
@@ -449,11 +449,11 @@ export class InstantStore implements ThreadStore {
     try {
       if (contextIdentifier.id) {
         const res = await this.db.query({
-          thread_contexts: {
+          event_contexts: {
             $: { where: { id: contextIdentifier.id as any }, limit: 1 },
           },
         })
-        const row = (res?.thread_contexts as any[])?.[0]
+        const row = (res?.event_contexts as any[])?.[0]
         if (!row) return null
         const thread = await this.getThreadByContextId(String(row.id))
         return this.normalizeContext<C>(row, thread)
@@ -462,18 +462,18 @@ export class InstantStore implements ThreadStore {
       if (contextIdentifier.key) {
         try {
           const byKey = await this.db.query({
-            thread_contexts: {
+            event_contexts: {
               $: { where: { key: contextIdentifier.key }, limit: 1 },
             },
           })
-          const row = (byKey?.thread_contexts as any[])?.[0]
+          const row = (byKey?.event_contexts as any[])?.[0]
           if (row) {
             const thread = await this.getThreadByContextId(String(row.id))
             return this.normalizeContext<C>(row, thread)
           }
         } catch {
           // Backward compatibility:
-          // If remote schema has not been pushed yet and `thread_contexts.key` is absent,
+          // If remote schema has not been pushed yet and `event_contexts.key` is absent,
           // fallback to resolving by thread key below.
         }
 
@@ -498,7 +498,7 @@ export class InstantStore implements ThreadStore {
     if (!context?.id) throw new Error("InstantStore: context not found")
 
     await this.db.transact([
-      this.db.tx.thread_contexts[context.id].update({
+      this.db.tx.event_contexts[context.id].update({
         content: content as any,
         updatedAt: new Date(),
       }),
@@ -520,7 +520,7 @@ export class InstantStore implements ThreadStore {
     }
 
     const txs: any[] = [
-      this.db.tx.thread_contexts[context.id].update({
+      this.db.tx.event_contexts[context.id].update({
         status,
         updatedAt: new Date(),
       }),
@@ -532,7 +532,7 @@ export class InstantStore implements ThreadStore {
         assertThreadTransition(thread.status, nextThreadStatus)
       }
       txs.push(
-        this.db.tx.thread_threads[context.threadId].update({
+        this.db.tx.event_threads[context.threadId].update({
           status: nextThreadStatus,
           updatedAt: new Date(),
         }),
@@ -568,13 +568,13 @@ export class InstantStore implements ThreadStore {
       assertItemTransition(existing.status, "stored")
     }
     const txs = [
-      this.db.tx.thread_items[event.id].update({
+      this.db.tx.event_items[event.id].update({
         ...(event as any),
         status: "stored",
       }),
     ]
-    txs.push(this.db.tx.thread_items[event.id].link({ context: context.id }))
-    txs.push(this.db.tx.thread_items[event.id].link({ thread: thread.id }))
+    txs.push(this.db.tx.event_items[event.id].link({ context: context.id }))
+    txs.push(this.db.tx.event_items[event.id].link({ thread: thread.id }))
 
     try {
       await this.db.transact(txs as any)
@@ -607,7 +607,7 @@ export class InstantStore implements ThreadStore {
     if (current?.status && event.status && current.status !== event.status) {
       assertItemTransition(current.status, event.status)
     }
-    await this.db.transact([this.db.tx.thread_items[eventId].update(event as any)])
+    await this.db.transact([this.db.tx.event_items[eventId].update(event as any)])
     return {
       ...(current as any),
       ...(event as any),
@@ -617,11 +617,11 @@ export class InstantStore implements ThreadStore {
 
   async getItem(eventId: string): Promise<ThreadItem | null> {
     const res = await this.db.query({
-      thread_items: {
+      event_items: {
         $: { where: { id: eventId as any } },
       },
     })
-    return (res.thread_items?.[0] as any) ?? null
+    return (res.event_items?.[0] as any) ?? null
   }
 
   async getItems(contextIdentifier: ContextIdentifier): Promise<ThreadItem[]> {
@@ -629,7 +629,7 @@ export class InstantStore implements ThreadStore {
     let res: any
     try {
       res = await this.db.query({
-        thread_items: {
+        event_items: {
           $: {
             where: { thread: thread.id as any },
             // Keep query constraints minimal to avoid hard dependency on Instant orderable indexes.
@@ -640,7 +640,7 @@ export class InstantStore implements ThreadStore {
       })
     } catch {
       res = await this.db.query({
-        thread_items: {
+        event_items: {
           $: {
             where: { "thread.id": thread.id },
             limit: 1000,
@@ -649,7 +649,7 @@ export class InstantStore implements ThreadStore {
       })
     }
 
-    const items = ((res.thread_items as any) ?? []) as ThreadItem[]
+    const items = ((res.event_items as any) ?? []) as ThreadItem[]
     const toEpoch = (value: unknown): number => {
       if (value instanceof Date) return value.getTime()
       if (typeof value === "string" || typeof value === "number") {
@@ -674,7 +674,7 @@ export class InstantStore implements ThreadStore {
   ): Promise<{ id: string }> {
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
     const executionId = id()
-    const execCreate = this.db.tx.thread_executions[executionId].create({
+    const execCreate = this.db.tx.event_executions[executionId].create({
       createdAt: new Date(),
       status: "executing",
     })
@@ -683,20 +683,20 @@ export class InstantStore implements ThreadStore {
     if (context.status !== "open") {
       assertContextTransition(context.status, "open")
       txs.push(
-        this.db.tx.thread_contexts[context.id].update({
+        this.db.tx.event_contexts[context.id].update({
           status: "open",
           updatedAt: new Date(),
         }),
       )
     }
-    txs.push(this.db.tx.thread_executions[executionId].link({ context: context.id }))
-    txs.push(this.db.tx.thread_executions[executionId].link({ thread: thread.id }))
-    txs.push(this.db.tx.thread_contexts[context.id].link({ currentExecution: executionId }))
+    txs.push(this.db.tx.event_executions[executionId].link({ context: context.id }))
+    txs.push(this.db.tx.event_executions[executionId].link({ thread: thread.id }))
+    txs.push(this.db.tx.event_contexts[context.id].link({ currentExecution: executionId }))
 
-    txs.push(this.db.tx.thread_executions[executionId].link({ trigger: triggerEventId }))
-    txs.push(this.db.tx.thread_executions[executionId].link({ reaction: reactionEventId }))
+    txs.push(this.db.tx.event_executions[executionId].link({ trigger: triggerEventId }))
+    txs.push(this.db.tx.event_executions[executionId].link({ reaction: reactionEventId }))
     txs.push(
-      this.db.tx.thread_threads[thread.id].update({
+      this.db.tx.event_threads[thread.id].update({
         status: "streaming",
         updatedAt: new Date(),
       }),
@@ -731,11 +731,11 @@ export class InstantStore implements ThreadStore {
   ): Promise<void> {
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
     const executionResult = await this.db.query({
-      thread_executions: {
+      event_executions: {
         $: { where: { id: executionId as any }, limit: 1 },
       },
     })
-    const executionRow = (executionResult?.thread_executions as any[])?.[0]
+    const executionRow = (executionResult?.event_executions as any[])?.[0]
     if (!executionRow) throw new Error("InstantStore: execution not found")
     const currentExecutionStatus = String(executionRow.status ?? "executing") as ExecutionStatus
     if (currentExecutionStatus !== status) {
@@ -750,16 +750,16 @@ export class InstantStore implements ThreadStore {
     }
 
     const txs: any[] = []
-    txs.push(this.db.tx.thread_executions[executionId].update({ status, updatedAt: new Date() }))
+    txs.push(this.db.tx.event_executions[executionId].update({ status, updatedAt: new Date() }))
 
     txs.push(
-      this.db.tx.thread_contexts[context.id].update({
+      this.db.tx.event_contexts[context.id].update({
         status: "closed",
         updatedAt: new Date(),
       }),
     )
     txs.push(
-      this.db.tx.thread_threads[thread.id].update({
+      this.db.tx.event_threads[thread.id].update({
         status: nextThreadStatus,
         updatedAt: new Date(),
       }),
@@ -775,14 +775,14 @@ export class InstantStore implements ThreadStore {
     const stepId = id()
 
     const txs: any[] = [
-      this.db.tx.thread_steps[stepId].create({
+      this.db.tx.event_steps[stepId].create({
         createdAt: new Date(),
         status: "running",
         iteration: params.iteration,
       }),
     ]
 
-    txs.push(this.db.tx.thread_steps[stepId].link({ execution: params.executionId }))
+    txs.push(this.db.tx.event_steps[stepId].link({ execution: params.executionId }))
 
     try {
       await this.db.transact(txs)
@@ -821,11 +821,11 @@ export class InstantStore implements ThreadStore {
   ): Promise<void> {
     if (patch.status) {
       const stepResult = await this.db.query({
-        thread_steps: {
+        event_steps: {
           $: { where: { id: stepId as any }, limit: 1 },
         },
       })
-      const stepRow = (stepResult?.thread_steps as any[])?.[0]
+      const stepRow = (stepResult?.event_steps as any[])?.[0]
       if (!stepRow) throw new Error("InstantStore: step not found")
       const currentStepStatus = String(stepRow.status ?? "running") as ThreadStepStatus
       if (currentStepStatus !== patch.status) {
@@ -838,12 +838,12 @@ export class InstantStore implements ThreadStore {
       updatedAt: patch.updatedAt ?? new Date(),
     }
 
-    await this.db.transact([this.db.tx.thread_steps[stepId].update(update)])
+    await this.db.transact([this.db.tx.event_steps[stepId].update(update)])
   }
 
   async linkItemToExecution(params: { itemId: string; executionId: string }): Promise<void> {
     await this.db.transact([
-      this.db.tx.thread_items[params.itemId].link({ execution: params.executionId }),
+      this.db.tx.event_items[params.itemId].link({ execution: params.executionId }),
     ])
   }
 
@@ -853,7 +853,7 @@ export class InstantStore implements ThreadStore {
 
     const txs = parts.map((p, idx) => {
       const key = `${params.stepId}:${idx}`
-      return this.db.tx.thread_parts[lookup("key", key)]
+      return this.db.tx.event_parts[lookup("key", key)]
         .update({
           stepId: params.stepId,
           idx,
@@ -868,7 +868,7 @@ export class InstantStore implements ThreadStore {
   }
 
   async itemsToModelMessages(events: ThreadItem[]): Promise<ModelMessage[]> {
-    // `thread_steps` only links to execution.
+    // `event_steps` only links to execution.
     // Item reconstruction uses embedded `item.content.parts` as source for model messages.
     const eventsWithParts = events
 
@@ -915,6 +915,5 @@ export function createInstantStoreRuntime(params: {
     return runtime
   }
 }
-
 
 

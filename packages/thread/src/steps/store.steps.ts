@@ -76,11 +76,11 @@ async function resolveWorkflowRunId(params: {
   if (!runId && params.executionId && params.db) {
     try {
       const q = await params.db.query({
-        thread_executions: {
+        event_executions: {
           $: { where: { id: String(params.executionId) }, limit: 1 },
         },
       })
-      const row = (q as any)?.thread_executions?.[0]
+      const row = (q as any)?.event_executions?.[0]
       if (row?.workflowRunId) {
         runId = String(row.workflowRunId)
       }
@@ -290,7 +290,7 @@ export async function saveTriggerAndCreateExecution(params: {
   if (runId && db) {
     try {
       await db.transact([
-        db.tx.thread_executions[execution.id].update({
+        db.tx.event_executions[execution.id].update({
           workflowRunId: runId,
           updatedAt: new Date(),
         }),
@@ -575,7 +575,7 @@ export async function updateExecutionWorkflowRun(params: {
   const db: any = (runtime as any)?.db
   if (db) {
     await db.transact([
-      db.tx.thread_executions[params.executionId].update({
+      db.tx.event_executions[params.executionId].update({
         workflowRunId: params.workflowRunId,
         updatedAt: new Date(),
       }),

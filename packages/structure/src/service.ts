@@ -1,4 +1,9 @@
 import { SchemaOf } from "@ekairos/domain"
+import {
+  createStructureContext,
+  findStructureContextByKey,
+  linkStructureOutputFileToContextByKey,
+} from "./contextPersistence.js"
 import { structureDomain } from "./schema.js"
 
 export type ServiceResult<T = any> = { ok: true; data: T } | { ok: false; error: string }
@@ -8,7 +13,7 @@ type StructureSchemaType = SchemaOf<typeof structureDomain>
 /**
  * Back-compat helper for reading structure outputs outside the workflow runtime.
  *
- * IMPORTANT: The source of truth is `thread_contexts` (Story context) keyed by `structure:<id>`.
+ * IMPORTANT: The source of truth is the persisted Story/Event context keyed by `structure:<id>`.
  */
 export class DatasetService {
   private readonly db: any
@@ -24,13 +29,8 @@ export class DatasetService {
   async getDatasetById(datasetId: string): Promise<ServiceResult<any>> {
     try {
       const key = this.contextKey(datasetId)
-      const res: any = await (this.db as any).query({
-        thread_contexts: {
-          $: { where: { key } as any, limit: 1 },
-          structure_output_file: {},
-        } as any,
-      } as any)
-      const ctx = res.thread_contexts?.[0]
+      const persisted = await findStructureContextByKey(this.db, key, { includeOutputFile: true })
+      const ctx = persisted?.row
       if (!ctx) return { ok: false, error: "Context not found" }
       return { ok: true, data: ctx }
     } catch (error) {
@@ -54,14 +54,8 @@ export class DatasetService {
   async readRecordsFromFile(datasetId: string): Promise<ServiceResult<AsyncGenerator<any, void, unknown>>> {
     try {
       const key = this.contextKey(datasetId)
-      const res: any = await (this.db as any).query({
-        thread_contexts: {
-          $: { where: { key } as any, limit: 1 },
-          structure_output_file: {},
-        } as any,
-      } as any)
-
-      const ctx = res.thread_contexts?.[0]
+      const persisted = await findStructureContextByKey(this.db, key, { includeOutputFile: true })
+      const ctx = persisted?.row
       const linked = Array.isArray(ctx?.structure_output_file) ? ctx.structure_output_file[0] : ctx?.structure_output_file
       const url = linked?.url
       if (!url) return { ok: false, error: "Rows output file not found" }
@@ -102,20 +96,14 @@ export class DatasetService {
       const datasetId = params.id ?? createUuidV4()
       const key = this.contextKey(datasetId)
 
-      const existing: any = await (this.db as any).query({
-        thread_contexts: { $: { where: { key } as any, limit: 1 } },
-      } as any)
-      const ctx = existing.thread_contexts?.[0]
+      const existing = await findStructureContextByKey(this.db, key)
+      const ctx = existing?.row
       if (ctx) return { ok: true, data: { datasetId } }
 
-      await this.db.transact([
-        this.db.tx.thread_contexts[createUuidV4()].create({
-          createdAt: new Date(),
-          content: {},
-          key,
-          status: "open",
-        } as any),
-      ])
+      await createStructureContext(this.db, {
+        id: createUuidV4(),
+        key,
+      })
 
       return { ok: true, data: { datasetId } }
     } catch (error) {
@@ -150,14 +138,10 @@ export class DatasetService {
   async linkFileToDataset(params: { datasetId: string; fileId: string }): Promise<ServiceResult<void>> {
     try {
       const key = this.contextKey(params.datasetId)
-      const res: any = await (this.db as any).query({
-        thread_contexts: { $: { where: { key } as any, limit: 1 } },
-      } as any)
-      const ctx = res?.thread_contexts?.[0]
-      const ctxId = ctx?.id
-      if (!ctxId) return { ok: false, error: "Context not found" }
+      const persisted = await findStructureContextByKey(this.db, key)
+      if (!persisted?.row?.id) return { ok: false, error: "Context not found" }
 
-      await this.db.transact([this.db.tx.thread_contexts[ctxId].link({ structure_output_file: params.fileId })])
+      await linkStructureOutputFileToContextByKey(this.db, { contextKey: key, fileId: params.fileId })
       return { ok: true, data: undefined }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
