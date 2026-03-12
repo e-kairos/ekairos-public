@@ -1,4 +1,5 @@
 import { getThreadRuntime } from "../runtime.js"
+import { linkStructureOutputFileToContextByKey } from "../contextPersistence.js"
 
 type ToolCompletePart = { type: "tool-complete"; state: "output-available"; output?: unknown }
 
@@ -32,7 +33,7 @@ export async function structureCommitFromEventsStep(params: {
     const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime = (await getThreadRuntime(params.env)) as {
       store: { getItems(p: { key: string }): Promise<unknown[]>; getContext(p: { key: string }): Promise<{ id: string; content?: unknown } | null>; updateContextContent(p: { key: string }, c: unknown): Promise<unknown> }
-      db: { transact(tx: unknown): Promise<unknown>; tx: { thread_contexts: Record<string, { link(d: { structure_output_file: string }): unknown }> } }
+      db: { transact(tx: unknown): Promise<unknown>; tx: Record<string, Record<string, { link(d: { structure_output_file: string }): unknown }>> }
     }
     const store = runtime.store
     const db = runtime.db
@@ -83,9 +84,8 @@ export async function structureCommitFromEventsStep(params: {
       } as unknown
 
       // Link output file to context (domain-prefixed link)
-      const ctxId = ctx?.id
-      if (!ctxId) return { ok: false, error: "Context not found" }
-      await db.transact(db.tx.thread_contexts[ctxId].link({ structure_output_file: out.fileId }))
+      if (!ctx?.id) return { ok: false, error: "Context not found" }
+      await linkStructureOutputFileToContextByKey(db, { contextKey, fileId: out.fileId })
     }
 
     await store.updateContextContent({ key: contextKey }, { ...prevContent, structure: nextStructure })

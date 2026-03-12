@@ -1,4 +1,9 @@
 import type { ThreadRuntime } from "@ekairos/events/runtime"
+import {
+  findStructureContextByKey,
+  linkStructureOutputFileToContextByKey,
+  unlinkStructureOutputFileFromContextByKey,
+} from "../contextPersistence.js"
 
 export type StructureContextContent = {
   /**
@@ -146,11 +151,9 @@ export async function structureLinkRowsOutputFileToContextStep(params: {
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const store = runtime.store
     const db = runtime.db
-    const ctx = await store.getOrCreateContext({ key: params.contextKey })
-    const ctxId = ctx?.id
-    if (!ctxId) return { ok: false, error: "Context not found" }
+    await store.getOrCreateContext({ key: params.contextKey })
 
-    await db.transact([db.tx.thread_contexts[ctxId].link({ structure_output_file: params.fileId })])
+    await linkStructureOutputFileToContextByKey(db, { contextKey: params.contextKey, fileId: params.fileId })
     console.log(
       `[structure:link-jsonl] contextKey=${params.contextKey} fileId=${params.fileId} elapsedMs=${Date.now() - startedAt}`,
     )
@@ -172,11 +175,9 @@ export async function structureUnlinkRowsOutputFileFromContextStep(params: {
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const store = runtime.store
     const db = runtime.db
-    const ctx = await store.getOrCreateContext({ key: params.contextKey })
-    const ctxId = ctx?.id
-    if (!ctxId) return { ok: false, error: "Context not found" }
+    await store.getOrCreateContext({ key: params.contextKey })
 
-    await db.transact([db.tx.thread_contexts[ctxId].unlink({ structure_output_file: params.fileId })])
+    await unlinkStructureOutputFileFromContextByKey(db, { contextKey: params.contextKey, fileId: params.fileId })
     return { ok: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -193,13 +194,8 @@ export async function structureGetContextWithRowsOutputFileStep(params: {
     const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const db = runtime.db
-    const query = (await db.query({
-      thread_contexts: {
-        $: { where: { key: params.contextKey }, limit: 1 },
-        structure_output_file: {},
-      },
-    })) as any
-    const row = query.thread_contexts?.[0]
+    const persisted = await findStructureContextByKey(db, params.contextKey, { includeOutputFile: true })
+    const row = persisted?.row
     if (!row) return { ok: false, error: "Context not found" }
     return { ok: true, data: row }
   } catch (error) {
@@ -219,13 +215,8 @@ export async function structureReadRowsOutputJsonlStep(params: {
     const { getThreadRuntime } = await import("@ekairos/events/runtime")
     const runtime: ThreadRuntime = await getThreadRuntime(params.env)
     const db = runtime.db
-    const query = (await db.query({
-      thread_contexts: {
-        $: { where: { key: contextKey }, limit: 1 },
-        structure_output_file: {},
-      },
-    })) as any
-    const ctx = query.thread_contexts?.[0]
+    const persisted = await findStructureContextByKey(db, contextKey, { includeOutputFile: true })
+    const ctx = persisted?.row
     if (!ctx) return { ok: false, error: "Context not found" }
     const linked = Array.isArray(ctx?.structure_output_file) ? ctx.structure_output_file[0] : ctx.structure_output_file
     const url = linked?.url

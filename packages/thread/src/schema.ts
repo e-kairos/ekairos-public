@@ -4,14 +4,14 @@ import { domain, type DomainSchemaResult } from "@ekairos/domain";
 export const threadDomain: DomainSchemaResult = domain("thread")
     .schema({
         entities: {
-            thread_threads: i.entity({
+            event_threads: i.entity({
                 createdAt: i.date(),
                 updatedAt: i.date().optional(),
                 key: i.string().optional().indexed().unique(),
                 name: i.string().optional(),
                 status: i.string().optional().indexed(), // idle | streaming
             }),
-            thread_contexts: i.entity({
+            event_contexts: i.entity({
                 createdAt: i.date(),
                 updatedAt: i.date().optional(),
                 // Required for prefix/history queries that use `$like` over context keys.
@@ -19,20 +19,20 @@ export const threadDomain: DomainSchemaResult = domain("thread")
                 status: i.string().optional().indexed(), // open | closed
                 content: i.any().optional(),
             }),
-            thread_items: i.entity({
+            event_items: i.entity({
                 channel: i.string().indexed(),
                 createdAt: i.date().indexed(),
                 type: i.string().optional().indexed(),
                 content: i.any().optional(),
                 status: i.string().optional().indexed(),
             }),
-            thread_executions: i.entity({
+            event_executions: i.entity({
                 createdAt: i.date(),
                 updatedAt: i.date().optional(),
                 status: i.string().optional().indexed(), // executing | completed | failed
                 workflowRunId: i.string().optional().indexed(),
             }),
-            thread_steps: i.entity({
+            event_steps: i.entity({
                 createdAt: i.date().indexed(),
                 updatedAt: i.date().optional(),
                 status: i.string().optional().indexed(), // running | completed | failed
@@ -49,8 +49,8 @@ export const threadDomain: DomainSchemaResult = domain("thread")
                 errorText: i.string().optional(),
             }),
             // Normalized parts (parts-first persistence). These hang off the step that produced them.
-            // We still keep `thread_items.content.parts` for back-compat.
-            thread_parts: i.entity({
+            // We still keep `event_items.content.parts` for back-compat.
+            event_parts: i.entity({
                 key: i.string().unique().indexed(), // `${stepId}:${idx}`
                 stepId: i.string().indexed(),
                 idx: i.number().indexed(),
@@ -134,57 +134,57 @@ export const threadDomain: DomainSchemaResult = domain("thread")
         links: {
             // Contexts belong to a thread
             threadContextsThread: {
-                forward: { on: "thread_contexts", has: "one", label: "thread" },
-                reverse: { on: "thread_threads", has: "many", label: "contexts" },
+                forward: { on: "event_contexts", has: "one", label: "thread" },
+                reverse: { on: "event_threads", has: "many", label: "contexts" },
             },
             // Items belong to a thread (conversation timeline)
             threadItemsThread: {
-                forward: { on: "thread_items", has: "one", label: "thread" },
-                reverse: { on: "thread_threads", has: "many", label: "items" },
+                forward: { on: "event_items", has: "one", label: "thread" },
+                reverse: { on: "event_threads", has: "many", label: "items" },
             },
             threadItemsContext: {
-                forward: { on: "thread_items", has: "one", label: "context" },
-                reverse: { on: "thread_contexts", has: "many", label: "items" },
+                forward: { on: "event_items", has: "one", label: "context" },
+                reverse: { on: "event_contexts", has: "many", label: "items" },
             },
             // Executions belong to a context
             threadExecutionsContext: {
-                forward: { on: "thread_executions", has: "one", label: "context" },
-                reverse: { on: "thread_contexts", has: "many", label: "executions" },
+                forward: { on: "event_executions", has: "one", label: "context" },
+                reverse: { on: "event_contexts", has: "many", label: "executions" },
             },
             // Executions also belong to a thread
             threadExecutionsThread: {
-                forward: { on: "thread_executions", has: "one", label: "thread" },
-                reverse: { on: "thread_threads", has: "many", label: "executions" },
+                forward: { on: "event_executions", has: "one", label: "thread" },
+                reverse: { on: "event_threads", has: "many", label: "executions" },
             },
             // Current execution pointer on a context
             threadContextsCurrentExecution: {
-                forward: { on: "thread_contexts", has: "one", label: "currentExecution" },
-                reverse: { on: "thread_executions", has: "one", label: "currentOf" },
+                forward: { on: "event_contexts", has: "one", label: "currentExecution" },
+                reverse: { on: "event_executions", has: "one", label: "currentOf" },
             },
             // Link execution to its trigger event
             threadExecutionsTrigger: {
-                forward: { on: "thread_executions", has: "one", label: "trigger" },
-                reverse: { on: "thread_items", has: "many", label: "executionsAsTrigger" },
+                forward: { on: "event_executions", has: "one", label: "trigger" },
+                reverse: { on: "event_items", has: "many", label: "executionsAsTrigger" },
             },
             // Link execution to its reaction event
             threadExecutionsReaction: {
-                forward: { on: "thread_executions", has: "one", label: "reaction" },
-                reverse: { on: "thread_items", has: "many", label: "executionsAsReaction" },
+                forward: { on: "event_executions", has: "one", label: "reaction" },
+                reverse: { on: "event_items", has: "many", label: "executionsAsReaction" },
             },
             // Steps belong to an execution
             threadStepsExecution: {
-                forward: { on: "thread_steps", has: "one", label: "execution" },
-                reverse: { on: "thread_executions", has: "many", label: "steps" },
+                forward: { on: "event_steps", has: "one", label: "execution" },
+                reverse: { on: "event_executions", has: "many", label: "steps" },
             },
             // Iteration events belong to an execution (enables: event -> execution -> steps)
             threadExecutionItems: {
-                forward: { on: "thread_items", has: "one", label: "execution" },
-                reverse: { on: "thread_executions", has: "many", label: "items" },
+                forward: { on: "event_items", has: "one", label: "execution" },
+                reverse: { on: "event_executions", has: "many", label: "items" },
             },
             // Parts belong to a step
             threadPartsStep: {
-                forward: { on: "thread_parts", has: "one", label: "step" },
-                reverse: { on: "thread_steps", has: "many", label: "parts" },
+                forward: { on: "event_parts", has: "one", label: "step" },
+                reverse: { on: "event_steps", has: "many", label: "parts" },
             },
             // Documents (moved from schema-document.ts)
             documentFile: {
