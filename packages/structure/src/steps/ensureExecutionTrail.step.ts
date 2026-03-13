@@ -125,4 +125,11 @@ export async function ensureExecutionTrailStep(
     itemId: outputItem.id,
     executionId: execution.id,
   })
+  if (store?.completeExecution) {
+    await store.completeExecution(
+      { key: params.contextKey },
+      execution.id,
+      "completed",
+    )
+  }
 }

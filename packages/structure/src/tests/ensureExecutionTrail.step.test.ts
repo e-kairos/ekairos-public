@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 const saveItem = vi.fn()
 const createExecution = vi.fn()
 const linkItemToExecution = vi.fn()
+const completeExecution = vi.fn()
 const getItems = vi.fn()
 
 vi.mock("@ekairos/events/runtime", () => ({
@@ -11,6 +12,7 @@ vi.mock("@ekairos/events/runtime", () => ({
       saveItem,
       createExecution,
       linkItemToExecution,
+      completeExecution,
       getItems,
     },
   })),
@@ -55,6 +57,11 @@ describe("ensureExecutionTrailStep", () => {
       { key: "structure:test-dataset" },
       "11111111-1111-4111-8111-111111111111",
       "22222222-2222-4222-8222-222222222222",
+    )
+    expect(completeExecution).toHaveBeenCalledWith(
+      { key: "structure:test-dataset" },
+      "33333333-3333-4333-8333-333333333333",
+      "completed",
     )
   })
 })
