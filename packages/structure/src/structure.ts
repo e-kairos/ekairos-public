@@ -111,6 +111,19 @@ function createUuidV4(): string {
   })
 }
 
+function toSerializableStructureError(error: unknown) {
+  if (!error) return undefined
+  if (typeof error === "string") return error
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack ? String(error.stack).slice(0, 2000) : undefined,
+    }
+  }
+  return String(error)
+}
+
 type SandboxState = {
   initialized: boolean
   sources: PreparedSource[]
@@ -842,7 +855,7 @@ export function structure<Env extends { orgId: string }>(
           output,
           status: "failed",
           requestItemId: initialRequestEvent.id,
-          error,
+          error: toSerializableStructureError(error),
         })
         throw error
       }

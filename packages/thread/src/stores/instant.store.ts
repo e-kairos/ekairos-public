@@ -102,6 +102,14 @@ function summarizeError(error: unknown): Record<string, unknown> {
   }
 }
 
+function ensureValidEntityId(value: unknown, label: string): string {
+  const id = typeof value === "string" ? value.trim() : ""
+  if (!id) {
+    throw new Error(`InstantStore: ${label} is required`)
+  }
+  return id
+}
+
 function logInstantTransactFailure(params: {
   action: string
   meta?: Record<string, unknown>
@@ -562,19 +570,21 @@ export class InstantStore implements ThreadStore {
     contextIdentifier: ContextIdentifier,
     event: ThreadItem,
   ): Promise<ThreadItem> {
+    const eventId = ensureValidEntityId((event as any)?.id, "event.id")
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
-    const existing = await this.getItem(event.id)
+    const existing = await this.getItem(eventId)
     if (existing?.status && existing.status !== "stored") {
       assertItemTransition(existing.status, "stored")
     }
     const txs = [
-      this.db.tx.event_items[event.id].update({
+      this.db.tx.event_items[eventId].update({
         ...(event as any),
+        id: eventId,
         status: "stored",
       }),
     ]
-    txs.push(this.db.tx.event_items[event.id].link({ context: context.id }))
-    txs.push(this.db.tx.event_items[event.id].link({ thread: thread.id }))
+    txs.push(this.db.tx.event_items[eventId].link({ context: context.id }))
+    txs.push(this.db.tx.event_items[eventId].link({ thread: thread.id }))
 
     try {
       await this.db.transact(txs as any)
@@ -585,7 +595,7 @@ export class InstantStore implements ThreadStore {
           contextIdentifier: simplifyForLog(contextIdentifier),
           contextId: context.id,
           threadId: thread.id,
-          eventId: (event as any)?.id,
+          eventId,
           eventType: (event as any)?.type,
           eventChannel: (event as any)?.channel,
           eventCreatedAt: (event as any)?.createdAt,
@@ -598,6 +608,7 @@ export class InstantStore implements ThreadStore {
 
     return {
       ...(event as any),
+      id: eventId,
       status: "stored",
     } as ThreadItem
   }
@@ -672,6 +683,8 @@ export class InstantStore implements ThreadStore {
     triggerEventId: string,
     reactionEventId: string,
   ): Promise<{ id: string }> {
+    const normalizedTriggerEventId = ensureValidEntityId(triggerEventId, "triggerEventId")
+    const normalizedReactionEventId = ensureValidEntityId(reactionEventId, "reactionEventId")
     const { context, thread } = await this.resolveThreadContext(contextIdentifier)
     const executionId = id()
     const execCreate = this.db.tx.event_executions[executionId].create({
@@ -693,8 +706,8 @@ export class InstantStore implements ThreadStore {
     txs.push(this.db.tx.event_executions[executionId].link({ thread: thread.id }))
     txs.push(this.db.tx.event_contexts[context.id].link({ currentExecution: executionId }))
 
-    txs.push(this.db.tx.event_executions[executionId].link({ trigger: triggerEventId }))
-    txs.push(this.db.tx.event_executions[executionId].link({ reaction: reactionEventId }))
+    txs.push(this.db.tx.event_executions[executionId].link({ trigger: normalizedTriggerEventId }))
+    txs.push(this.db.tx.event_executions[executionId].link({ reaction: normalizedReactionEventId }))
     txs.push(
       this.db.tx.event_threads[thread.id].update({
         status: "streaming",
@@ -712,8 +725,8 @@ export class InstantStore implements ThreadStore {
           contextId: context.id,
           threadId: thread.id,
           executionId,
-          triggerEventId,
-          reactionEventId,
+          triggerEventId: normalizedTriggerEventId,
+          reactionEventId: normalizedReactionEventId,
         },
         txs,
         error,
@@ -915,5 +928,4 @@ export function createInstantStoreRuntime(params: {
     return runtime
   }
 }
-
 
