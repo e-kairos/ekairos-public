@@ -8,11 +8,11 @@
 
 import { domain } from "@ekairos/domain"
 import { sandboxDomain } from "@ekairos/sandbox"
-import { threadDomain } from "@ekairos/thread"
+import { eventsDomain } from "@ekairos/events"
 import { structureDomain } from "@ekairos/structure"
 
 const appDomain = domain("structure-workflow-smoke")
-  .includes(threadDomain)
+  .includes(eventsDomain)
   .includes(structureDomain)
   .includes(sandboxDomain)
   .schema({ entities: {}, links: {}, rooms: {} })

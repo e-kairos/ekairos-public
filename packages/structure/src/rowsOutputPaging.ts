@@ -1,7 +1,7 @@
 import { getDatasetOutputPath, getDatasetWorkstation } from "./datasetFiles.js"
 import { createDatasetSandboxStep, runDatasetSandboxCommandStep } from "./sandbox/steps.js"
 import { findStructureContextByKey } from "./contextPersistence.js"
-import { getThreadRuntime } from "./runtime.js"
+import { getContextRuntime } from "./runtime.js"
 
 export type StructureRowsOutputPagingCursor = {
   byteOffset: number
@@ -64,7 +64,7 @@ export async function structureDownloadRowsOutputToSandboxStep(params: {
     return { sandboxId, localPath }
   }
 
-  const storyRuntime = await getThreadRuntime(params.env)
+  const storyRuntime = await getContextRuntime(params.env)
   const db = storyRuntime.db
 
   const contextKey = `structure:${params.structureId}`

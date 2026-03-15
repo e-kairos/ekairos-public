@@ -22,7 +22,7 @@
                     "typecheck":  "tsc --noEmit"
                 },
     "peerDependencies":  {
-                             "@ekairos/events":  "*"
+    "@ekairos/events":  "workspace:*"
                          },
     "devDependencies":  {
                             "@ekairos/events":  "workspace:*",

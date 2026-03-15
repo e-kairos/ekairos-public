@@ -47,9 +47,9 @@ function evaluate(params) {
   );
   g.push(
     gate(
-      "preflight.target_endpoints_thread_ready",
+      "preflight.target_endpoints_context_ready",
       preflight?.readiness?.targetAgentEndpointsReady === true,
-      `endpointMissingThreadEvidence=${toNumber(preflight?.counts?.endpointMissingThreadEvidence)}`,
+      `endpointMissingContextEvidence=${toNumber(preflight?.counts?.endpointMissingContextEvidence)}`,
     ),
   );
   g.push(
@@ -75,16 +75,16 @@ function evaluate(params) {
   );
   g.push(
     gate(
-      "model.thread_api_present",
-      toNumber(modelPlan?.summary?.threadApiMatches) > 0,
-      `threadApiMatches=${toNumber(modelPlan?.summary?.threadApiMatches)}`,
+      "model.context_api_present",
+      toNumber(modelPlan?.summary?.contextApiMatches) > 0,
+      `contextApiMatches=${toNumber(modelPlan?.summary?.contextApiMatches)}`,
     ),
   );
   g.push(
     gate(
-      "model.thread_model_present",
-      toNumber(modelPlan?.summary?.threadModelMatches) > 0,
-      `threadModelMatches=${toNumber(modelPlan?.summary?.threadModelMatches)}`,
+      "model.context_model_present",
+      toNumber(modelPlan?.summary?.contextModelMatches) > 0,
+      `contextModelMatches=${toNumber(modelPlan?.summary?.contextModelMatches)}`,
     ),
   );
   g.push(
@@ -130,7 +130,7 @@ async function main() {
 
   if (!preflightPath || !modelPlanPath || !matrixPath || !outPath) {
     throw new Error(
-      "usage: assert_hot_deploy_safe.mjs --preflight <scan.json> --model-plan <story-thread-model-plan.json> --matrix <schema-plan-org-matrix.json> --out <hot-deploy-gates.json> [--run-id id] [--allow-unsafe]",
+      "usage: assert_hot_deploy_safe.mjs --preflight <scan.json> --model-plan <story-context-model-plan.json> --matrix <schema-plan-org-matrix.json> --out <hot-deploy-gates.json> [--run-id id] [--allow-unsafe]",
     );
   }
 

@@ -46,8 +46,8 @@ jobs:
       - name: Run @ekairos/domain unit tests
         run: pnpm --filter @ekairos/domain run test:unit
 
-  check-thread-unit:
-    name: Check - thread unit
+  check-context-unit:
+    name: Check - context unit
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -79,7 +79,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
-            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread unit checks."
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for context unit checks."
             exit 1
           fi
 
@@ -89,8 +89,8 @@ jobs:
       - name: Run @ekairos/events scripted reactor unit tests
         run: pnpm --filter @ekairos/events run test:scripted-reactor
 
-  check-thread-e2e:
-    name: Check - thread workflow e2e
+  check-context-e2e:
+    name: Check - context workflow e2e
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -119,7 +119,7 @@ jobs:
         shell: bash
         run: |
           if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
-            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for thread e2e checks."
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for context e2e checks."
             exit 1
           fi
 
@@ -127,23 +127,23 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browser (chromium)
-        run: pnpm --dir packages/thread/tests/playwright/server exec playwright install --with-deps chromium
+        run: pnpm --dir packages/events/tests/playwright/server exec playwright install --with-deps chromium
 
       - name: Run @ekairos/events workflow smoke e2e
-        run: pnpm --dir packages/thread/tests/playwright/server run test:e2e:thread-engine
+        run: pnpm --dir packages/events/tests/playwright/server run test:e2e:context-engine
 
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs:
       - check-domain-unit
-      - check-thread-unit
-      - check-thread-e2e
+      - check-context-unit
+      - check-context-e2e
     if: >
       github.event_name == 'push' &&
       needs.check-domain-unit.result == 'success' &&
-      needs.check-thread-unit.result == 'success' &&
-      needs.check-thread-e2e.result == 'success'
+      needs.check-context-unit.result == 'success' &&
+      needs.check-context-e2e.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

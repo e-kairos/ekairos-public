@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { randomUUID } from "node:crypto";
 
-const PORT = Number(process.env.CODEX_BRIDGE_PORT || "4310");
+const PORT = Number(process.env.CODEX_BRIDGE_PORT || "4500");
 
 function asRecord(value) {
   return value && typeof value === "object" ? value : {};
@@ -130,7 +130,7 @@ async function runTurn(body) {
   const instruction = asString(payload.instruction).trim();
   const config = asRecord(payload.config);
   const runtime = asRecord(payload.runtime);
-  const requestedThreadId = asString(config.threadId).trim();
+  const requestedThreadId = asString(config.providerContextId).trim();
   const repoPath = asString(config.repoPath).trim() || process.cwd();
   const model = asString(config.model).trim();
   const approvalPolicy = asString(config.approvalPolicy).trim() || "never";
@@ -208,7 +208,7 @@ async function runTurn(body) {
       if (method === "turn/diff/updated") {
         diff = asString(params.diff);
       }
-      if (method === "thread/tokenUsage/updated") {
+      if (method === "thread/tokenUsage/updated" || method === "context/tokenUsage/updated") {
         usage = asRecord(params.tokenUsage);
       }
       if (method === "item/completed") {
@@ -262,7 +262,8 @@ async function runTurn(body) {
 
   const completedTurn = await completedTurnPromise;
   return {
-    threadId,
+    contextId: threadId,
+    providerContextId: threadId,
     turnId,
     assistantText,
     reasoningText,

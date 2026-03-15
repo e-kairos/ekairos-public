@@ -1,136 +1,387 @@
 import Link from "next/link";
-import type { RegistryItem } from "shadcn/schema";
 
 import { getRegistry } from "@/app/[component]/route";
+import { reactorShowcases } from "@/lib/examples/reactors/registry";
 
 export const revalidate = 3600;
 
 const HIDDEN_PREFIXES = ["ai-elements-", "ekairos-prompt-", "ekairos-tools-"];
 
-function isPublicItem(item: RegistryItem) {
+const SECTION_LINKS = [
+  {
+    label: "Docs",
+    href: "/docs/library/ekairos-lib",
+    description: "Architecture, install surface, and context-first integration notes.",
+  },
+  {
+    label: "Components",
+    href: "/docs/components/message",
+    description: "Prompt, message, context, full-agent, and the current primitives.",
+  },
+  {
+    label: "Examples",
+    href: "/examples",
+    description: "Live reactor showcases running over the ephemeral Instant app session.",
+  },
+] as const;
+
+type LandingRegistryItem = {
+  name: string;
+  title?: string;
+  description?: string;
+  category?: string;
+  categories?: string[];
+};
+
+function isPublicItem(item: LandingRegistryItem) {
   return !HIDDEN_PREFIXES.some((prefix) => item.name.startsWith(prefix));
 }
 
-function getInstallCommand(componentName: string) {
-  return `npx shadcn@latest add @ekairos/${componentName}`;
+function toTitle(item: LandingRegistryItem) {
+  return item.title || item.name;
 }
 
-function getFeatured(items: RegistryItem[]) {
+function getPrimaryCategory(item: LandingRegistryItem) {
+  return item.category || item.categories?.[0] || "registry";
+}
+
+function summarizeCategory(item: LandingRegistryItem) {
+  switch (getPrimaryCategory(item)) {
+    case "core":
+      return "Core";
+    case "compound":
+      return "Compound";
+    case "template":
+      return "Template";
+    default:
+      return getPrimaryCategory(item);
+  }
+}
+
+function getDocsHighlights(items: LandingRegistryItem[]) {
+  const byCategory = new Map<string, LandingRegistryItem[]>();
+  for (const item of items) {
+    const key = getPrimaryCategory(item);
+    const bucket = byCategory.get(key) ?? [];
+    bucket.push(item);
+    byCategory.set(key, bucket);
+  }
+
+  return [
+    {
+      label: "Core",
+      href: "/docs/components/message",
+      count: byCategory.get("core")?.length ?? 0,
+      summary: "Prompt, message, chain-of-thought, hook surface.",
+    },
+    {
+      label: "Compound",
+      href: "/docs/components/context",
+      count: byCategory.get("compound")?.length ?? 0,
+      summary: "Context shells, event views, and multi-part composites.",
+    },
+    {
+      label: "Templates",
+      href: "/docs/components/full-agent",
+      count: byCategory.get("template")?.length ?? 0,
+      summary: "Full-agent assemblies and higher-order product flows.",
+    },
+  ];
+}
+
+function getFeatured(items: LandingRegistryItem[]) {
   const featuredNames = [
-    "agent",
     "full-agent",
     "prompt",
     "message",
     "chain-of-thought",
-    "thread",
-    "use-thread",
-    "event",
-    "voice-provider",
+    "context",
+    "use-context",
   ];
 
   const selected = featuredNames
     .map((name) => items.find((item) => item.name === name))
-    .filter(Boolean) as RegistryItem[];
+    .filter(Boolean) as LandingRegistryItem[];
 
   return selected.length > 0 ? selected : items.slice(0, 6);
 }
 
+function getRegistryPath(itemName: string) {
+  return `/r/${itemName}.json`;
+}
+
 export default async function HomePage() {
   const registry = await getRegistry();
-  const items = ((registry?.items ?? []) as RegistryItem[])
+  const items = ((registry?.items ?? []) as LandingRegistryItem[])
     .filter(isPublicItem)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const featured = getFeatured(items);
+  const docsHighlights = getDocsHighlights(items);
+  const componentCount = items.length;
+  const exampleLinks = [
+    ...reactorShowcases.map((showcase) => ({
+      title: showcase.title,
+      href: showcase.route,
+      eyebrow: "Examples",
+      description: showcase.description,
+    })),
+    {
+      title: "Examples Index",
+      href: "/examples",
+      eyebrow: "Examples",
+      description:
+        "Browse the internal registry of runnable reactor showcases.",
+    },
+    {
+      title: "Registry JSON",
+      href: "/r/registry.json",
+      eyebrow: "Distribution",
+      description:
+        "Consume the shadcn v4 registry directly from the generated `/r/*.json` endpoints.",
+    },
+  ];
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-5 py-8 md:px-8 md:py-10">
-      <header className="border-b border-border pb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-              Ekairos UI Registry
+    <main className="relative mx-auto w-full max-w-7xl px-4 py-8 md:px-6 md:py-10">
+      <section className="relative overflow-hidden rounded-[28px] border border-border bg-card shadow-sm">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.04),transparent_48%,rgba(255,255,255,0.02))]" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:28px_28px] opacity-30" />
+
+        <div className="relative grid gap-8 px-6 py-8 md:px-8 md:py-10 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)]">
+          <div className="max-w-3xl">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+              Ekairos Registry
             </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              Component showcase for product designers
+            <h1 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight md:text-5xl xl:text-6xl">
+              Context-aware UI blocks for AI products, docs, and runnable examples.
             </h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground md:text-base">
-              Explore real interface patterns, validate behavior in demo, and hand off implementation with
-              ready install commands.
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground md:text-base">
+              The landing now treats the registry as a product surface, not a dump of cards.
+              Browse the public component library, inspect context-first flows, and jump into examples
+              that run against the ephemeral Instant app provisioned for the current session.
             </p>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              {SECTION_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="rounded-full border border-border bg-background px-4 py-2 text-sm transition-colors hover:bg-muted/50"
+                >
+                  {link.label}
+                </Link>
+              ))}
+              <a
+                href="/r/registry.json"
+                className="rounded-full border border-border px-4 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+              >
+                Registry JSON
+              </a>
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Public items
+                </p>
+                <p className="mt-2 text-2xl font-semibold">{componentCount}</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Docs lanes
+                </p>
+                <p className="mt-2 text-2xl font-semibold">{docsHighlights.length}</p>
+              </div>
+              <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                  Live examples
+                </p>
+                <p className="mt-2 text-2xl font-semibold">{reactorShowcases.length}</p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <span className="rounded-full border border-border px-3 py-1 text-muted-foreground">
-              {items.length} components
-            </span>
-            <Link
-              href="/demo"
-              className="rounded-full border border-border px-3 py-1 hover:bg-muted/50"
-            >
-              Open demo
-            </Link>
+          <div className="grid gap-4">
+            <div className="overflow-hidden rounded-[24px] border border-border/80 bg-neutral-950 text-neutral-100 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-yellow-400" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-400" />
+                  </div>
+                  <span className="text-sm font-medium">Registry Surface</span>
+                </div>
+                <span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-neutral-400">
+                  docs / components / examples
+                </span>
+              </div>
+
+              <div className="grid min-h-[420px] grid-cols-[220px_minmax(0,1fr)]">
+                <div className="border-r border-white/10 bg-black/30 p-3">
+                  <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+                    Components
+                  </p>
+                  <div className="mt-3 space-y-1">
+                    {featured.slice(0, 6).map((item, index) => (
+                      <div
+                        key={item.name}
+                        className={`rounded-xl px-3 py-2 text-sm ${
+                          index === 0
+                            ? "bg-white text-black"
+                            : "text-neutral-400 hover:bg-white/5 hover:text-neutral-100"
+                        }`}
+                      >
+                        <div className="font-medium">{toTitle(item)}</div>
+                        <div className="mt-1 text-[11px] uppercase tracking-[0.18em] opacity-70">
+                          {summarizeCategory(item)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid content-start gap-4 p-4">
+                  <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+                        Context-first docs
+                      </p>
+                      <h2 className="mt-2 text-xl font-semibold text-white">
+                        The public surface is already wired to context.
+                      </h2>
+                      <p className="mt-2 text-sm leading-6 text-neutral-400">
+                        Installables, docs, and examples are aligned to the current runtime shape,
+                        including the ephemeral Instant app session created for the visitor.
+                      </p>
+                      <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-neutral-300">
+                        GET /r/context-state-panel.json
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+                        Current lanes
+                      </p>
+                      <div className="mt-3 space-y-3">
+                        {docsHighlights.map((group) => (
+                          <div key={group.label} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-medium text-white">{group.label}</span>
+                              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-neutral-400">
+                                {group.count}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-sm text-neutral-400">{group.summary}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {exampleLinks.map((example) => (
+                      <Link
+                        key={example.href}
+                        href={example.href}
+                        className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 transition-colors hover:bg-white/5"
+                      >
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
+                          {example.eyebrow}
+                        </p>
+                        <h3 className="mt-2 text-base font-medium text-white">{example.title}</h3>
+                        <p className="mt-2 text-sm leading-6 text-neutral-400">
+                          {example.description}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </header>
-
-      <section className="mt-7 grid gap-4 md:grid-cols-3">
-        <article className="rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold">1. Explore visual behavior</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review components in context, not just snippets, to evaluate interaction quality.
-          </p>
-        </article>
-        <article className="rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold">2. Validate in demo</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Use the demo route to inspect states and flows before implementation decisions.
-          </p>
-        </article>
-        <article className="rounded-xl border border-border bg-card p-4">
-          <h2 className="text-sm font-semibold">3. Handoff with command</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Copy install commands per component to move quickly from design to product code.
-          </p>
-        </article>
       </section>
 
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Featured components</h2>
-          <Link href="/registry" className="text-xs text-muted-foreground hover:text-foreground">
-            Registry notes
-          </Link>
+      <section className="mt-8 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="rounded-[24px] border border-border bg-card p-5">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+            Docs
+          </p>
+          <h2 className="mt-3 text-2xl font-semibold tracking-tight">
+            Navigate the registry by product surface, not by raw file list.
+          </h2>
+          <div className="mt-5 space-y-3">
+            {docsHighlights.map((group) => (
+              <Link
+                key={group.label}
+                href={group.href}
+                className="block rounded-2xl border border-border/70 bg-background px-4 py-4 transition-colors hover:bg-muted/40"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-base font-medium">{group.label}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
+                    {group.count}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">{group.summary}</p>
+              </Link>
+            ))}
+          </div>
         </div>
 
-        {featured.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-            No public components found.
+        <div className="rounded-[24px] border border-border bg-card p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                Components
+              </p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight">
+                What the registry already exposes
+              </h2>
+            </div>
+            <Link
+              href="/registry"
+              className="rounded-full border border-border px-4 py-2 text-sm hover:bg-muted/50"
+            >
+              Browse all
+            </Link>
           </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
             {featured.map((item) => (
-              <article key={item.name} className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-base font-medium">{item.title}</h3>
+              <article
+                key={item.name}
+                className="rounded-2xl border border-border/70 bg-background p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                      {summarizeCategory(item)}
+                    </p>
+                    <h3 className="mt-2 text-lg font-medium">{toTitle(item)}</h3>
+                  </div>
                   <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted-foreground">
                     @{item.name}
                   </span>
                 </div>
-                <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{item.description}</p>
-                <pre className="mt-3 overflow-x-auto rounded-lg border border-border/70 bg-background px-3 py-2 font-mono text-[11px]">
-                  {getInstallCommand(item.name)}
-                </pre>
-                <div className="mt-3 flex items-center gap-2">
+                <p className="mt-3 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                  {item.description}
+                </p>
+                <div className="mt-4 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 font-mono text-[11px] text-muted-foreground">
+                  {getRegistryPath(item.name)}
+                </div>
+                <div className="mt-4 flex items-center gap-2">
                   <Link
                     href={`/docs/components/${item.name}`}
-                    className="rounded-full border border-border px-3 py-1 text-xs hover:bg-muted/50"
+                    className="rounded-full border border-border px-3 py-1.5 text-xs hover:bg-muted/50"
                   >
-                    Preview
+                    Open docs
                   </Link>
                   <a
-                    href={`/${item.name}.json`}
-                    className="rounded-full border border-border px-3 py-1 text-xs hover:bg-muted/50"
+                    href={getRegistryPath(item.name)}
+                    className="rounded-full border border-border px-3 py-1.5 text-xs hover:bg-muted/50"
                   >
                     JSON
                   </a>
@@ -138,32 +389,45 @@ export default async function HomePage() {
               </article>
             ))}
           </div>
-        )}
+        </div>
       </section>
 
-      <section className="mt-8 rounded-xl border border-border bg-card p-4">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          Implementation handoff
-        </h2>
-        <div className="mt-3 grid gap-2 font-mono text-xs md:grid-cols-2">
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            npx shadcn@latest add @ekairos/agent
+      <section className="mt-8 rounded-[24px] border border-border bg-card p-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+              Examples
+            </p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight">
+              Run the current registry against the ephemeral session app.
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">
+              The site provisions an ephemeral Instant app for the visitor session and uses it for
+              demos. That means examples are not static mock cards: they are real flows over the
+              current registry runtime.
+            </p>
           </div>
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            npx shadcn@latest add @ekairos/thread
+          <div className="rounded-2xl border border-border/70 bg-background px-4 py-3 text-sm text-muted-foreground">
+            session-backed demos
           </div>
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            npx shadcn@latest add @ekairos/use-thread
-          </div>
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            GET /registry.json
-          </div>
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            GET /{"{component}"}.json
-          </div>
-          <div className="rounded-lg border border-border/70 bg-background px-3 py-2">
-            /docs/components/{"{component}"}
-          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          {exampleLinks.map((example) => (
+            <Link
+              key={example.href}
+              href={example.href}
+              className="rounded-2xl border border-border/70 bg-background px-4 py-4 transition-colors hover:bg-muted/40"
+            >
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                {example.eyebrow}
+              </p>
+              <h3 className="mt-2 text-lg font-medium">{example.title}</h3>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                {example.description}
+              </p>
+            </Link>
+          ))}
         </div>
       </section>
     </main>

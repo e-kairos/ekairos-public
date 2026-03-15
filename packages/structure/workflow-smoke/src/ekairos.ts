@@ -1,5 +1,5 @@
 import { configureRuntime } from "@ekairos/domain/runtime";
-import { threadDomain } from "@ekairos/thread";
+import { eventsDomain } from "@ekairos/events";
 import { init } from "@instantdb/admin";
 import { domain } from "@ekairos/domain";
 import { sandboxDomain } from "@ekairos/sandbox";
@@ -25,7 +25,7 @@ const adminToken =
 const appDomain =
   appId && adminToken
     ? domain("structure-workflow-smoke")
-        .includes(threadDomain)
+        .includes(eventsDomain)
         .includes(structureDomain)
         .includes(sandboxDomain)
         .schema({ entities: {}, links: {}, rooms: {} })

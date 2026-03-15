@@ -7,9 +7,15 @@ const codexTest = runRealCodexE2E ? test : test.skip;
 let cleanupCodexEnvironment: (() => Promise<void>) | void;
 
 codexTest.beforeAll(async () => {
-  process.env.CODEX_REACTOR_REAL = "1";
-  process.env.CODEX_REACTOR_REAL_PORT = "4310";
-  delete process.env.CODEX_REACTOR_REAL_URL;
+  const explicitRealUrl = String(process.env.CODEX_REACTOR_REAL_URL ?? "").trim();
+  if (explicitRealUrl) {
+    process.env.CODEX_REACTOR_REAL = "0";
+    process.env.CODEX_REACTOR_REAL_URL = explicitRealUrl;
+  } else {
+    process.env.CODEX_REACTOR_REAL = "1";
+    process.env.CODEX_REACTOR_REAL_PORT = "4310";
+    delete process.env.CODEX_REACTOR_REAL_URL;
+  }
   cleanupCodexEnvironment = await setupCodexRealEnvironment();
 });
 
@@ -19,39 +25,47 @@ codexTest.afterAll(async () => {
   }
 });
 
-codexTest("codex-demo route runs through thread + codex reactor with real codex app-server", async ({
+codexTest("examples/codex runs through context + codex reactor with real codex app-server", async ({
   page,
 }) => {
   test.setTimeout(300_000);
 
-  await page.goto("/codex-demo");
-  await page.getByTestId("codex-demo-input").fill("Reply with the single word OK.");
+  await page.goto("/examples/codex");
+  await page
+    .getByTestId("examples-codex-input")
+    .fill("Inspect README.md and summarize the key points.");
 
   const runResponsePromise = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/codex-demo/run") &&
+      response.url().includes("/api/examples/reactors/codex/run") &&
       response.request().method() === "POST",
     { timeout: 240_000 },
   );
 
-  await page.getByTestId("codex-demo-run").click();
+  await page.getByTestId("examples-codex-run").click();
   const runResponse = await runResponsePromise;
 
   expect(runResponse.status()).toBe(200);
   const payload = (await runResponse.json()) as {
     ok?: boolean;
     data?: {
-      events?: unknown[];
-      chunks?: unknown[];
+      trace?: {
+        events?: unknown[];
+        chunks?: unknown[];
+      };
+      metadata?: {
+        providerContextId?: string | null;
+        turnId?: string | null;
+      };
       assistantEvent?: { id?: string };
     };
   };
 
   expect(payload.ok).toBe(true);
-  expect(Array.isArray(payload.data?.events)).toBe(true);
-  expect((payload.data?.events ?? []).length).toBeGreaterThan(0);
-  expect(Array.isArray(payload.data?.chunks)).toBe(true);
+  expect(Array.isArray(payload.data?.trace?.events)).toBe(true);
+  expect((payload.data?.trace?.events ?? []).length).toBeGreaterThan(0);
+  expect(Array.isArray(payload.data?.trace?.chunks)).toBe(true);
   expect(payload.data?.assistantEvent?.id).toBeTruthy();
-  await expect(page.getByTestId("codex-demo-last-error")).toHaveText("-");
+  expect(payload.data?.metadata?.providerContextId).toBeTruthy();
+  expect(payload.data?.metadata?.turnId).toBeTruthy();
 });
-

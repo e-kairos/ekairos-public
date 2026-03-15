@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { memo, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -7,30 +7,34 @@ import { cn } from "@/lib/utils";
 import {
   INPUT_TEXT_ITEM_TYPE,
   type ContextEventForUI,
-  type ThreadValue,
-} from "@/components/ekairos/thread/context";
+  type ContextValue,
+} from "@/components/ekairos/context/context";
 
 import type { AgentClassNames } from "../types";
 import { MessageParts } from "./message-parts";
 
 type MessageListProps = {
-  thread: ThreadValue;
+  context: ContextValue;
   toolComponents: Record<string, any>;
   classNames?: AgentClassNames;
   showReasoning: boolean;
 };
 
 const MessageList = memo(function MessageList({
-  thread,
+  context,
   toolComponents,
   classNames,
   showReasoning,
 }: MessageListProps) {
-  const { events, contextStatus, sendStatus } = thread;
+  const { events, contextStatus, sendStatus } = context;
 
   const messages = useMemo(() => {
     const toMessage = (event: ContextEventForUI) => {
-      const role = event.type === INPUT_TEXT_ITEM_TYPE ? "user" : "assistant";
+      const type = String(event?.type ?? "");
+      const role =
+        type === INPUT_TEXT_ITEM_TYPE || type === "input" || type.startsWith("user.")
+          ? "user"
+          : "assistant";
       return {
         id: event.id,
         role,

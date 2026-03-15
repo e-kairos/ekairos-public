@@ -4,9 +4,9 @@ import path from "path"
 import { init, id as newId } from "@instantdb/admin"
 import { i } from "@instantdb/core"
 import { domain } from "@ekairos/domain"
-import { threadDomain } from "@ekairos/events"
+import { eventsDomain } from "@ekairos/events"
 import { configureRuntime } from "@ekairos/domain/runtime"
-import { registerThreadEnv } from "@ekairos/events/runtime"
+import { registerContextEnv } from "@ekairos/events/runtime"
 import { datasetDomain } from "../schema"
 import { queryDomain } from "../query/queryDomain"
 import { describeInstant, setupInstantTestEnv } from "./_env"
@@ -33,7 +33,7 @@ describeInstant("queryDomain (sample)", () => {
     const appDomain = domain("dataset-tests")
       .includes(datasetDomain)
       .includes(sampleDomain)
-      .includes(threadDomain)
+      .includes(eventsDomain)
       .schema({ entities: {}, links: {}, rooms: {} })
 
     const db = init({
@@ -45,7 +45,7 @@ describeInstant("queryDomain (sample)", () => {
     configureRuntime({
       runtime: async () => ({ db } as any),
     })
-    registerThreadEnv({ orgId: "test-org" })
+    registerContextEnv({ orgId: "test-org" })
 
     const item1 = newId()
     const item2 = newId()

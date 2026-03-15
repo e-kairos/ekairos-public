@@ -11,22 +11,22 @@
 ## Data Model (Agent domain)
 - Entities defined in `lib/domain/agent/schema.ts`:
   - `agent_contexts`: stores agent context payloads and metadata (createdAt, updatedAt, type, data)
-  - `agent_threads`: stores conversational threads for agents (createdAt, updatedAt, status, title)
+  - `agent_context_sessions`: stores conversational contexts for agents (createdAt, updatedAt, status, title)
   - `agent_events`: stores agent events/messages (role, channel, createdAt, type, parts)
 
 - Links defined in `lib/domain/agent/schema.ts`:
   - `agentContextsOrganization`: `agent_contexts` → `organizations` (label `organization`)
-  - `agentThreadsOrganization`: `agent_threads` → `organizations` (label `organization`)
+  - `agentContextsOrganization`: `agent_context_sessions` → `organizations` (label `organization`)
   - `agentEventsOrganization`: `agent_events` → `organizations` (label `organization`)
-  - `agentThreadEvents`: `agent_threads` ↔ `agent_events` (thread has many events)
-  - `agentThreadContext`: `agent_threads` ↔ `agent_contexts` (thread belongs to context)
+  - `agentContextEvents`: `agent_context_sessions` ↔ `agent_events` (context has many events)
+  - `agentContextBinding`: `agent_context_sessions` ↔ `agent_contexts` (context belongs to context)
 
 These module schemas are composed into the root `instant.schema.ts` via `buildSchema()` in `lib/domain.ts`.
 
 ## Data (InstantDB)
-- Reuses `story_threads` and `story_events` from `instant.schema.ts` for threads and events linkage:
+- Reuses `story_contexts` and `story_events` from `instant.schema.ts` for contexts and events linkage:
 ```217:233:instant.schema.ts
-story_threads: i.entity({
+story_contexts: i.entity({
   key: i.string().unique().indexed(),
   createdAt: i.date().indexed(),
   updatedAt: i.date().optional().indexed(),
@@ -42,14 +42,14 @@ story_events: i.entity({
 ```
 Links:
 ```460:465:instant.schema.ts
-storyThreadEvents: {
-  forward: { on: "story_threads", has: "many", label: "events" },
-  reverse: { on: "story_events", has: "one", label: "thread" },
+storyContextEvents: {
+  forward: { on: "story_contexts", has: "many", label: "events" },
+  reverse: { on: "story_events", has: "one", label: "context" },
 },
 ```
 
 ## API
-- `Agent.stream(threadKey, event)` returns a `createDataStreamResponse` for route handlers to `return`.
+- `Agent.stream(contextKey, event)` returns a `createDataStreamResponse` for route handlers to `return`.
 - Subclasses must implement `buildSystemPrompt`, `buildTools`, and `initialize`.
 
 ## Services

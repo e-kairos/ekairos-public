@@ -3,11 +3,11 @@
  *
  * Why dynamic import?
  * - Some bundlers (notably Turbopack step bundles) can drop/hoist static imports in "use-step" modules,
- *   causing `ReferenceError: getThreadRuntime is not defined`.
+ *   causing `ReferenceError: getContextRuntime is not defined`.
  * - Using a dynamic import keeps the symbol resolution local to the step runtime.
  */
-export async function getThreadRuntime(env: any) {
-  const { getThreadRuntime } = await import("@ekairos/events/runtime")
-  return await getThreadRuntime(env)
+export async function getContextRuntime(env: any) {
+  const { getContextRuntime } = await import("@ekairos/events/runtime")
+  return await getContextRuntime(env)
 }
 

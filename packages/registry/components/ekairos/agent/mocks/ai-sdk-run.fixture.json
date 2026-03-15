@@ -5,7 +5,7 @@
     "runId": "run:ai-sdk:demo:001",
     "executionId": "exe:ai-sdk:demo:001",
     "contextId": "ctx:ai-sdk:demo:001",
-    "threadId": "thr:ai-sdk:demo:001"
+    "contextId": "thr:ai-sdk:demo:001"
   },
   "request": {
     "prompt": "Analyze the current README changes and produce a concise impact summary.",
@@ -21,7 +21,7 @@
       "chunk": {
         "chunkType": "chunk.start",
         "providerChunkType": "ai-sdk/turn.started",
-        "label": "Thread started"
+        "label": "Context started"
       }
     },
     {
@@ -91,7 +91,7 @@
         "chunkType": "chunk.text_delta",
         "providerChunkType": "ai-sdk/message.delta",
         "label": "assistant text delta",
-        "text": "Continuity assumptions are explicit: same contextId and same provider threadId."
+        "text": "Continuity assumptions are explicit: same contextId and same provider contextId."
       }
     },
     {

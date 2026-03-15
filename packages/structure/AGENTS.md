@@ -11,10 +11,10 @@ Este documento está **enfocado en el módulo `packages/structure`**: su layout,
 Para evitar confusiones:
 
 - **`@ekairos/structure` (este módulo)**: define el flujo de **extracción estructurada** (rows u object). Es quien decide *qué* hacer y *en qué orden*.
-- **`@ekairos/story`**: provee el “motor” de orquestación durable (estado persistido + replay). `structure` implementa una Story `"ekairos.structure"` y escribe su estado en `thread_contexts` bajo la clave `structure:<datasetId>`.
+- **`@ekairos/story`**: provee el “motor” de orquestación durable (estado persistido + replay). `structure` implementa una Story `"ekairos.structure"` y escribe su estado en `event_contexts` bajo la clave `structure:<datasetId>`.
 - **`@ekairos/sandbox`**: provee el runtime aislado para side-effects (archivos/commands). `structure` prepara un “workstation” por dataset y opera archivos via steps.
 - **InstantDB**: es el backend persistente:
-  - `thread_contexts`: source-of-truth del estado de la Story (incluyendo `content.structure.*`).
+  - `event_contexts`: source-of-truth del estado de la Story (incluyendo `content.structure.*`).
   - `storage`: para outputs de rows (p.ej. `output.jsonl`) y lectura de `$files`.
 - **Framework `workflow`**: cuando ejecutamos `structure` dentro de un workflow durable, se vuelve crítico respetar la frontera:
   - `"use workflow"`: orquesta y debe ser determinista, con runtime limitado.
@@ -35,7 +35,7 @@ En este repo, `packages/structure/workflow-smoke` es el harness que ejecuta un w
 Internamente coordina:
 - **Story** para orquestación durable (contexto persistido y replayable).
 - **Sandbox** para side-effects (archivos/commands) en runtime aislado.
-- **InstantDB** para persistencia de contexto (`thread_contexts`) y storage de outputs (p.ej. `output.jsonl`).
+- **InstantDB** para persistencia de contexto (`event_contexts`) y storage de outputs (p.ej. `output.jsonl`).
 
 ---
 
@@ -67,14 +67,14 @@ Responsabilidades:
 - Ejecutar el loop hasta que el modelo ejecute `complete`.
 
 Datos clave persistidos:
-- Context key: `structure:<datasetId>` (en `thread_contexts`).
+- Context key: `structure:<datasetId>` (en `event_contexts`).
 - Payload principal en `context.content.structure.*` (namespacing para no pisar runtime state del Story engine).
 
 ### `src/schema.ts` — Domain y links (InstantDB)
 
 Responsabilidades:
 - Definir entidades mínimas requeridas para compatibilidad con archivos (`$files`).
-- Definir el link `thread_contexts.structure_output_file -> $files` para salida `rows` (JSONL).
+- Definir el link `event_contexts.structure_output_file -> $files` para salida `rows` (JSONL).
 
 Referencia:
 - `packages/structure/src/schema.ts`
@@ -85,7 +85,7 @@ Son `"use step"` y **tocan runtime extendido**:
 - get/create context
 - update/patch content
 - upload `output.jsonl` a Instant storage
-- link/unlink del file a la entidad `thread_contexts`
+- link/unlink del file a la entidad `event_contexts`
 - read back del JSONL (descarga + base64)
 
 Punto clave:
@@ -130,7 +130,7 @@ Estos archivos implementan acciones que el modelo invoca durante la Story:
 `DatasetService` existe para integraciones donde quieres leer outputs sin ejecutar el flujo.
 
 Responsabilidades:
-- `getDatasetById()` leyendo `thread_contexts` por key `structure:<id>`
+- `getDatasetById()` leyendo `event_contexts` por key `structure:<id>`
 - `readRecordsFromFile()` leyendo el archivo JSONL linkeado (rows)
 - helpers de storage/linking (cuando se usa fuera de Story runtime)
 
@@ -213,7 +213,7 @@ Patrón de uso (conceptual):
 
 Salida esperada:
 - Para object: `dataset.content.structure.outputs.object.value`
-- Para rows: `thread_contexts.structure_output_file` linkeado a `$files` con `output.jsonl`
+- Para rows: `event_contexts.structure_output_file` linkeado a `$files` con `output.jsonl`
 
 ---
 

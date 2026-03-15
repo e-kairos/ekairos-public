@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, OUTPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
+import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, OUTPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
 import {
   getDatasetOutputPath,
   getDatasetOutputSchemaPath,
@@ -419,7 +419,7 @@ function createStructureStoryDefinition<Env extends { orgId: string }>(config: S
   const defaultSandboxConfig = getDefaultSandboxConfig(datasetId)
   const resolvedSandboxConfig = mergeSandboxConfig(defaultSandboxConfig, config.sandboxConfig)
 
-  const story = createThread<Env>("ekairos.structure")
+  const story = createContext<Env>("ekairos.structure")
     .context(async (stored: any, env: Env) => {
       const prev = (stored?.content as StructureStoryStored) ?? {}
       const sandboxState: SandboxState = prev.sandboxState ?? { initialized: false, sources: [] }

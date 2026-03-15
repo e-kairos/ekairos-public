@@ -49,7 +49,7 @@ function seedCodexAuthFiles(targetCodexHome: string): void {
   }
 }
 
-function isValidCodexThreadId(value: string): boolean {
+function isValidCodexProviderContextId(value: string): boolean {
   const normalized = value.trim()
   if (!normalized) return false
   if (/^[0-9a-fA-F-]{36}$/.test(normalized)) return true
@@ -171,7 +171,7 @@ export default async function setupCodexRealEnvironment() {
     const instruction = asString(body.instruction).trim()
     const config = asRecord(body.config)
     const runtime = asRecord(body.runtime)
-    const requestedThreadId = asString(config.threadId).trim()
+    const requestedProviderContextId = asString(config.providerContextId).trim()
     const repoPath = asString(config.repoPath).trim() || process.cwd()
     const model = asString(config.model).trim()
     const approvalPolicy = asString(config.approvalPolicy).trim() || "on-request"
@@ -181,11 +181,11 @@ export default async function setupCodexRealEnvironment() {
         ? incomingSandboxPolicy
         : { type: "externalSandbox", networkAccess: "enabled" }
 
-    let threadId = requestedThreadId
-    if (threadId && isValidCodexThreadId(threadId)) {
-      await sendRpc("thread/resume", { threadId })
+    let providerContextId = requestedProviderContextId
+    if (providerContextId && isValidCodexProviderContextId(providerContextId)) {
+      await sendRpc("thread/resume", { threadId: providerContextId })
     } else {
-      threadId = ""
+      providerContextId = ""
       const threadStartParams: JsonRecord = {
         cwd: repoPath,
         approvalPolicy,
@@ -195,13 +195,13 @@ export default async function setupCodexRealEnvironment() {
         threadStartParams.model = model
       }
       const startRes = await sendRpc("thread/start", threadStartParams)
-      threadId =
+      providerContextId =
         asString(asRecord(asRecord(startRes.result).thread).id) ||
         asString(asRecord(startRes.result).id) ||
         asString(asRecord(startRes).threadId)
     }
 
-    if (!threadId) throw new Error("thread_id_missing")
+    if (!providerContextId) throw new Error("context_id_missing")
 
     const inputParts = instruction
       ? [{ type: "text", text: instruction }]
@@ -231,10 +231,14 @@ export default async function setupCodexRealEnvironment() {
 
         const params = asRecord(evt.params)
         const evtTurnId = asString(params.turnId) || asString(asRecord(params.turn).id)
-        const evtThreadId = asString(params.threadId) || asString(asRecord(params.turn).threadId)
+      const evtProviderContextId =
+        asString(params.threadId) ||
+        asString(params.providerContextId) ||
+        asString(asRecord(params.turn).threadId) ||
+        asString(asRecord(params.turn).providerContextId)
         if (method === "turn/started") {
           const startedId = asString(asRecord(params.turn).id) || evtTurnId
-          if (!turnId && startedId && evtThreadId === threadId && resolveStartedTurn) {
+          if (!turnId && startedId && evtProviderContextId === providerContextId && resolveStartedTurn) {
             turnId = startedId
             resolveStartedTurn(startedId)
             resolveStartedTurn = null
@@ -244,8 +248,8 @@ export default async function setupCodexRealEnvironment() {
         const scopedTurnId = turnId || evtTurnId
         const scopedToTurn =
           (evtTurnId && scopedTurnId && evtTurnId === scopedTurnId) ||
-          (evtThreadId && evtThreadId === threadId) ||
-          method.startsWith("thread/")
+          (evtProviderContextId && evtProviderContextId === providerContextId) ||
+          method.startsWith("thread/") || method.startsWith("context/")
         if (!scopedToTurn) return
 
         stream.push(evt)
@@ -259,7 +263,7 @@ export default async function setupCodexRealEnvironment() {
         if (method === "turn/diff/updated") {
           diff = asString(params.diff)
         }
-        if (method === "thread/tokenUsage/updated") {
+        if (method === "context/tokenUsage/updated") {
           usage = asRecord(params.tokenUsage)
         }
         if (method === "item/completed") {
@@ -292,7 +296,7 @@ export default async function setupCodexRealEnvironment() {
     })
 
     const turnStartParams: JsonRecord = {
-      threadId,
+      threadId: providerContextId,
       input: inputParts,
       cwd: repoPath,
       approvalPolicy,
@@ -329,7 +333,7 @@ export default async function setupCodexRealEnvironment() {
     const completedTurn = await completedTurnPromise
 
     return {
-      threadId,
+      providerContextId,
       turnId,
       assistantText,
       reasoningText,

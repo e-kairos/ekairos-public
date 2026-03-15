@@ -1,0 +1,4 @@
+interface:
+  display_name: "Esolbay Context Migration"
+  short_description: "Hot-safe story to context migration"
+  default_prompt: "Use $esolbay-context-migration to run planning gates and produce migration-status evidence before production rollout."

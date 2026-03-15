@@ -27,7 +27,7 @@ export async function POST(req: Request) {
 
     const contextKey = `structure:${datasetId}`;
     const q: any = await (adminDb as any).query({
-      thread_items: {
+      event_items: {
         $: {
           where: { "context.key": contextKey } as any,
           limit: 30,
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
       },
     });
 
-    const events = q.thread_items ?? [];
+    const events = q.event_items ?? [];
     const toolParts = extractToolParts(events);
     const settled = toolParts.some((p: any) => p?.state === "output-available" || p?.state === "output-error");
 

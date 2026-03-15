@@ -3,7 +3,7 @@ import { init } from "@instantdb/admin";
 import { domain } from "@ekairos/domain";
 import { sandboxDomain } from "@ekairos/sandbox";
 import { DatasetService, structureDomain } from "@ekairos/structure";
-import { threadDomain } from "@ekairos/thread";
+import { eventsDomain } from "@ekairos/events";
 import { config as dotenvConfig } from "dotenv";
 import { resolve, dirname } from "node:path";
 import { createHash } from "node:crypto";
@@ -37,7 +37,7 @@ function getInstantEnvOrThrow() {
 function getAdminDb() {
   const { appId, adminToken } = getInstantEnvOrThrow();
   const appDomain = domain("structure-workflow-smoke-test")
-    .includes(threadDomain)
+    .includes(eventsDomain)
     .includes(structureDomain)
     .includes(sandboxDomain)
     .schema({ entities: {}, links: {}, rooms: {} });
@@ -48,9 +48,9 @@ async function fetchPromptContext(datasetId: string) {
   const contextKey = `structure:${datasetId}`;
   const adminDb: any = getAdminDb();
   const q: any = await adminDb.query({
-    thread_contexts: { $: { where: { key: contextKey }, limit: 1 } },
+    event_contexts: { $: { where: { key: contextKey }, limit: 1 } },
   });
-  const ctx = q?.thread_contexts?.[0];
+  const ctx = q?.event_contexts?.[0];
   return (ctx?.content as any)?.promptContext ?? null;
 }
 
@@ -88,8 +88,8 @@ test("structure runs inside workflow runtime", async ({ request }) => {
     const adminDb: any = getAdminDb();
 
     const q: any = await adminDb.query({
-      thread_contexts: { $: { where: { key: contextKey }, limit: 1 } },
-      thread_items: {
+      event_contexts: { $: { where: { key: contextKey }, limit: 1 } },
+      event_items: {
         $: {
           where: { "context.key": contextKey },
           order: { createdAt: "asc" },
@@ -99,8 +99,8 @@ test("structure runs inside workflow runtime", async ({ request }) => {
       story_executions: { $: { where: { "context.key": contextKey }, limit: 20 } },
     });
 
-    const ctx = q?.thread_contexts?.[0];
-    const events = (q?.thread_items ?? []) as any[];
+    const ctx = q?.event_contexts?.[0];
+    const events = (q?.event_items ?? []) as any[];
     const executions = (q?.story_executions ?? []) as any[];
 
     expect(ctx).toBeTruthy();
@@ -193,7 +193,7 @@ test("structure runs inside workflow runtime", async ({ request }) => {
 
     // Deep debug logs: exact JSON for events/steps/parts.
     // This is intentionally verbose to understand toolCallsCount and tool payloads end-to-end.
-    console.log("=== STORY_DEBUG_thread_items_JSON_BEGIN ===");
+    console.log("=== STORY_DEBUG_event_items_JSON_BEGIN ===");
     console.log(
       JSON.stringify(
         events.map((e: any) => ({
@@ -208,7 +208,7 @@ test("structure runs inside workflow runtime", async ({ request }) => {
         2,
       ),
     );
-    console.log("=== STORY_DEBUG_thread_items_JSON_END ===");
+    console.log("=== STORY_DEBUG_event_items_JSON_END ===");
 
     console.log("=== STORY_DEBUG_STEPS_JSON_BEGIN ===");
     console.log(

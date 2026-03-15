@@ -18,7 +18,7 @@ export type AgentClassNames = {
 };
 
 export type AgentProps = {
-  // Thread context transport
+  // Context context transport
   apiUrl: string;
   initialContextId?: string;
   onContextUpdate?: (contextId: string) => void;

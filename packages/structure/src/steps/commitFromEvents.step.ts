@@ -1,4 +1,4 @@
-import { getThreadRuntime } from "../runtime.js"
+import { getContextRuntime } from "../runtime.js"
 import { linkStructureOutputFileToContextByKey } from "../contextPersistence.js"
 
 type ToolCompletePart = { type: "tool-complete"; state: "output-available"; output?: unknown }
@@ -30,8 +30,8 @@ export async function structureCommitFromEventsStep(params: {
   const contextKey = `structure:${params.structureId}`
 
   try {
-    const { getThreadRuntime } = await import("@ekairos/events/runtime")
-    const runtime = (await getThreadRuntime(params.env)) as {
+    const { getContextRuntime } = await import("@ekairos/events/runtime")
+    const runtime = (await getContextRuntime(params.env)) as {
       store: { getItems(p: { key: string }): Promise<unknown[]>; getContext(p: { key: string }): Promise<{ id: string; content?: unknown } | null>; updateContextContent(p: { key: string }, c: unknown): Promise<unknown> }
       db: { transact(tx: unknown): Promise<unknown>; tx: Record<string, Record<string, { link(d: { structure_output_file: string }): unknown }>> }
     }

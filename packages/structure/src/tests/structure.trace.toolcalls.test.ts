@@ -24,7 +24,7 @@ function extractToolParts(events: any[]) {
 }
 
 describe("structure() trace (events + toolcalls)", () => {
-  it("persists thread_items with tool parts and output states", async () => {
+  it("persists event_items with tool parts and output states", async () => {
     const env = { orgId: "test-org" }
 
     const objectSchema = {
@@ -49,7 +49,7 @@ describe("structure() trace (events + toolcalls)", () => {
 
     const contextKey = `structure:${res.datasetId}`
     const q: any = await (db as any).query({
-      thread_items: {
+      event_items: {
         $: {
           where: { "context.key": contextKey } as any,
           limit: 30,
@@ -58,7 +58,7 @@ describe("structure() trace (events + toolcalls)", () => {
       },
     })
 
-    const events = q.thread_items ?? []
+    const events = q.event_items ?? []
     expect(events.length).toBeGreaterThan(0)
 
     const toolParts = extractToolParts(events)

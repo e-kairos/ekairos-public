@@ -62,6 +62,17 @@ async function loadSwc() {
   return swcModule.transform ?? swcModule.default?.transform;
 }
 
+async function readProjectModuleType(projectRoot) {
+  try {
+    const packageJsonPath = resolve(projectRoot, "package.json");
+    const raw = await readFile(packageJsonPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed?.type === "module" ? "module" : "commonjs";
+  } catch {
+    return "commonjs";
+  }
+}
+
 function toRelativeFilename(projectRoot, filename) {
   const normalizedWorkingDir = projectRoot.replace(/\\/g, "/").replace(/\/$/, "");
   const normalizedFilepath = filename.replace(/\\/g, "/");
@@ -235,6 +246,7 @@ export async function compileWorkflowProject({
   const resolvedRoot = resolve(projectRoot);
   const resolvedSrc = resolve(resolvedRoot, srcDir);
   const resolvedOut = resolve(resolvedRoot, outDir);
+  const projectModuleType = await readProjectModuleType(resolvedRoot);
 
   await mkdir(resolvedOut, { recursive: true });
   await ensureSwcBinding(resolvedRoot, logger);
@@ -285,7 +297,10 @@ export async function compileWorkflowProject({
     outfile: stepsBundlePath,
     platform: stepPlatform ?? "node",
     external: stepExternal ?? ["workflow/internal/private"],
-    format: (stepPlatform ?? "node") === "node" ? "cjs" : "esm",
+    format:
+      (stepPlatform ?? "node") === "node" && projectModuleType !== "module"
+        ? "cjs"
+        : "esm",
   });
 
   return {

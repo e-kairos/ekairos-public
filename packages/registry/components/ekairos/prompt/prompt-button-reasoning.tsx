@@ -55,7 +55,7 @@ function Bars({ level }: { level: ReasoningLevel }) {
 const BarsMemo = memo(Bars)
 BarsMemo.displayName = "Bars"
 
-export const PromptReasoningButton = memo(function PromptReasoningButton({ value, onChange }: { value?: ReasoningLevel; onChange?: (v: ReasoningLevel) => void }) {
+export const PromptReasoningButton = memo(function PromptReasoningButton({ value, onChange, disabled }: { value?: ReasoningLevel; onChange?: (v: ReasoningLevel) => void; disabled?: boolean }) {
   const level: ReasoningLevel = value || "low"
 
   const handleChange = useCallback((next: string) => {
@@ -83,7 +83,7 @@ export const PromptReasoningButton = memo(function PromptReasoningButton({ value
 
   return (
     <TooltipProvider>
-      <Select value={level} onValueChange={handleChange}>
+      <Select value={level} onValueChange={handleChange} disabled={disabled}>
         <Tooltip>
           <TooltipTrigger asChild>
             <SelectTrigger

@@ -1,4 +1,4 @@
-import { getThreadEnv } from "@ekairos/events/runtime"
+import { getContextEnv } from "@ekairos/events/runtime"
 import { datasetPreviewRowsStep } from "../dataset/steps"
 import { createTransformDatasetStory } from "./transform-dataset.agent"
 
@@ -43,7 +43,7 @@ function buildInstructions(input: TransformDatasetInput): string {
 export async function transformDataset(
   input: TransformDatasetInput,
 ): Promise<TransformDatasetResult> {
-  const env = await getThreadEnv()
+  const env = await getContextEnv()
   const { datasetId, story } = createTransformDatasetStory({
     sourceDatasetIds: input.datasets.map((d) => d.id),
     outputSchema: input.outputSchema,

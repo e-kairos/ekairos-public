@@ -1,4 +1,4 @@
-// Re-export todo de thread (el paquete principal)
+// Re-export principal de context/events
 export * from '@ekairos/events';
 
 // Re-export domain utilities

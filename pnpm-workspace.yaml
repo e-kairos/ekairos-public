@@ -2,7 +2,7 @@ packages:
   - packages/*
   - packages/reactors/*
   - packages/structure/*
-  - packages/thread/tests/playwright/server
+  - packages/events/tests/playwright/server
   - '!packages/documents'
 
 catalog:

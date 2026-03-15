@@ -118,12 +118,12 @@ const toDescription = (relativePath: string) => {
       return "Full Ekairos chat agent shell that wires together prompt, messages, responses and tools.";
     case "ekairos/prompt":
       return "Ekairos prompt input with support for streaming state and file attachments.";
-    case "ekairos/thread":
-      return "Utilities to work with Ekairos conversation threads from your UI.";
+    case "ekairos/context":
+      return "Utilities to work with Ekairos conversation contexts from your UI.";
     case "ekairos/event":
       return "Event-level building block to represent messages and agent activity in Ekairos.";
-    case "ekairos/use-thread":
-      return "React hook to read and update the current Ekairos thread from components.";
+    case "ekairos/use-context":
+      return "React hook to read and update the current Ekairos context from components.";
     case "ekairos/use-story":
       return "React hook to connect a UI to an Ekairos Story and its agent backend.";
     case "ekairos/voice-provider":

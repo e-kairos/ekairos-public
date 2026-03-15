@@ -1,7 +1,7 @@
 import { init } from "@instantdb/admin"
 import { configureRuntime } from "@ekairos/domain/runtime"
 import { domain } from "@ekairos/domain"
-import { threadDomain } from "@ekairos/events"
+import { eventsDomain } from "@ekairos/events"
 import { datasetDomain } from "../schema"
 import { sandboxDomain } from "@ekairos/sandbox"
 
@@ -16,7 +16,7 @@ export async function configureDatasetTestRuntime() {
   const appDomain = domain("dataset-tests")
     .includes(datasetDomain)
     .includes(sandboxDomain)
-    .includes(threadDomain)
+    .includes(eventsDomain)
     .schema({ entities: {}, links: {}, rooms: {} })
 
   const db = init({

@@ -18,7 +18,7 @@
 
 import { domain } from "@ekairos/domain"
 import { sandboxDomain } from "@ekairos/sandbox"
-import { threadDomain } from "@ekairos/events"
+import { eventsDomain } from "@ekairos/events"
 import { datasetDomain } from "../schema"
 
 // Compose what tests need:
@@ -27,7 +27,7 @@ import { datasetDomain } from "../schema"
 const appDomain = domain("dataset-tests")
   .includes(datasetDomain)
   .includes(sandboxDomain)
-  .includes(threadDomain)
+  .includes(eventsDomain)
   .schema({
     entities: {},
     links: {},

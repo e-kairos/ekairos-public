@@ -1,12 +1,6 @@
 "use client"
 
 import React, { useState } from "react"
-import {
-  ChainOfThought,
-  ChainOfThoughtContent,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep
-} from "@/components/ai-elements/chain-of-thought"
 import type { RegistryItem } from "@/lib/registry-types"
 
 const InteractiveChainOfThoughtDemo = () => {
@@ -31,29 +25,30 @@ const InteractiveChainOfThoughtDemo = () => {
   return (
     <div className="w-full max-w-md mx-auto space-y-4">
       <div className="border p-4 rounded-lg bg-background shadow-sm">
-        <ChainOfThought defaultOpen={isOpen}>
-          <ChainOfThoughtHeader 
-            status={step < 3 ? "thinking" : "complete"} 
-            seconds={step === 3 ? 5 : undefined} 
-          />
-          <ChainOfThoughtContent>
-            <ChainOfThoughtStep>
-              **Retrieving Fibonacci sequence**
-
-              The user asked for the Fibonacci sequence in Spanish. I need to call a function first, likely the createMessage tool since I'm answering the user. Even though it's a generic math question, I still have to use a tool. 
-              
-              I'll prepare to send a message with a brief explanation, even though the tool call won't be visible to the user. I should respond in Spanish and provide the first few terms of the sequence along with the formula.
-            </ChainOfThoughtStep>
-
-            <ChainOfThoughtStep>
-              **Planning Fibonacci response**
-
-              I should ask the user how many terms they want, but since the prompt is straightforward, I could simply provide the first 15 or 20 terms along with a definition. 
-              
-              I don't want to make it too verbose, so brevity is key. First, I'll call functions.createMessage to send a markdown message that summarizes the definition of the Fibonacci sequence.
-            </ChainOfThoughtStep>
-          </ChainOfThoughtContent>
-        </ChainOfThought>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>Chain of thought</span>
+            <span>{isOpen ? "open" : "closed"}</span>
+          </div>
+          {[
+            {
+              label: "Retrieving Fibonacci sequence",
+              text: "The user asked for the Fibonacci sequence in Spanish. I should answer concisely and keep the response practical.",
+            },
+            {
+              label: "Planning Fibonacci response",
+              text: "I can provide a short explanation, the first terms, and ask if the user wants more items or the recurrence formula.",
+            },
+          ].map((item, index) => (
+            <div
+              key={item.label}
+              className={`rounded-md border p-3 transition-opacity ${step >= index + 1 ? "opacity-100" : "opacity-40"}`}
+            >
+              <p className="font-medium text-sm">{item.label}</p>
+              <p className="mt-2 text-sm text-muted-foreground">{item.text}</p>
+            </div>
+          ))}
+        </div>
 
         {step === 3 && (
           <div className="mt-4 p-3 bg-muted/20 rounded text-sm animate-in fade-in slide-in-from-top-2">
@@ -84,14 +79,14 @@ export const chainOfThoughtRegistryItem: RegistryItem = {
     { name: "status", type: "'pending' | 'active' | 'complete'", default: "complete", description: "State of the specific reasoning step." }
   ],
   code: `<ChainOfThought defaultOpen={true}>
-  <ChainOfThoughtHeader status="thinking" />
+  <ChainOfThoughtHeader />
   <ChainOfThoughtContent>
-    <ChainOfThoughtStep>
+    <ChainOfThoughtStep label="Retrieving Fibonacci sequence">
       Retrieving Fibonacci sequence...
 
       The user asked for the Fibonacci sequence in Spanish...
     </ChainOfThoughtStep>
-    <ChainOfThoughtStep>
+    <ChainOfThoughtStep label="Planning Fibonacci response">
       **Planning Fibonacci response**
 
       I should ask the user how many terms they want...

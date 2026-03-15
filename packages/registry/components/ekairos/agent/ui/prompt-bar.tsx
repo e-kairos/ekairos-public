@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { memo, useCallback, useMemo, useState } from "react";
 import { id } from "@instantdb/react";
@@ -6,7 +6,7 @@ import { Prompt } from "@/components/ekairos/prompt/prompt";
 import type { PromptAttachment } from "@/components/ekairos/prompt/prompt-file-chip";
 import { useOrgDb } from "@/lib/org-db-context";
 
-import type { ThreadValue } from "@/components/ekairos/thread/context";
+import type { ContextValue } from "@/components/ekairos/context/context";
 
 type FileUIPart = {
   type: "file";
@@ -44,12 +44,12 @@ function formatBytes(bytes: number): string {
 }
 
 type PromptBarProps = {
-  thread: ThreadValue;
+  context: ContextValue;
 };
 
-const PromptBarInner = memo(function PromptBarInner({ thread }: PromptBarProps) {
+const PromptBarInner = memo(function PromptBarInner({ context }: PromptBarProps) {
   const { db } = useOrgDb();
-  const { append, contextId, contextStatus, sendStatus } = thread;
+  const { append, contextId, contextStatus, sendStatus } = context;
   const isDebugEnabled = useMemo(() => {
     if (typeof window === "undefined") return false;
     try {

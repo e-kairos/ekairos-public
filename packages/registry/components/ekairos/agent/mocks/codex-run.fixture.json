@@ -5,7 +5,7 @@
     "runId": "wrun_01KHVPFWTRV14V6CNN9QAWJTMP",
     "executionId": "ad64c8e6-367d-4a83-94e9-3c08d8535f20",
     "contextId": "85835b8e-bfcf-494b-b414-de747854f747",
-    "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e"
+    "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e"
   },
   "request": {
     "prompt": "Inspect README.md and reply with a short summary of what it contains.",
@@ -19,9 +19,9 @@
     {
       "delayMs": 220,
       "notification": {
-        "method": "thread/started",
+        "method": "context/started",
         "params": {
-          "thread": {
+          "context": {
             "id": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e"
           }
         }
@@ -32,7 +32,7 @@
       "notification": {
         "method": "turn/started",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turn": {
             "id": "turn-scripted-001",
             "status": "inProgress"
@@ -45,7 +45,7 @@
       "notification": {
         "method": "item/started",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turnId": "turn-scripted-001",
           "item": {
             "type": "agentMessage",
@@ -60,7 +60,7 @@
       "notification": {
         "method": "item/agentMessage/delta",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turnId": "turn-scripted-001",
           "itemId": "msg-scripted-001",
           "delta": "README.md contains a short description"
@@ -72,7 +72,7 @@
       "notification": {
         "method": "item/agentMessage/delta",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turnId": "turn-scripted-001",
           "itemId": "msg-scripted-001",
           "delta": " for the Ekairos coding agent trace test."
@@ -84,7 +84,7 @@
       "notification": {
         "method": "item/completed",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turnId": "turn-scripted-001",
           "item": {
             "type": "agentMessage",
@@ -97,9 +97,9 @@
     {
       "delayMs": 210,
       "notification": {
-        "method": "thread/tokenUsage/updated",
+        "method": "context/tokenUsage/updated",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turnId": "turn-scripted-001",
           "tokenUsage": {
             "total": {
@@ -116,7 +116,7 @@
       "notification": {
         "method": "turn/completed",
         "params": {
-          "threadId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
+          "contextId": "a62a3d38-5ffd-4602-807c-6ecaa84b1f7e",
           "turn": {
             "id": "turn-scripted-001",
             "status": "completed"

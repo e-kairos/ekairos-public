@@ -19,7 +19,7 @@ Public monorepo for Ekairos npm packages.
 
 - `@ekairos/domain`
 - `@ekairos/sandbox`
-- `@ekairos/thread`
+- `@ekairos/events`
 - `@ekairos/dataset`
 - `@ekairos/structure`
 - `@ekairos/story-react`
@@ -99,15 +99,15 @@ pnpm run build:publish-packages
 Repository secret required:
 
 - `NPM_TOKEN` (npm automation token with publish permissions)
-- `INSTANT_PERSONAL_ACCESS_TOKEN` (required for thread workflow e2e checks)
+- `INSTANT_PERSONAL_ACCESS_TOKEN` (required for context workflow e2e checks)
 
 ## CI checks before publish
 
 All pushes run these checks before the publish job:
 
 - `@ekairos/domain` unit tests
-- `@ekairos/thread` unit tests (`test:ai-sdk-reactor`)
-- `@ekairos/thread` workflow smoke e2e (`test:e2e:thread-engine`)
+- `@ekairos/events` unit tests (`test:ai-sdk-reactor`)
+- `@ekairos/events` workflow smoke e2e (`test:e2e:context-engine`)
 
 ## License
 

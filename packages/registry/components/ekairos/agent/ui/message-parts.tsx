@@ -262,7 +262,6 @@ const MessageParts = memo(function MessageParts({
           type={(part?.type as any) || ("tool" as any)}
           state={(part?.state as any) || ("input-streaming" as any)}
           label={label}
-          summary={summary}
         />
         <ToolContent>
           {part.input && <ToolInput input={part.input} />}
@@ -437,6 +436,11 @@ const MessageParts = memo(function MessageParts({
     return null;
   };
 
+  const renderableParts = useMemo(
+    () => (Array.isArray(message?.parts) ? message.parts : []),
+    [message?.parts],
+  );
+
   return (
     <Fragment>
       {sources.length > 0 && message.role === "assistant" && (
@@ -472,8 +476,9 @@ const MessageParts = memo(function MessageParts({
           </ChainOfThought>
         ) : null)}
 
-      {message.parts.map((part: any, i: number) => {
+      {renderableParts.map((part: any, i: number) => {
         if (part.type === "reasoning") return null;
+        if (part.type === "tool-turnMetadata") return null;
 
         if (part.type === "codex-event") {
           if (i !== firstCodexPartIdx) return null;
@@ -507,7 +512,7 @@ const MessageParts = memo(function MessageParts({
               </Message>
 
               {message.role === "assistant" &&
-                i === message.parts.length - 1 && (
+                i === renderableParts.length - 1 && (
                   <div className="ml-0 mt-1 flex gap-2">
                     <Button
                       size="icon"

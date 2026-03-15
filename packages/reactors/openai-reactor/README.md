@@ -1,6 +1,6 @@
 # @ekairos/openai-reactor
 
-Codex reactor for `@ekairos/thread`.
+Codex reactor for `@ekairos/events`.
 
 This package is Codex-only:
 - only `createCodexReactor` is exported,
@@ -9,16 +9,16 @@ This package is Codex-only:
 ## Exports
 
 - `createCodexReactor(options)`  
-  Codex App Server reactor for direct Thread execution (no tool indirection).
+  Codex App Server reactor for direct Context execution (no tool indirection).
 - `mapCodexChunkType(providerChunkType)`  
-  Maps provider chunk types to canonical Thread chunk types.
+  Maps provider chunk types to canonical Context chunk types.
 - `defaultMapCodexChunk(providerChunk)`  
   Default provider-chunk mapper used by the reactor.
 
 ## Codex Reactor Example
 
 ```ts
-import { createThread } from "@ekairos/thread";
+import { createContext } from "@ekairos/events";
 import { createCodexReactor } from "@ekairos/openai-reactor";
 
 const reactor = createCodexReactor({
@@ -27,7 +27,7 @@ const reactor = createCodexReactor({
     return {
       appServerUrl: env.appServerUrl,
       repoPath: env.repoPath,
-      threadId: env.threadId,
+      providerContextId: env.providerContextId,
       mode: "local",
     };
   },
@@ -35,7 +35,7 @@ const reactor = createCodexReactor({
     "use step";
     // call codex app server / stream
     return {
-      threadId: config.threadId ?? "thread_1",
+      providerContextId: config.providerContextId ?? "context_1",
       turnId: "turn_1",
       assistantText: "Done.",
       reasoningText: "",
@@ -45,16 +45,16 @@ const reactor = createCodexReactor({
   },
 });
 
-const codingThread = createThread<any>("code.agent")
+const codingContext = createContext<any>("code.agent")
   .context((stored) => stored.content ?? {})
-  .narrative(() => "Ekairos coding thread")
+  .narrative(() => "Ekairos coding context")
   .actions(() => ({}))
   .reactor(reactor)
   .shouldContinue(() => false)
   .build();
 ```
 
-## Provider stream -> Thread mapping
+## Provider stream -> Context mapping
 
 For each provider chunk you emit via `emitChunk(providerChunk)`, the reactor writes:
 
@@ -80,9 +80,9 @@ Config options:
 
 ## AI SDK generic reactor
 
-`createAiSdkReactor(...)` is provider-agnostic and lives in `@ekairos/thread`.
+`createAiSdkReactor(...)` is provider-agnostic and lives in `@ekairos/events`.
 
 ## TODO
 
 - Continuity across machines should be validated end-to-end with persisted session state.
-- Current continuity assumption in local tests is: keep the same `contextId` and reuse the same provider `threadId` between turns.
+- Current continuity assumption in local tests is: keep the same `contextId` and reuse the same provider `providerContextId` between turns.

@@ -45,7 +45,7 @@ async function createRowsDatasetContext(params: {
 
   // Create the context record and link the output file (so Structure can consume it as a dataset source).
   await adminDb.transact(
-    adminDb.tx.thread_contexts[id()].create({
+    adminDb.tx.event_contexts[id()].create({
       createdAt: new Date(),
       updatedAt: new Date(),
       type: "structure",
@@ -65,7 +65,7 @@ async function createRowsDatasetContext(params: {
     }),
   )
 
-  await adminDb.transact(adminDb.tx.thread_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }))
+  await adminDb.transact(adminDb.tx.event_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }))
 
   return { datasetId, fileId }
 }

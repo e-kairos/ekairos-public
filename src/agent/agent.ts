@@ -76,7 +76,7 @@ export abstract class Story<Context> {
 
   private static readonly FINAL_TOOL_NAMES = ["createMessage", "requestDirection", "end"]
 
-  protected getBaseTools(dataStream: DataStreamWriter, threadId: string): Record<string, Tool> {
+  protected getBaseTools(dataStream: DataStreamWriter, contextId: string): Record<string, Tool> {
     const include = this.includeBaseTools()
     const baseTools: Record<string, Tool> = {}
 
@@ -117,27 +117,27 @@ export abstract class Story<Context> {
   protected async executeCreateMessage(
     eventId: string,
     args: { message: string; type: "info" | "confirmation" | "warning" | "error" | "success"; includeContext?: boolean },
-    threadId: string,
+    contextId: string,
     dataStream?: DataStreamWriter,
   ): Promise<any> {
     const assistantMessage = { id: eventId, role: "assistant" as const, content: args.message, createdAt: new Date() } as any
     try {
-      await this.saveMessagesToThread(threadId, [assistantMessage])
+      await this.saveMessagesToContext(contextId, [assistantMessage])
     } catch { }
     if (dataStream) {
       //dataStream.writeData({ type: "user-response", message: args.message, responseType: args.type, includeContext: Boolean(args.includeContext), timestamp: new Date().toISOString() } as any)
     }
-    return { success: true, message: args.message, data: { messageId: assistantMessage.id, threadId } }
+    return { success: true, message: args.message, data: { messageId: assistantMessage.id, contextId } }
   }
 
   protected async executeRequestDirection(
     eventId: string,
     args: { issue: string; context: string; suggestedActions?: string[]; urgency: "low" | "medium" | "high" },
-    threadId: string,
+    contextId: string,
     _dataStream?: DataStreamWriter,
   ): Promise<any> {
     const systemMessage = { id: eventId, role: "assistant" as const, content: `Direction requested: ${args.issue}\nContext: ${args.context}`, createdAt: new Date() } as any
-    return { success: true, message: "Direction requested", data: { messageId: systemMessage.id, threadId } }
+    return { success: true, message: "Direction requested", data: { messageId: systemMessage.id, contextId } }
   }
 
   public async progressStream(
@@ -574,7 +574,7 @@ export abstract class Story<Context> {
     }
   }
 
-  private async saveMessagesToThread(threadId: string, messages: Array<any>) {
+  private async saveMessagesToContext(contextId: string, messages: Array<any>) {
     // Placeholder for persistence hook. Not implemented in current scope.
     return
   }

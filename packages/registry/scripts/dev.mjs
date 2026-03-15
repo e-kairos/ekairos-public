@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const bridgeScript = resolve(__dirname, "codex-bridge-local.mjs");
 
-const bridgePort = Number(process.env.CODEX_BRIDGE_PORT || "4310");
+const bridgePort = Number(process.env.CODEX_BRIDGE_PORT || "4500");
 const explicitAppServerUrl = String(process.env.CODEX_APP_SERVER_URL ?? "").trim();
 const hasExplicitHttpAppServerUrl =
   explicitAppServerUrl.startsWith("http://") || explicitAppServerUrl.startsWith("https://");
@@ -16,6 +17,30 @@ const shouldAutoBridge = !disableAutoBridge && !realE2E && !hasExplicitHttpAppSe
 
 const env = { ...process.env };
 let bridgeChild = null;
+
+async function isPortInUse(port) {
+  return await new Promise((resolve) => {
+    const server = net.createServer();
+
+    server.once("error", (err) => {
+      if (err && err.code === "EADDRINUSE") return resolve(true);
+      return resolve(true);
+    });
+
+    server.once("listening", () => {
+      server.close(() => resolve(false));
+    });
+
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+if (shouldAutoBridge && (await isPortInUse(bridgePort))) {
+  process.stderr.write(
+    `[registry-dev] port ${bridgePort} is already in use. Free it or set CODEX_APP_SERVER_URL explicitly.\n`,
+  );
+  process.exit(1);
+}
 
 if (shouldAutoBridge) {
   bridgeChild = spawn(process.execPath, [bridgeScript], {

@@ -153,7 +153,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
         {/* Main Content */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
           <header className={cn(
-            "h-14 border-b px-4 flex items-center gap-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 fixed top-0 right-0 left-0 z-40 transition-all duration-300",
+            "h-14 border-b px-4 flex items-center gap-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 fixed top-11 right-0 left-0 z-40 transition-all duration-300",
             isSidebarOpen && "lg:left-64"
           )}>
              <button 

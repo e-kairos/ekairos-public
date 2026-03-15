@@ -1,5 +1,6 @@
 import "server-only";
 
+import { id } from "@instantdb/admin";
 import {
   GH_AUTHORIZATION_BASE_URL,
   GH_TOKEN_URL,

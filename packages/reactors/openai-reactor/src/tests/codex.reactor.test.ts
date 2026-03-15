@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
-import type { ThreadEnvironment } from "@ekairos/events/runtime"
-import type { ThreadItem, ThreadReactorParams } from "@ekairos/events"
+import type { ContextEnvironment } from "@ekairos/events/runtime"
+import type { ContextItem, ContextReactorParams } from "@ekairos/events"
 
 import {
   createCodexReactor,
@@ -17,10 +17,10 @@ import {
 } from "../index.js"
 
 type TestContext = Record<string, unknown>
-type TestEnv = ThreadEnvironment & {
+type TestEnv = ContextEnvironment & {
   appServerUrl?: string
   repoPath?: string
-  threadId?: string
+  providerContextId?: string
 }
 
 type CollectedChunk = Record<string, unknown>
@@ -52,6 +52,14 @@ function providerEventType(chunk: Record<string, unknown>): string {
   return asString(chunk.method || chunk.type || chunk.event || "unknown")
 }
 
+function isValidProviderContextId(value: string): boolean {
+  const normalized = value.trim()
+  if (!normalized) return false
+  if (/^[0-9a-fA-F-]{36}$/.test(normalized)) return true
+  if (/^urn:uuid:[0-9a-fA-F-]{36}$/.test(normalized)) return true
+  return false
+}
+
 function collectWritableChunks() {
   const written: CollectedChunk[] = []
   const writable = new WritableStream<unknown>({
@@ -69,10 +77,10 @@ function createParams(params: {
   executionId?: string
   stepId?: string
   iteration?: number
-  threadId?: string
-}): ThreadReactorParams<TestContext, TestEnv> {
-  const threadId = asString(params.threadId || "thr-scripted") || "thr-scripted"
-  const triggerEvent: ThreadItem = {
+  providerContextId?: string
+}): ContextReactorParams<TestContext, TestEnv> {
+  const providerContextId = asString(params.providerContextId || "thr-scripted") || "thr-scripted"
+  const triggerEvent: ContextItem = {
     id: "trigger-001",
     type: "input",
     channel: "web",
@@ -87,13 +95,12 @@ function createParams(params: {
     env: {
       appServerUrl: "http://127.0.0.1:3436",
       repoPath: "/workspace/repo",
-      threadId,
+      providerContextId,
     },
     context: {
       id: params.contextId ?? "ctx-001",
-      threadId,
       key: "ctx-scripted",
-      status: "open",
+      status: "open_idle",
       createdAt: new Date("2026-02-20T00:00:00.000Z"),
       content: {
         repository: "demo-repo",
@@ -102,7 +109,7 @@ function createParams(params: {
     contextIdentifier: { id: params.contextId ?? "ctx-001" },
     triggerEvent,
     model: "openai/gpt-5.2-codex",
-    systemPrompt: "You are Codex running as an Ekairos Thread.",
+    systemPrompt: "You are Codex running as an Ekairos Context.",
     actions: {},
     toolsForModel: {},
     eventId: params.eventId ?? "evt-001",
@@ -123,15 +130,17 @@ function getChunkPayloads(written: CollectedChunk[]) {
     .map((entry) => asRecord(entry.data))
 }
 
-function getCodexEventPart(assistantEvent: ThreadItem) {
+function getTurnMetadataPart(assistantEvent: ContextItem) {
   const parts = Array.isArray(assistantEvent.content?.parts)
     ? assistantEvent.content.parts
     : []
-  const codexPart = parts.find((part) => asString(asRecord(part).type) === "codex-event")
-  return asRecord(codexPart)
+  const metadataPart = parts.find(
+    (part) => asString(asRecord(part).type) === "tool-turnMetadata",
+  )
+  return asRecord(metadataPart)
 }
 
-function getAssistantTextPart(assistantEvent: ThreadItem): string {
+function getAssistantTextPart(assistantEvent: ContextItem): string {
   const parts = Array.isArray(assistantEvent.content?.parts)
     ? assistantEvent.content.parts
     : []
@@ -144,7 +153,7 @@ function summarizeProviderChunk(chunk: Record<string, unknown>): {
   itemType: string
   itemId: string
   turnId: string
-  threadId: string
+  providerContextId: string
   actionRef: string
   text: string
   error: string
@@ -174,7 +183,7 @@ function summarizeProviderChunk(chunk: Record<string, unknown>): {
     itemType: asString(item.type),
     itemId: asString(item.id || params.itemId),
     turnId: asString(params.turnId || eventTurn.id),
-    threadId: asString(params.threadId || eventTurn.threadId),
+    providerContextId: asString(params.providerContextId || eventTurn.providerContextId),
     actionRef,
     text,
     error,
@@ -221,12 +230,16 @@ function buildAudit(params: {
   result: Awaited<ReturnType<ReturnType<typeof createCodexReactor<TestContext, CodexConfig, TestEnv>>>>
 }) {
   const streamPayloads = getChunkPayloads(params.written)
-  const codexPart = getCodexEventPart(params.result.assistantEvent)
-  const output = asRecord(codexPart.output)
+  const metadataPart = getTurnMetadataPart(params.result.assistantEvent)
+  const output = asRecord(metadataPart.output)
   const streamTrace = asRecord(output.streamTrace)
   const persistedChunks = Array.isArray(streamTrace.chunks)
     ? streamTrace.chunks.map((entry) => asRecord(entry))
     : []
+  const commandParts = (Array.isArray(params.result.assistantEvent.content?.parts)
+    ? params.result.assistantEvent.content.parts
+    : []
+  ).filter((part) => asString(asRecord(part).type) === "tool-commandExecution")
   const assistantText = getAssistantTextPart(params.result.assistantEvent)
   const providerTimeline = params.providerChunks.map((chunk, index) => {
     const summary = summarizeProviderChunk(chunk)
@@ -242,7 +255,7 @@ function buildAudit(params: {
       totalChunks: params.providerChunks.length,
       chunkTypes: countBy(params.providerChunks, (chunk) => providerEventType(chunk) || "unknown"),
       response: {
-        threadId: asString(output.threadId),
+        providerContextId: asString(output.providerContextId),
         turnId: asString(output.turnId),
         diffLength: asString(output.diff).length,
         assistantText,
@@ -285,6 +298,7 @@ function buildAudit(params: {
           ? params.result.assistantEvent.content.parts
           : []
         ).map((part) => asString(asRecord(part).type)),
+        commandPartCount: commandParts.length,
       },
     },
     llm: {
@@ -315,161 +329,194 @@ function buildAudit(params: {
 async function executeRealTurnViaHttp(
   args: CodexExecuteTurnArgs<TestContext, CodexConfig, TestEnv>,
 ): Promise<{ turn: CodexTurnResult; providerChunks: Record<string, unknown>[] }> {
-  const method = asString(process.env.CODEX_REACTOR_REAL_METHOD || "POST").toUpperCase()
-  const extraHeadersRaw = asString(process.env.CODEX_REACTOR_REAL_HEADERS).trim()
-  const extraHeaders = extraHeadersRaw ? asRecord(JSON.parse(extraHeadersRaw)) : {}
+  const baseUrl = asString(args.config.appServerUrl).replace(/\/turn$/, "")
+  const rpcUrl = `${baseUrl}/rpc`
+  const eventsUrl = `${baseUrl}/events`
+  const providerChunks: Record<string, unknown>[] = []
 
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  }
-  for (const [key, value] of Object.entries(extraHeaders)) {
-    if (!key) continue
-    headers[key] = asString(value)
-  }
-
-  const requestBody = {
-    instruction: args.instruction,
-    config: args.config,
-    context: args.context,
-    triggerEvent: args.triggerEvent,
-    runtime: {
-      contextId: args.contextId,
-      executionId: args.executionId,
-      stepId: args.stepId,
-      iteration: args.iteration,
-    },
+  const sendRpc = async (method: string, params: Record<string, unknown>) => {
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ method, params }),
+    })
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "")
+      throw new Error(
+        `Real provider call failed (${method}) ${response.status}: ${errorBody || response.statusText}`,
+      )
+    }
+    return asRecord(await response.json())
   }
 
-  const response = await fetch(args.config.appServerUrl, {
-    method,
-    headers,
-    body: method === "GET" ? undefined : JSON.stringify(requestBody),
-  })
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "")
+  const eventsResponse = await fetch(eventsUrl, { method: "GET" })
+  if (!eventsResponse.ok || !eventsResponse.body) {
+    const errorBody = await eventsResponse.text().catch(() => "")
     throw new Error(
-      `Real provider call failed (${response.status}): ${response.statusText}${
-        errorBody ? ` body=${errorBody}` : ""
-      }`,
+      `Real provider events subscribe failed (${eventsResponse.status}): ${errorBody || eventsResponse.statusText}`,
     )
   }
 
-  const contentType = asString(response.headers.get("content-type")).toLowerCase()
-  const providerChunks: Record<string, unknown>[] = []
-  let finalPayload: Record<string, unknown> = {}
+  const requestedThreadId = asString(args.config.providerContextId).trim()
+  let threadId = requestedThreadId
+  if (threadId && isValidProviderContextId(threadId)) {
+    await sendRpc("thread/resume", { threadId })
+  } else {
+    const startParams: Record<string, unknown> = {
+      cwd: args.config.repoPath,
+      approvalPolicy: args.config.approvalPolicy ?? "never",
+      sandboxPolicy:
+        args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+          ? args.config.sandboxPolicy
+          : { type: "externalSandbox", networkAccess: "enabled" },
+    }
+    if (args.config.model) startParams.model = args.config.model
+    const startRes = await sendRpc("thread/start", startParams)
+    threadId =
+      asString(asRecord(asRecord(startRes.result).thread).id) ||
+      asString(asRecord(startRes.result).id) ||
+      asString(startRes.threadId)
+  }
+  if (!threadId) throw new Error("thread_id_missing")
 
-  if (contentType.includes("text/event-stream")) {
-    const reader = response.body?.getReader()
-    if (!reader) throw new Error("Real provider returned empty SSE body.")
-    const decoder = new TextDecoder()
-    let buffer = ""
-    let done = false
-    while (!done) {
-      const read = await reader.read()
-      done = Boolean(read.done)
-      if (!read.value) continue
-      buffer += decoder.decode(read.value, { stream: !done })
-      const blocks = buffer.split("\n\n")
-      buffer = blocks.pop() ?? ""
-      for (const block of blocks) {
-        const lines = block
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.startsWith("data:"))
-        if (!lines.length) continue
-        const data = lines.map((line) => line.slice(5).trim()).join("\n")
-        if (!data || data === "[DONE]") continue
-        try {
-          const parsed = asRecord(JSON.parse(data))
-          providerChunks.push(parsed)
-          await args.emitChunk(parsed)
-          if (asString(parsed.type).includes("finish")) {
-            finalPayload = parsed
-          }
-        } catch {
-          const synthetic = { type: "text_delta", text: data }
-          providerChunks.push(synthetic)
-          await args.emitChunk(synthetic)
+  const turnStartParams: Record<string, unknown> = {
+    threadId,
+    input: [{ type: "text", text: args.instruction || "" }],
+    cwd: args.config.repoPath,
+    approvalPolicy: args.config.approvalPolicy ?? "never",
+    sandboxPolicy:
+      args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+        ? args.config.sandboxPolicy
+        : { type: "externalSandbox", networkAccess: "enabled" },
+  }
+  if (args.config.model) turnStartParams.model = args.config.model
+  const turnStartRes = await sendRpc("turn/start", turnStartParams)
+  let turnId =
+    asString(asRecord(asRecord(turnStartRes.result).turn).id) ||
+    asString(asRecord(turnStartRes.result).id) ||
+    asString(turnStartRes.turnId)
+
+  const reader = eventsResponse.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let done = false
+  let assistantText = ""
+  let reasoningText = ""
+  let diff = ""
+  let usage: Record<string, unknown> = {}
+  let completedTurn: Record<string, unknown> = {}
+
+  while (!done) {
+    const read = await reader.read()
+    done = Boolean(read.done)
+    if (!read.value) continue
+    buffer += decoder.decode(read.value, { stream: !done })
+    const blocks = buffer.split("\n\n")
+    buffer = blocks.pop() ?? ""
+    for (const block of blocks) {
+      const lines = block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("data:"))
+      if (!lines.length) continue
+      const data = lines.map((line) => line.slice(5).trim()).join("\n")
+      if (!data || data === "[DONE]") continue
+      const evt = asRecord(JSON.parse(data))
+      const method = asString(evt.method)
+      const params = asRecord(evt.params)
+      const evtTurnId = asString(params.turnId) || asString(asRecord(params.turn).id)
+      const evtThreadId = asString(params.threadId) || asString(asRecord(params.turn).threadId)
+      const scopedToTurn =
+        (evtTurnId && turnId && evtTurnId === turnId) ||
+        (evtThreadId && evtThreadId === threadId) ||
+        method.startsWith("thread/")
+      if (!scopedToTurn) continue
+
+      providerChunks.push(evt)
+      await args.emitChunk(evt)
+
+      if (method === "turn/started" && !turnId) {
+        turnId = asString(asRecord(params.turn).id) || evtTurnId
+      }
+      if (method === "item/agentMessage/delta") {
+        assistantText += asString(params.delta)
+      }
+      if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") {
+        reasoningText += asString(params.delta)
+      }
+      if (method === "turn/diff/updated") {
+        diff = asString(params.diff)
+      }
+      if (method === "thread/tokenUsage/updated" || method === "context/tokenUsage/updated") {
+        usage = asRecord(params.tokenUsage)
+      }
+      if (method === "item/completed") {
+        const item = asRecord(params.item)
+        if (asString(item.type) === "agentMessage" && asString(item.text).trim()) {
+          assistantText = asString(item.text)
+        }
+        if (asString(item.type) === "reasoning" && asString(item.summary).trim()) {
+          reasoningText = asString(item.summary)
         }
       }
+      if (method === "turn/completed") {
+        const turnData = asRecord(params.turn)
+        const completedTurnId = asString(turnData.id)
+        if (completedTurnId && turnId && completedTurnId !== turnId) continue
+        completedTurn = turnData
+        done = true
+        break
+      }
     }
-  } else {
-    const payload = asRecord(await response.json())
-    const streamArray = Array.isArray(payload.stream)
-      ? payload.stream
-      : Array.isArray(payload.chunks)
-        ? payload.chunks
-        : []
-    for (const chunk of streamArray) {
-      const parsed = asRecord(chunk)
-      providerChunks.push(parsed)
-      await args.emitChunk(parsed)
-    }
-    finalPayload = payload
   }
 
-  const assistantTextFromChunks = providerChunks
-    .map((chunk) => asString(chunk.text || chunk.delta))
-    .filter((value) => value.length > 0)
-    .join("")
-    .trim()
-
-  const assistantText = asString(
-    finalPayload.assistantText ||
-      finalPayload.outputText ||
-      finalPayload.text ||
-      assistantTextFromChunks ||
-      "real-provider-response",
-  )
-
   const turn: CodexTurnResult = {
-    threadId: asString(finalPayload.threadId || args.config.threadId || "real-thread"),
-    turnId: asString(finalPayload.turnId || finalPayload.id || `turn-${Date.now()}`),
+    providerContextId: threadId,
+    turnId: asString(completedTurn.id || turnId || `turn-${Date.now()}`),
     assistantText,
-    reasoningText: asString(finalPayload.reasoningText || finalPayload.reasoning || ""),
-    diff: asString(finalPayload.diff || ""),
-    toolParts: Array.isArray(finalPayload.toolParts) ? finalPayload.toolParts : [],
+    reasoningText,
+    diff,
+    toolParts: Array.isArray(completedTurn.toolParts) ? completedTurn.toolParts : [],
     metadata: {
-      providerResponse: finalPayload,
+      providerResponse: completedTurn,
     },
-    usage: asRecord(finalPayload.usage),
+    usage,
   }
 
   return { turn, providerChunks }
 }
 
 describe("createCodexReactor", () => {
-  it("conversation continuity: same contextId + threadId across turns", async () => {
+  it("conversation continuity: same contextId + providerContextId across turns", async () => {
     const contextId = "ctx-continuity"
-    const seededThreadId = "thr-continuity-001"
-    const executeLog: Array<{ contextId: string; threadId: string; turnId: string }> = []
+    const seededProviderContextId = "thr-continuity-001"
+    const executeLog: Array<{ contextId: string; providerContextId: string; turnId: string }> = []
     let turn = 0
 
     const reactor = createCodexReactor<TestContext, CodexConfig, TestEnv>({
       resolveConfig: async ({ env }) => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        threadId: asString((env as TestEnv).threadId || seededThreadId) || seededThreadId,
+        providerContextId: asString((env as TestEnv).providerContextId || seededProviderContextId) || seededProviderContextId,
         model: "openai/gpt-5.2-codex",
       }),
       executeTurn: async ({ config, contextId: callContextId, emitChunk }) => {
         turn += 1
-        const threadId = asString(config.threadId || seededThreadId) || seededThreadId
+        const providerContextId = asString(config.providerContextId || seededProviderContextId) || seededProviderContextId
         const turnId = `turn-cont-${turn}`
-        executeLog.push({ contextId: callContextId, threadId, turnId })
-        await emitChunk({ type: "start", turnId, threadId })
+        executeLog.push({ contextId: callContextId, providerContextId, turnId })
+        await emitChunk({ type: "start", turnId, providerContextId })
         await emitChunk({
           type: "text_delta",
-          text: turn === 1 ? "First answer in thread." : "Second answer in same thread.",
+          text: turn === 1 ? "First answer in context." : "Second answer in same context.",
           turnId,
-          threadId,
+          providerContextId,
         })
-        await emitChunk({ type: "finish", finishReason: "stop", turnId, threadId })
+        await emitChunk({ type: "finish", finishReason: "stop", turnId, providerContextId })
         return {
-          threadId,
+          providerContextId,
           turnId,
-          assistantText: turn === 1 ? "First answer in thread." : "Second answer in same thread.",
+          assistantText: turn === 1 ? "First answer in context." : "Second answer in same context.",
           reasoningText: "",
           diff: "",
           toolParts: [],
@@ -482,36 +529,36 @@ describe("createCodexReactor", () => {
       createParams({
         writable: firstCollected.writable,
         contextId,
-        threadId: seededThreadId,
+        providerContextId: seededProviderContextId,
         eventId: "evt-cont-1",
         executionId: "exe-cont-1",
         stepId: "step-cont-1",
       }),
     )
-    const firstOutput = asRecord(getCodexEventPart(firstResult.assistantEvent).output)
-    const firstThreadId = asString(firstOutput.threadId)
+    const firstOutput = asRecord(getTurnMetadataPart(firstResult.assistantEvent).output)
+    const firstProviderContextId = asString(firstOutput.providerContextId)
 
     const secondCollected = collectWritableChunks()
     const secondResult = await reactor(
       createParams({
         writable: secondCollected.writable,
         contextId,
-        threadId: firstThreadId,
+        providerContextId: firstProviderContextId,
         eventId: "evt-cont-2",
         executionId: "exe-cont-2",
         stepId: "step-cont-2",
       }),
     )
-    const secondOutput = asRecord(getCodexEventPart(secondResult.assistantEvent).output)
-    const secondThreadId = asString(secondOutput.threadId)
+    const secondOutput = asRecord(getTurnMetadataPart(secondResult.assistantEvent).output)
+    const secondProviderContextId = asString(secondOutput.providerContextId)
 
-    expect(firstThreadId).toBe(seededThreadId)
-    expect(secondThreadId).toBe(firstThreadId)
+    expect(firstProviderContextId).toBe(seededProviderContextId)
+    expect(secondProviderContextId).toBe(firstProviderContextId)
     expect(executeLog).toHaveLength(2)
     expect(executeLog[0]?.contextId).toBe(contextId)
     expect(executeLog[1]?.contextId).toBe(contextId)
-    expect(executeLog[0]?.threadId).toBe(seededThreadId)
-    expect(executeLog[1]?.threadId).toBe(seededThreadId)
+    expect(executeLog[0]?.providerContextId).toBe(seededProviderContextId)
+    expect(executeLog[1]?.providerContextId).toBe(seededProviderContextId)
   })
 
   it("scripted provider stream audit: maps chunks, persists trace, and preserves provider response", async () => {
@@ -534,7 +581,7 @@ describe("createCodexReactor", () => {
       resolveConfig: async () => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        threadId: "thr-scripted",
+        providerContextId: "thr-scripted",
         model: "openai/gpt-5.2-codex",
       }),
       executeTurn: async ({ emitChunk }) => {
@@ -542,7 +589,7 @@ describe("createCodexReactor", () => {
           await emitChunk(chunk)
         }
         return {
-          threadId: "thr-scripted",
+          providerContextId: "thr-scripted",
           turnId: "turn-scripted-001",
           assistantText: "README explains the coding agent trace workflow.",
           reasoningText: "Read file and summarized key points.",
@@ -574,6 +621,7 @@ describe("createCodexReactor", () => {
     expect(audit.provider.totalChunks).toBe(6)
     expect(audit.stream.emittedChunks).toBe(6)
     expect(audit.persisted.streamTraceTotalChunks).toBe(6)
+    expect(audit.entities.assistantEvent.partTypes).toContain("tool-turnMetadata")
     expect(audit.persisted.streamTraceChunkTypes).toMatchObject({
       "chunk.start": 1,
       "chunk.reasoning_delta": 1,
@@ -603,7 +651,7 @@ describe("createCodexReactor", () => {
       resolveConfig: async () => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        threadId: "thr-mocked",
+        providerContextId: "thr-mocked",
         model: "openai/gpt-5.2-codex",
       }),
       mapChunk: (providerChunk) => {
@@ -628,7 +676,7 @@ describe("createCodexReactor", () => {
           await emitChunk(chunk)
         }
         return {
-          threadId: "thr-mocked",
+          providerContextId: "thr-mocked",
           turnId: "turn-mocked-001",
           assistantText: "Completed mocked provider stream.",
           usage: {
@@ -664,6 +712,7 @@ describe("createCodexReactor", () => {
     expect(audit.stream.emittedChunks).toBe(4)
     expect(audit.persisted.streamTraceTotalChunks).toBe(4)
     expect(audit.persisted.streamTraceChunksStored).toBe(2)
+    expect(audit.entities.assistantEvent.partTypes).toContain("tool-turnMetadata")
     expect(audit.persisted.streamTraceProviderChunkTypes).toMatchObject({
       start: 1,
       text_delta: 1,
@@ -681,14 +730,14 @@ describe("createCodexReactor", () => {
       {
         method: "turn/started",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turn: { id: "turn-typed-001", status: "inProgress" },
         },
       },
       {
         method: "item/started",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turnId: "turn-typed-001",
           item: { type: "agentMessage", id: "msg-typed-001", text: "" },
         },
@@ -696,7 +745,7 @@ describe("createCodexReactor", () => {
       {
         method: "item/agentMessage/delta",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turnId: "turn-typed-001",
           itemId: "msg-typed-001",
           delta: "typed-stream",
@@ -705,15 +754,15 @@ describe("createCodexReactor", () => {
       {
         method: "item/completed",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turnId: "turn-typed-001",
           item: { type: "agentMessage", id: "msg-typed-001", text: "typed-stream" },
         },
       },
       {
-        method: "thread/tokenUsage/updated",
+        method: "context/tokenUsage/updated",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turnId: "turn-typed-001",
           tokenUsage: {
             total: { totalTokens: 20, inputTokens: 12, outputTokens: 8 },
@@ -723,7 +772,7 @@ describe("createCodexReactor", () => {
       {
         method: "turn/completed",
         params: {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turn: { id: "turn-typed-001", status: "completed" },
         },
       },
@@ -739,7 +788,7 @@ describe("createCodexReactor", () => {
       resolveConfig: async () => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        threadId: "thr-typed",
+        providerContextId: "thr-typed",
         model: "openai/gpt-5.2-codex",
       }),
       executeTurn: async ({ emitChunk }) => {
@@ -747,7 +796,7 @@ describe("createCodexReactor", () => {
           await emitChunk(chunk)
         }
         return {
-          threadId: "thr-typed",
+          providerContextId: "thr-typed",
           turnId: "turn-typed-001",
           assistantText: "typed-stream",
           usage: {
@@ -787,7 +836,7 @@ describe("createCodexReactor", () => {
       "item/started": 1,
       "item/agentMessage/delta": 1,
       "item/completed": 1,
-      "thread/tokenUsage/updated": 1,
+      "context/tokenUsage/updated": 1,
       "turn/completed": 1,
     })
     expect((audit.stream.providerChunkTypes as Record<string, number>)["codex/event/agent_message_delta"]).toBeUndefined()
@@ -799,14 +848,14 @@ describe("createCodexReactor", () => {
       {
         method: "turn/started",
         params: {
-          threadId: "thr-typed-user",
+          providerContextId: "thr-typed-user",
           turn: { id: "turn-typed-user-001", status: "inProgress" },
         },
       },
       {
         method: "item/started",
         params: {
-          threadId: "thr-typed-user",
+          providerContextId: "thr-typed-user",
           turnId: "turn-typed-user-001",
           item: { type: "userMessage", id: "msg-user-001", text: "hello" },
         },
@@ -814,7 +863,7 @@ describe("createCodexReactor", () => {
       {
         method: "item/completed",
         params: {
-          threadId: "thr-typed-user",
+          providerContextId: "thr-typed-user",
           turnId: "turn-typed-user-001",
           item: { type: "userMessage", id: "msg-user-001", text: "hello" },
         },
@@ -822,7 +871,7 @@ describe("createCodexReactor", () => {
       {
         method: "turn/completed",
         params: {
-          threadId: "thr-typed-user",
+          providerContextId: "thr-typed-user",
           turn: { id: "turn-typed-user-001", status: "completed" },
         },
       },
@@ -832,7 +881,7 @@ describe("createCodexReactor", () => {
       resolveConfig: async () => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        threadId: "thr-typed-user",
+        providerContextId: "thr-typed-user",
         model: "openai/gpt-5.2-codex",
       }),
       executeTurn: async ({ emitChunk }) => {
@@ -840,7 +889,7 @@ describe("createCodexReactor", () => {
           await emitChunk(chunk)
         }
         return {
-          threadId: "thr-typed-user",
+          providerContextId: "thr-typed-user",
           turnId: "turn-typed-user-001",
           assistantText: "ok",
           usage: {
@@ -879,7 +928,7 @@ describe("createCodexReactor", () => {
   const realProviderUrl = asString(process.env.CODEX_REACTOR_REAL_URL).trim()
   const realIt = realProviderUrl.length > 0 ? it : it.skip
 
-  realIt("real provider stream audit: captures SSE/JSON stream and maps to thread chunks", async () => {
+  realIt("real provider stream audit: captures SSE/JSON stream and maps to context chunks", async () => {
     const collected = collectWritableChunks()
     const providerChunks: Record<string, unknown>[] = []
 
@@ -888,7 +937,7 @@ describe("createCodexReactor", () => {
       resolveConfig: async () => ({
         appServerUrl: realProviderUrl,
         repoPath: asString(process.env.CODEX_REACTOR_REAL_REPO_PATH || process.cwd()),
-        threadId: asString(process.env.CODEX_REACTOR_REAL_THREAD_ID || "thr-real"),
+        providerContextId: asString(process.env.CODEX_REACTOR_REAL_CONTEXT_ID || "thr-real"),
         model: asString(process.env.CODEX_REACTOR_REAL_MODEL || "").trim() || undefined,
       }),
       executeTurn: async (args) => {
@@ -925,14 +974,14 @@ describe("createCodexReactor", () => {
     expect(audit.provider.totalChunks).toBeGreaterThan(0)
     expect(audit.stream.emittedChunks).toBeGreaterThan(0)
     expect(audit.persisted.streamTraceTotalChunks).toBeGreaterThan(0)
-    expect(asString(audit.provider.response.threadId)).not.toBe("")
+    expect(asString(audit.provider.response.providerContextId)).not.toBe("")
     expect(asString(audit.provider.response.turnId)).not.toBe("")
     expect(hasUnauthorizedError).toBe(false)
   })
 })
 
 describe("defaultMapCodexChunk", () => {
-  it("maps canonical provider chunk types to thread chunk types", () => {
+  it("maps canonical provider chunk types to context chunk types", () => {
     const mapped = [
       defaultMapCodexChunk({ type: "start" }),
       defaultMapCodexChunk({ type: "reasoning_delta", delta: "thinking" }),

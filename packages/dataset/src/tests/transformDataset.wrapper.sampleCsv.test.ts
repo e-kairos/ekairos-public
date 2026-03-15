@@ -7,7 +7,7 @@ import { datasetDomain } from "../schema"
 import { createFileParseStory } from "../file/file-dataset.agent"
 import { transformDataset } from "../transform/transformDataset"
 import { configureDatasetTestRuntime } from "./_runtime"
-import { registerThreadEnv } from "@ekairos/events/runtime"
+import { registerContextEnv } from "@ekairos/events/runtime"
 import { describeInstant, hasInstantAdmin, setupInstantTestEnv } from "./_env"
 
 dotenvConfig({ path: path.resolve(__dirname, "..", "..", "..", "..", ".env.local") })
@@ -64,7 +64,7 @@ describeInstant("transformDataset wrapper (sample.csv)", () => {
     expect(fileId).toBeTruthy()
 
     const env = { orgId: "test-org" }
-    registerThreadEnv(env)
+    registerContextEnv(env)
 
     // 1) Create source dataset from file
     const { datasetId: sourceDatasetId } = await createFileParseStory<typeof env>(fileId, {

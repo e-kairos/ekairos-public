@@ -63,10 +63,10 @@ export class RegistryService {
     // 1. Get Repo
     const repoQuery = await this.db.query({
       registry_repositories: {
-        $: { where: { id: repoId } },
+        $: { where: { id: repoId as any } },
       },
-    });
-    const repo = repoQuery.registry_repositories[0];
+    }) as any;
+    const repo = repoQuery.registry_repositories?.[0];
     if (!repo) throw new Error("Repository not found");
 
     // 2. Setup Sandbox

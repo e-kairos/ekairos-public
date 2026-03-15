@@ -28,7 +28,7 @@ Ekairos helps teams make data decisions while application domains evolve.
 Current release scope is intentionally narrow:
 
 - deprecate story usage where required,
-- adopt new thread package,
+- adopt new context package,
 - deliver required migration and verification artifacts.
 
 Do not expand to full autonomous orchestration in this phase.
@@ -56,7 +56,7 @@ Every migration should include:
 
 ## Esolbay Collaboration Model
 
-- `ekairos-workspace` publishes the reusable runtime/domain/thread packages.
+- `ekairos-workspace` publishes the reusable runtime/domain/context packages.
 - `esolbay-platform` consumes released versions and receives feature + migration in the same PR.
 - Rollout is canary-first and org-scoped (Clerk organizations), then expanded.
 

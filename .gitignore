@@ -1,4 +1,4 @@
-﻿# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 /dist
 **/dist/
 
@@ -68,9 +68,14 @@ packages/ekairos/local_dev.md
 packages/structure/workflow-smoke/src/app/.well-known/
 .ekairos/
 
-# Thread playwright local artifacts
-packages/thread/tests/playwright/server/*.log
-packages/thread/tests/playwright/server/test-results/
+# Context playwright local artifacts
+packages/events/tests/playwright/server/*.log
+packages/events/tests/playwright/server/test-results/
 
 # local codex reactor audit artifacts
 packages/reactors/openai-reactor/.tmp-audit-*.json
+
+# local sensitive migration artifacts
+/skills/esolbay-context-migration/artifacts/
+/skills/esolbay-context-migration/.migration-audit/
+/skills/esolbay-context-migration/.local-sensitive-archive/

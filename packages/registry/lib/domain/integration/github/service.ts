@@ -136,7 +136,7 @@ export class GitHubIntegrationService {
       const authRepoUrl = repoUrl.replace("https://", `https://${accessToken}@`);
 
       const db = await getOrgAdminDb(clerkOrgId);
-      const sandboxService = new SandboxService(db);
+      const sandboxService = new SandboxService(db as any);
 
       const cmd = `git clone ${depth ? `--depth ${depth}` : ""} ${authRepoUrl} .`;
       const result = await sandboxService.runCommand(sandboxId, cmd);
@@ -163,7 +163,7 @@ export class GitHubIntegrationService {
       try {
         const { clerkOrgId, sandboxId, path } = params;
         const db = await getOrgAdminDb(clerkOrgId);
-        const sandboxService = new SandboxService(db);
+        const sandboxService = new SandboxService(db as any);
         
         const result = await sandboxService.runCommand(sandboxId, `cat ${path}`);
         if (!result.ok) return { ok: false, error: "Read file failed" };
