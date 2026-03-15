@@ -79,14 +79,14 @@ function scanContent(content) {
   const text = String(content || "");
   const storyImport = /@ekairos\/story|ekairos\/story/i.test(text);
   const storyApi = /\buseStory\s*\(|\bcreateStory\s*\(|\bInstantStore\b|\bStoryValue\b/i.test(text);
-  const threadImport = /@ekairos\/thread/i.test(text);
-  const threadApi = /\bcreateThread\s*\(|\bgetThreadRuntime\s*\(|thread\/start\b/i.test(text);
+  const contextImport = /@ekairos\/context/i.test(text);
+  const contextApi = /\bcreateContext\s*\(|\bgetContextRuntime\s*\(|context\/start\b/i.test(text);
   const reactor = /\bcreate[A-Za-z0-9]*Reactor\s*\(|\.reactor\s*\(|\breactor\s*:/i.test(text);
   return {
     storyImport,
     storyApi,
-    threadImport,
-    threadApi,
+    contextImport,
+    contextApi,
     reactor,
   };
 }
@@ -121,26 +121,26 @@ async function main() {
   const targetAgentEndpoints = endpointFiles.filter((file) => isTargetAgentEndpoint(file.rel));
 
   const endpointStoryRefs = [];
-  const endpointThreadRefs = [];
+  const endpointContextRefs = [];
   const endpointReactorRefs = [];
-  const endpointMissingThreadEvidence = [];
+  const endpointMissingContextEvidence = [];
 
   const agentStoryRefs = [];
-  const agentThreadRefs = [];
+  const agentContextRefs = [];
   const agentReactorRefs = [];
-  const agentThreadWithoutReactor = [];
+  const agentContextWithoutReactor = [];
 
   for (const file of endpointFiles) {
     const content = await fs.readFile(file.abs, "utf8");
     const flags = scanContent(content);
     if (flags.storyImport || flags.storyApi) endpointStoryRefs.push(file.rel);
-    if (flags.threadImport || flags.threadApi) endpointThreadRefs.push(file.rel);
+    if (flags.contextImport || flags.contextApi) endpointContextRefs.push(file.rel);
     if (flags.reactor) endpointReactorRefs.push(file.rel);
     if (
       targetAgentEndpoints.some((target) => target.rel === file.rel) &&
-      !(flags.threadImport || flags.threadApi || flags.reactor)
+      !(flags.contextImport || flags.contextApi || flags.reactor)
     ) {
-      endpointMissingThreadEvidence.push(file.rel);
+      endpointMissingContextEvidence.push(file.rel);
     }
   }
 
@@ -148,86 +148,86 @@ async function main() {
     const content = await fs.readFile(file.abs, "utf8");
     const flags = scanContent(content);
     if (flags.storyImport || flags.storyApi) agentStoryRefs.push(file.rel);
-    if (flags.threadImport || flags.threadApi) agentThreadRefs.push(file.rel);
+    if (flags.contextImport || flags.contextApi) agentContextRefs.push(file.rel);
     if (flags.reactor) agentReactorRefs.push(file.rel);
-    if ((flags.threadImport || flags.threadApi) && !flags.reactor) {
-      agentThreadWithoutReactor.push(file.rel);
+    if ((flags.contextImport || flags.contextApi) && !flags.reactor) {
+      agentContextWithoutReactor.push(file.rel);
     }
   }
 
   const storyImports = await rg(repo, "(@ekairos/story|ekairos/story|from\\s+['\\\"][^'\\\"]*story[^'\\\"]*['\\\"])");
-  const threadImports = await rg(repo, "(@ekairos/thread|ekairos/thread)");
+  const contextImports = await rg(repo, "(@ekairos/events|ekairos/context)");
   const oldApis = await rg(repo, "\\b(createStory|storyRunner|Agent\\s*\\(|engine\\s*\\()");
   const legacyModelRefs = await rg(
     repo,
     "\\b(context_contexts|context_events|story_executions|story_steps|story_parts)\\b",
   );
-  const threadModelRefs = await rg(
+  const contextModelRefs = await rg(
     repo,
-    "\\b(thread_threads|thread_contexts|thread_items|thread_executions|thread_steps|thread_parts)\\b",
+    "\\b(context_contexts|context_contexts|context_items|context_executions|context_steps|context_parts)\\b",
   );
 
   const readiness = {
     endpointStoryFree: endpointStoryRefs.length === 0,
     agentStoryFree: agentStoryRefs.length === 0,
-    endpointThreadEvidencePresent: endpointThreadRefs.length > 0 || endpointReactorRefs.length > 0,
-    agentThreadEvidencePresent: agentThreadRefs.length > 0,
+    endpointContextEvidencePresent: endpointContextRefs.length > 0 || endpointReactorRefs.length > 0,
+    agentContextEvidencePresent: agentContextRefs.length > 0,
     agentReactorEvidencePresent: agentReactorRefs.length > 0,
-    targetAgentEndpointsReady: endpointMissingThreadEvidence.length === 0,
+    targetAgentEndpointsReady: endpointMissingContextEvidence.length === 0,
     legacyModelMigrated: legacyModelRefs.length === 0,
-    threadModelEvidencePresent: threadModelRefs.length > 0,
+    contextModelEvidencePresent: contextModelRefs.length > 0,
   };
   readiness.overall = Boolean(
     readiness.endpointStoryFree &&
       readiness.agentStoryFree &&
-      readiness.endpointThreadEvidencePresent &&
-      readiness.agentThreadEvidencePresent &&
+      readiness.endpointContextEvidencePresent &&
+      readiness.agentContextEvidencePresent &&
       readiness.agentReactorEvidencePresent &&
       readiness.targetAgentEndpointsReady &&
       readiness.legacyModelMigrated &&
-      readiness.threadModelEvidencePresent,
+      readiness.contextModelEvidencePresent,
   );
 
   const report = {
     createdAt: new Date().toISOString(),
     repo: path.resolve(repo),
     notes: {
-      purpose: "Migration readiness for thread+reactor on endpoint and agent surfaces.",
+      purpose: "Migration readiness for context+reactor on endpoint and agent surfaces.",
       scope: "Static scan only. It does not execute routes or stream tests.",
     },
     counts: {
       storyImports: storyImports.length,
-      threadImports: threadImports.length,
+      contextImports: contextImports.length,
       oldApis: oldApis.length,
       legacyModelRefs: legacyModelRefs.length,
-      threadModelRefs: threadModelRefs.length,
+      contextModelRefs: contextModelRefs.length,
       endpointFiles: endpointFiles.length,
       agentFiles: agentFiles.length,
       targetAgentEndpoints: targetAgentEndpoints.length,
       endpointStoryRefs: endpointStoryRefs.length,
       agentStoryRefs: agentStoryRefs.length,
-      endpointThreadRefs: endpointThreadRefs.length,
+      endpointContextRefs: endpointContextRefs.length,
       endpointReactorRefs: endpointReactorRefs.length,
-      agentThreadRefs: agentThreadRefs.length,
+      agentContextRefs: agentContextRefs.length,
       agentReactorRefs: agentReactorRefs.length,
-      endpointMissingThreadEvidence: endpointMissingThreadEvidence.length,
-      agentThreadWithoutReactor: agentThreadWithoutReactor.length,
+      endpointMissingContextEvidence: endpointMissingContextEvidence.length,
+      agentContextWithoutReactor: agentContextWithoutReactor.length,
     },
     readiness,
     findings: {
       storyImports,
-      threadImports,
+      contextImports,
       oldApis,
       legacyModelRefs,
-      threadModelRefs,
+      contextModelRefs,
       endpointStoryRefs,
-      endpointThreadRefs,
+      endpointContextRefs,
       endpointReactorRefs,
-      endpointMissingThreadEvidence,
+      endpointMissingContextEvidence,
       agentStoryRefs,
-      agentThreadRefs,
+      agentContextRefs,
       agentReactorRefs,
-      agentThreadWithoutReactor,
+      agentContextWithoutReactor,
     },
   };
 

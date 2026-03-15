@@ -30,8 +30,9 @@ export const ModelSelectorTrigger = (props: ModelSelectorTriggerProps) => (
   <DialogTrigger {...props} />
 );
 
-export type ModelSelectorContentProps = ComponentProps<typeof DialogContent> & {
+export type ModelSelectorContentProps = Omit<ComponentProps<typeof DialogContent>, "children"> & {
   title?: ReactNode;
+  children?: any;
 };
 
 export const ModelSelectorContent = ({

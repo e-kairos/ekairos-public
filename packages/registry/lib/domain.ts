@@ -1,11 +1,10 @@
-// import { domain } from "@ekairos/domain";
-import { domain } from "../../domain";
+import { domain } from "@ekairos/domain";
 import { registryDomain } from "./domain/registry/schema";
-import { threadDomain } from "@ekairos/thread";
+import { eventsDomain } from "@ekairos/events/schema";
 
 const appDomain = domain("app")
   .includes(registryDomain)
-  .includes(threadDomain)
+  .includes(eventsDomain)
   .schema({
     entities: {},
     links: {},

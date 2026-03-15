@@ -37,7 +37,7 @@ export function Event({ role, parts, isStreaming }: { role: string; parts?: Arra
                   </Sources>
                 )
               case 'code':
-                return <CodeBlock key={i} language={String(part.language || 'tsx')} code={String(part.code || part.text || '')} />
+                return <CodeBlock key={i} language={String(part.language || 'tsx') as any} code={String(part.code || part.text || '')} />
               case 'image':
                 return (
                   <AIImage

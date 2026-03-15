@@ -1,6 +1,6 @@
 import { i } from "@instantdb/core"
 import { domain } from "@ekairos/domain"
-import { threadDomain } from "@ekairos/events/schema"
+import { eventsDomain } from "@ekairos/events/schema"
 import { sandboxDomain } from "@ekairos/sandbox/schema"
 
 const entities = {
@@ -22,23 +22,18 @@ const links = {
    * Structure output link (rows):
    *
    * - `event_contexts.structure_output_file` points to the `$files` record for `output.jsonl`.
-   * - A legacy `thread_contexts` link is kept for mixed deployments during migration.
    * - Reverse label is prefixed to avoid collisions across domains.
    */
   structureContextOutputFile: {
     forward: { on: "event_contexts", has: "one", label: "structure_output_file" },
     reverse: { on: "$files", has: "many", label: "structure_contexts" },
   },
-  structureLegacyContextOutputFile: {
-    forward: { on: "thread_contexts", has: "one", label: "structure_output_file" },
-    reverse: { on: "$files", has: "many", label: "structure_legacy_contexts" },
-  },
 } as const
 
 const rooms = {} as const
 
 export const structureDomain: any = domain("structure")
-  .includes(threadDomain)
+  .includes(eventsDomain)
   .includes(sandboxDomain)
   .schema({ entities, links, rooms })
 

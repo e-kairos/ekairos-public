@@ -1,7 +1,7 @@
 import { testStory } from "./stories/test.story"
-import type { ThreadInstance } from "@ekairos/thread"
+import type { ContextInstance } from "@ekairos/events"
 
-const registry = new Map<string, ThreadInstance<any, any>>()
+const registry = new Map<string, ContextInstance<any, any>>()
 
 // Register known stories
 registry.set("test-story", testStory)

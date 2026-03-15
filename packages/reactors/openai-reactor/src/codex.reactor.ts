@@ -1,19 +1,19 @@
 import {
   OUTPUT_ITEM_TYPE,
-  type ThreadItem,
-  type ThreadReactionResult,
-  type ThreadReactor,
-  type ThreadReactorParams,
-  type ThreadStreamChunkType,
+  type ContextItem,
+  type ContextReactionResult,
+  type ContextReactor,
+  type ContextReactorParams,
+  type ContextStreamChunkType,
 } from "@ekairos/events"
-import type { ThreadEnvironment } from "@ekairos/events/runtime"
+import type { ContextEnvironment } from "@ekairos/events/runtime"
 
 import { asRecord, asString, buildCodexParts, defaultInstructionFromTrigger, type AnyRecord } from "./shared.js"
 
 export type CodexConfig = {
   appServerUrl: string
   repoPath: string
-  threadId?: string
+  providerContextId?: string
   mode?: "local" | "remote" | "sandbox"
   model?: string
   approvalPolicy?: string
@@ -21,7 +21,7 @@ export type CodexConfig = {
 }
 
 export type CodexTurnResult = {
-  threadId: string
+  providerContextId: string
   turnId: string
   assistantText: string
   reasoningText?: string
@@ -34,11 +34,11 @@ export type CodexTurnResult = {
 export type CodexExecuteTurnArgs<
   Context,
   Config extends CodexConfig = CodexConfig,
-  Env extends ThreadEnvironment = ThreadEnvironment,
+  Env extends ContextEnvironment = ContextEnvironment,
 > = {
   env: Env
   context: AnyRecord
-  triggerEvent: ThreadItem
+  triggerEvent: ContextItem
   contextId: string
   eventId: string
   executionId: string
@@ -52,7 +52,7 @@ export type CodexExecuteTurnArgs<
 }
 
 export type CodexChunkMappingResult = {
-  chunkType: ThreadStreamChunkType
+  chunkType: ContextStreamChunkType
   providerChunkType?: string
   actionRef?: string
   data?: unknown
@@ -63,12 +63,19 @@ export type CodexChunkMappingResult = {
 export type CodexMappedChunk = {
   at: string
   sequence: number
-  chunkType: ThreadStreamChunkType
+  chunkType: ContextStreamChunkType
   providerChunkType?: string
   actionRef?: string
   data?: unknown
   raw?: unknown
 }
+
+const PROVIDER_SCOPE_PREFIX = "context/"
+const PROVIDER_STARTED = "context/started"
+const PROVIDER_ARCHIVED = "context/archived"
+const PROVIDER_UNARCHIVED = "context/unarchived"
+const PROVIDER_NAME_UPDATED = "context/name/updated"
+const PROVIDER_USAGE_UPDATED = "context/tokenUsage/updated"
 
 export type CodexStreamTrace = {
   totalChunks: number
@@ -80,19 +87,19 @@ export type CodexStreamTrace = {
 export type CreateCodexReactorOptions<
   Context,
   Config extends CodexConfig = CodexConfig,
-  Env extends ThreadEnvironment = ThreadEnvironment,
+  Env extends ContextEnvironment = ContextEnvironment,
 > = {
   toolName?: string
   includeReasoningPart?: boolean
   buildInstruction?: (params: {
     env: Env
     context: AnyRecord
-    triggerEvent: ThreadItem
+    triggerEvent: ContextItem
   }) => string | Promise<string>
   resolveConfig: (params: {
     env: Env
     context: AnyRecord
-    triggerEvent: ThreadItem
+    triggerEvent: ContextItem
     contextId: string
     eventId: string
     executionId: string
@@ -108,7 +115,7 @@ export type CreateCodexReactorOptions<
   maxPersistedStreamChunks?: number
   onMappedChunk?: (
     chunk: CodexMappedChunk,
-    params: ThreadReactorParams<Context, Env>,
+    params: ContextReactorParams<Context, Env>,
   ) => Promise<void> | void
 }
 
@@ -120,7 +127,7 @@ function toJsonSafe(value: unknown): unknown {
   }
 }
 
-export function mapCodexChunkType(providerChunkType: string): ThreadStreamChunkType {
+export function mapCodexChunkType(providerChunkType: string): ContextStreamChunkType {
   const value = providerChunkType.toLowerCase()
 
   if (value.includes("start_step")) return "chunk.start_step"
@@ -230,7 +237,7 @@ export function mapCodexAppServerNotification(
     params,
   })
 
-  const map = (chunkType: ThreadStreamChunkType): CodexChunkMappingResult => ({
+  const map = (chunkType: ContextStreamChunkType): CodexChunkMappingResult => ({
     chunkType,
     providerChunkType: method,
     actionRef: chunkType.startsWith("chunk.action_") ? actionRef : undefined,
@@ -243,15 +250,20 @@ export function mapCodexAppServerNotification(
       return map("chunk.start")
     case "turn/completed":
       return map("chunk.finish")
+    case "thread/tokenUsage/updated":
+      return map("chunk.response_metadata")
+    case "thread/status/changed":
+    case "thread/started":
+      return map("chunk.message_metadata")
     case "turn/diff/updated":
     case "turn/plan/updated":
-    case "thread/tokenUsage/updated":
+    case PROVIDER_USAGE_UPDATED:
     case "account/rateLimits/updated":
       return map("chunk.response_metadata")
-    case "thread/started":
-    case "thread/archived":
-    case "thread/unarchived":
-    case "thread/name/updated":
+    case PROVIDER_STARTED:
+    case PROVIDER_ARCHIVED:
+    case PROVIDER_UNARCHIVED:
+    case PROVIDER_NAME_UPDATED:
     case "account/updated":
     case "app/list/updated":
     case "authStatusChange":
@@ -298,7 +310,7 @@ export function mapCodexAppServerNotification(
       if (method.startsWith("item/") || method.startsWith("turn/")) {
         return map("chunk.response_metadata")
       }
-      if (method.startsWith("thread/") || method.startsWith("account/")) {
+      if (method.startsWith(PROVIDER_SCOPE_PREFIX) || method.startsWith("account/")) {
         return map("chunk.message_metadata")
       }
       return map("chunk.unknown")
@@ -389,8 +401,8 @@ function extractUsageMetrics(usageSource: unknown) {
 /**
  * Codex App Server reactor for @ekairos/events.
  *
- * This maps one Thread loop iteration to one Codex turn and returns a persisted
- * assistant event compatible with the Thread engine.
+ * This maps one Context loop iteration to one Codex turn and returns a persisted
+ * assistant event compatible with the Context engine.
  *
  * Workflow compatibility:
  * - `resolveConfig` and `executeTurn` should be implemented with `"use step"`
@@ -399,10 +411,10 @@ function extractUsageMetrics(usageSource: unknown) {
 export function createCodexReactor<
   Context,
   Config extends CodexConfig = CodexConfig,
-  Env extends ThreadEnvironment = ThreadEnvironment,
+  Env extends ContextEnvironment = ContextEnvironment,
 >( 
   options: CreateCodexReactorOptions<Context, Config, Env>,
-): ThreadReactor<Context, Env> {
+): ContextReactor<Context, Env> {
   const toolName = asString(options.toolName).trim() || "codex"
   const includeReasoningPart = Boolean(options.includeReasoningPart)
   const includeStreamTraceInOutput =
@@ -413,12 +425,13 @@ export function createCodexReactor<
   const maxPersistedStreamChunks = Math.max(0, Number(options.maxPersistedStreamChunks ?? 300))
 
   return async (
-    params: ThreadReactorParams<Context, Env>,
-  ): Promise<ThreadReactionResult> => {
+    params: ContextReactorParams<Context, Env>,
+  ): Promise<ContextReactionResult> => {
     let chunkSequence = 0
     const chunkTypeCounters = new Map<string, number>()
     const providerChunkTypeCounters = new Map<string, number>()
     const capturedChunks: CodexMappedChunk[] = []
+    const semanticChunks: AnyRecord[] = []
 
     const context = asRecord(params.context.content)
     const instruction = (
@@ -443,6 +456,58 @@ export function createCodexReactor<
     })
 
     const startedAtMs = Date.now()
+    let streamedAssistantText = ""
+    let streamedReasoningText = ""
+    let streamedDiff = ""
+    let streamedProviderContextId = asString(config.providerContextId)
+    let streamedTurnId = ""
+
+    function maybeCaptureSemanticChunk(mappedChunk: CodexMappedChunk) {
+      const mappedData = asRecord(mappedChunk.data)
+      const mappedMethod = asString(mappedData.method)
+      if (
+        mappedMethod !== "item/started" &&
+        mappedMethod !== "item/completed" &&
+        mappedMethod !== "thread/tokenUsage/updated" &&
+        mappedMethod !== "context/tokenUsage/updated" &&
+        mappedMethod !== "turn/completed" &&
+        mappedMethod !== "turn/diff/updated"
+      ) {
+        return
+      }
+      semanticChunks.push({
+        at: mappedChunk.at,
+        sequence: mappedChunk.sequence,
+        chunkType: mappedChunk.chunkType,
+        providerChunkType: mappedChunk.providerChunkType,
+        data: mappedChunk.data,
+      })
+    }
+
+    const persistCompletedReactionParts = async () => {
+      if (!params.persistReactionParts) return
+      const completedParts = buildCodexParts({
+        toolName,
+        includeReasoningPart,
+        completedOnly: true,
+        semanticChunks,
+        result: {
+          providerContextId: streamedProviderContextId,
+          turnId: streamedTurnId,
+          assistantText: streamedAssistantText,
+          reasoningText: streamedReasoningText,
+          diff: streamedDiff,
+        },
+        instruction,
+        streamTrace: {
+          totalChunks: chunkSequence,
+          chunkTypes: Object.fromEntries(chunkTypeCounters.entries()),
+          providerChunkTypes: Object.fromEntries(providerChunkTypeCounters.entries()),
+          chunks: capturedChunks,
+        },
+      })
+      await params.persistReactionParts(completedParts)
+    }
 
     const emitChunk = async (providerChunk: unknown) => {
       if (params.silent) return
@@ -477,6 +542,41 @@ export function createCodexReactor<
       if (includeStreamTraceInOutput && capturedChunks.length < maxPersistedStreamChunks) {
         capturedChunks.push(mappedChunk)
       }
+      maybeCaptureSemanticChunk(mappedChunk)
+
+      const mappedData = asRecord(mappedChunk.data)
+      const mappedParams = asRecord(mappedData.params)
+      const mappedItem = asRecord(mappedParams.item)
+      const mappedTurn = asRecord(mappedParams.turn)
+      streamedProviderContextId =
+        asString(
+          mappedParams.threadId ||
+            mappedParams.providerContextId ||
+            mappedTurn.threadId ||
+            mappedTurn.providerContextId,
+        ) || streamedProviderContextId
+      streamedTurnId =
+        asString(mappedParams.turnId || mappedTurn.id) || streamedTurnId
+
+      const mappedMethod = asString(mappedData.method)
+      if (mappedMethod === "item/agentMessage/delta") {
+        streamedAssistantText += asString(mappedParams.delta)
+      }
+      if (
+        mappedMethod === "item/reasoning/summaryTextDelta" ||
+        mappedMethod === "item/reasoning/textDelta"
+      ) {
+        streamedReasoningText += asString(mappedParams.delta)
+      }
+      if (mappedMethod === "turn/diff/updated") {
+        streamedDiff = asString(mappedParams.diff)
+      }
+      if (mappedMethod === "item/completed" && asString(mappedItem.type) === "agentMessage") {
+        streamedAssistantText = asString(mappedItem.text || streamedAssistantText)
+      }
+      if (mappedMethod === "item/completed" && asString(mappedItem.type) === "reasoning") {
+        streamedReasoningText = asString(mappedItem.summary || streamedReasoningText)
+      }
 
       if (options.onMappedChunk) {
         try {
@@ -484,6 +584,10 @@ export function createCodexReactor<
         } catch {
           // hooks are non-critical
         }
+      }
+
+      if (mappedMethod === "item/completed" || mappedMethod === "turn/completed") {
+        await persistCompletedReactionParts()
       }
 
       const payload = {
@@ -544,7 +648,7 @@ export function createCodexReactor<
     const usagePayload = toJsonSafe(turn.usage ?? asRecord(turn.metadata).usage)
     const usageMetrics = extractUsageMetrics(usagePayload)
 
-    const assistantEvent: ThreadItem = {
+    const assistantEvent: ContextItem = {
       id: params.eventId,
       type: OUTPUT_ITEM_TYPE,
       channel: "web",
@@ -554,6 +658,7 @@ export function createCodexReactor<
         parts: buildCodexParts({
           toolName,
           includeReasoningPart,
+          semanticChunks,
           result: turn,
           instruction,
           streamTrace,
@@ -576,7 +681,7 @@ export function createCodexReactor<
         latencyMs: Math.max(0, finishedAtMs - startedAtMs),
         rawUsage: usagePayload,
         rawProviderMetadata: toJsonSafe({
-          threadId: turn.threadId,
+          providerContextId: turn.providerContextId,
           turnId: turn.turnId,
           metadata: turn.metadata ?? null,
           streamTrace: streamTrace

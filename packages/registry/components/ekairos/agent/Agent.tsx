@@ -1,12 +1,12 @@
-﻿"use client";
+"use client";
 
 import React, { Suspense, useMemo } from "react";
 import { Loader2 } from "lucide-react";
 
 import {
-  useThread,
-  type UseThreadEventsHook,
-} from "@/components/ekairos/thread/context";
+  useContext,
+  type UseContextEventsHook,
+} from "@/components/ekairos/context/context";
 import {
   Conversation,
   ConversationContent,
@@ -18,7 +18,7 @@ import { useOrgDb } from "@/lib/org-db-context";
 import type { AgentProps } from "./types";
 import { MessageList } from "./ui/message-list";
 import { PromptBar } from "./ui/prompt-bar";
-import { useRegisterThreadDebug } from "@/components/ekairos/thread/debug/registry";
+import { useRegisterContextDebug } from "@/components/ekairos/context/debug/registry";
 
 export type { AgentHistoryItem, AgentProps } from "./types";
 
@@ -36,23 +36,24 @@ export function formatRelativeTime(dateInput: Date | string | number): string {
   return date.toLocaleDateString();
 }
 
-const useAgentEvents: UseThreadEventsHook = (db, { contextId }) => {
+const useAgentEvents: UseContextEventsHook = (db, { contextId }) => {
+  if (!db || !contextId) {
+    return { events: [] };
+  }
   const q = db.useQuery(
-    (contextId
-      ? {
-          thread_items: {
-            $: {
-              where: { "context.id": contextId as any },
-              order: { createdAt: "asc" },
-            },
-            emails: {},
-            whatsappMessages: {},
-          },
-        }
-      : null) as any
+    {
+      event_items: {
+        $: {
+          where: { "context.id": contextId as any },
+          order: { createdAt: "asc" },
+        },
+        emails: {},
+        whatsappMessages: {},
+      },
+    } as any
   );
 
-  const raw = (q as any)?.data?.thread_items ?? [];
+  const raw = (q as any)?.data?.event_items ?? [];
   return { events: Array.isArray(raw) ? raw : [] };
 };
 
@@ -69,7 +70,7 @@ export default function Agent(props: AgentProps) {
 
   const { db } = useOrgDb();
 
-  const thread = useThread(db, {
+  const context = useContext(db, {
     apiUrl,
     initialContextId,
     onContextUpdate,
@@ -82,7 +83,7 @@ export default function Agent(props: AgentProps) {
     const id = anyCrypto?.randomUUID?.() as string | undefined;
     return id || `agent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   }, []);
-  useRegisterThreadDebug(instanceId, thread);
+  useRegisterContextDebug(instanceId, context);
 
   return (
     <Suspense
@@ -105,7 +106,7 @@ export default function Agent(props: AgentProps) {
         <Conversation className={cn("flex-1 min-h-0", classNames?.scrollArea)}>
           <ConversationContent className="p-4 md:p-6 space-y-6">
             <MessageList
-              thread={thread}
+              context={context}
               toolComponents={toolComponents || {}}
               classNames={classNames}
               showReasoning={showReasoning ?? true}
@@ -121,7 +122,7 @@ export default function Agent(props: AgentProps) {
             classNames?.prompt
           )}
         >
-          <PromptBar thread={thread} />
+          <PromptBar context={context} />
         </div>
       </div>
     </Suspense>

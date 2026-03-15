@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   },
   transpilePackages: [
     "@ekairos/structure",
-    "@ekairos/thread",
+    "@ekairos/events",
     "@ekairos/sandbox",
     "@ekairos/domain",
   ],

@@ -2,7 +2,7 @@ import { getDatasetOutputPath, getDatasetWorkstation } from "./datasetFiles.js"
 import { readDatasetSandboxFileStep, runDatasetSandboxCommandStep } from "./sandbox/steps.js"
 import type { StructureRowsOutputPagingCursor } from "./rowsOutputPaging.js"
 import { linkStructureOutputFileToContextByKey } from "./contextPersistence.js"
-import { getThreadRuntime } from "./runtime.js"
+import { getContextRuntime } from "./runtime.js"
 
 export type StructureSplitRowsOutputToDatasetResult = {
   datasetId?: string
@@ -111,7 +111,7 @@ export async function structureSplitRowsOutputToDatasetStep(params: {
     path: outPath,
   })
 
-  const storyRuntime = await getThreadRuntime(params.env)
+  const storyRuntime = await getContextRuntime(params.env)
   const db = storyRuntime.db
   const store = storyRuntime.store
 

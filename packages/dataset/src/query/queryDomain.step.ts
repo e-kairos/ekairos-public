@@ -1,5 +1,5 @@
 import { id as newId } from "@instantdb/admin"
-import { getThreadRuntime, getThreadEnv } from "@ekairos/events/runtime"
+import { getContextRuntime, getContextEnv } from "@ekairos/events/runtime"
 import { DatasetService } from "../service"
 
 export type QueryDomainStepInput = {
@@ -63,8 +63,8 @@ export async function queryDomainStep(
 ): Promise<QueryDomainStepResult> {
   "use step"
 
-  const env = await getThreadEnv()
-  const runtime = await getThreadRuntime(env)
+  const env = await getContextEnv()
+  const runtime = await getContextRuntime(env)
   const db = runtime.db as any
   const service = new DatasetService(db)
 

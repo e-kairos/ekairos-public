@@ -47,7 +47,6 @@ const InteractiveChatDemo = () => {
         {messages.map((msg, i) => (
           <Message key={i} from={msg.role}>
             <MessageContent
-              variant={msg.role === "user" ? "contained" : "flat"}
               className={msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-transparent px-0 py-0"}
             >
               <MessageResponse>{msg.content}</MessageResponse>
@@ -56,7 +55,7 @@ const InteractiveChatDemo = () => {
         ))}
         {isTyping && (
           <Message from="assistant">
-            <MessageContent variant="flat" className="bg-transparent px-0 py-0">
+            <MessageContent className="bg-transparent px-0 py-0">
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Loader2 className="size-3 animate-spin" />
                 Pensando...
@@ -89,13 +88,13 @@ export const messageRegistryItem: RegistryItem = {
     { name: "children", type: "ReactNode", default: "-", description: "The content of the message, usually MessageContent." }
   ],
   code: `<Message from="user">
-  <MessageContent variant="contained" className="bg-primary text-primary-foreground">
+  <MessageContent className="bg-primary text-primary-foreground">
     <MessageResponse>Hello, I need help.</MessageResponse>
   </MessageContent>
 </Message>
 
 <Message from="assistant">
-  <MessageContent variant="flat">
+  <MessageContent>
     <MessageResponse>How can I help you today?</MessageResponse>
   </MessageContent>
 </Message>`,

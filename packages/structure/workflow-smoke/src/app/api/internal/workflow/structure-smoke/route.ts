@@ -87,9 +87,9 @@ export async function POST(req: Request) {
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline) {
         const q = await db.query({
-          thread_contexts: { $: { where: { key }, limit: 1 } },
+          event_contexts: { $: { where: { key }, limit: 1 } },
         });
-        const ctx = q?.thread_contexts?.[0];
+        const ctx = q?.event_contexts?.[0];
         const content: any = ctx?.content ?? {};
         value = content?.structure?.outputs?.object?.value ?? null;
         if (value) break;

@@ -1,4 +1,4 @@
-const STRUCTURE_CONTEXT_ENTITIES = ["event_contexts", "thread_contexts"] as const
+const STRUCTURE_CONTEXT_ENTITIES = ["event_contexts"] as const
 
 type StructureContextEntity = (typeof STRUCTURE_CONTEXT_ENTITIES)[number]
 
@@ -22,7 +22,6 @@ function buildContextQuery(entity: StructureContextEntity, key: string, includeO
 
 function preferredContextEntity(db: any): StructureContextEntity {
   if (db?.tx?.event_contexts) return "event_contexts"
-  if (db?.tx?.thread_contexts) return "thread_contexts"
   throw new Error("No persisted context collection is available")
 }
 

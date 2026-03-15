@@ -13,7 +13,7 @@
     {
       "name": "@ekairos/events workflow e2e",
       "command": "pnpm",
-      "args": ["--dir", "packages/thread/tests/playwright/server", "run", "test:e2e:thread-engine"]
+      "args": ["--dir", "packages/events/tests/playwright/server", "run", "test:e2e:context-engine"]
     }
   ]
 }

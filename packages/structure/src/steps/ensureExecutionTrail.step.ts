@@ -46,8 +46,8 @@ export async function ensureExecutionTrailStep(
 ): Promise<void> {
   "use step"
 
-  const { getThreadRuntime } = await import("@ekairos/events/runtime")
-  const runtime = (await getThreadRuntime(params.env)) as any
+  const { getContextRuntime } = await import("@ekairos/events/runtime")
+  const runtime = (await getContextRuntime(params.env)) as any
   const store = runtime.store as any
   if (
     !store?.saveItem ||

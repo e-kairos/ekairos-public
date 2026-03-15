@@ -72,4 +72,5 @@ export const registryDomain = domain("registry")
         reverse: { on: "$files", has: "one", label: "registryFile" },
       },
     },
+    rooms: {},
   });

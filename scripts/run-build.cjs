@@ -6,8 +6,8 @@ const DEFAULT_FORCE_KILL_DELAY_MS = 10 * 1000;
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 const DEFAULT_EXCLUDED_FILTERS = [
   "--filter=!registry",
-  "--filter=!thread-elements",
-  "--filter=!@ekairos/thread-workflow-smoke",
+  "--filter=!context-elements",
+  "--filter=!@ekairos/events-workflow-smoke",
   "--filter=!@ekairos/structure-workflow-smoke",
 ];
 

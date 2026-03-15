@@ -34,11 +34,11 @@
       "require": "./dist/dataset.js",
       "default": "./dist/dataset.js"
     },
-    "./thread": {
-      "types": "./dist/thread.d.ts",
-      "import": "./dist/thread.js",
-      "require": "./dist/thread.js",
-      "default": "./dist/thread.js"
+    "./context": {
+      "types": "./dist/context.d.ts",
+      "import": "./dist/context.js",
+      "require": "./dist/context.js",
+      "default": "./dist/context.js"
     },
     "./domain": {
       "types": "./dist/domain.d.ts",
@@ -74,7 +74,7 @@
   "dependencies": {
     "@ekairos/dataset": "^1.21.85-beta.0",
     "@ekairos/domain": "^1.22.0",
-    "@ekairos/events": "^1.22.0",
+    "@ekairos/events": "workspace:*",
     "@instantdb/admin": "0.22.126",
     "ekairos-cli": "^1.22.0"
   },

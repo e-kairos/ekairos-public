@@ -1,4 +1,4 @@
-import { getThreadRuntime } from "@ekairos/events/runtime"
+import { getContextRuntime } from "@ekairos/events/runtime"
 
 export async function readInstantFileStep(params: { env: any; fileId: string }): Promise<{
   url: string
@@ -6,7 +6,7 @@ export async function readInstantFileStep(params: { env: any; fileId: string }):
   contentBase64: string
 }> {
   "use step"
-  const db = (await getThreadRuntime(params.env) as any).db
+  const db = (await getContextRuntime(params.env) as any).db
 
   const fileQuery: any = await db.query({
     $files: { $: { where: { id: params.fileId } as any, limit: 1 } },

@@ -1,11 +1,11 @@
 import {
   OUTPUT_ITEM_TYPE,
-  type ThreadItem,
-  type ThreadReactionResult,
-  type ThreadReactor,
-  type ThreadReactorParams,
-} from "@ekairos/thread"
-import type { ThreadEnvironment } from "@ekairos/thread/runtime"
+  type ContextItem,
+  type ContextReactionResult,
+  type ContextReactor,
+  type ContextReactorParams,
+} from "@ekairos/events"
+import type { ContextEnvironment } from "@ekairos/events/runtime"
 
 type AnyRecord = Record<string, unknown>
 
@@ -27,17 +27,17 @@ export type ClaudeTurnResult = {
 
 export type CreateClaudeReactorOptions<
   Context,
-  Env extends ThreadEnvironment = ThreadEnvironment,
+  Env extends ContextEnvironment = ContextEnvironment,
 > = {
   executeTurn: (params: {
     env: Env
     context: AnyRecord
-    triggerEvent: ThreadItem
+    triggerEvent: ContextItem
     contextId: string
     executionId: string
     stepId: string
     iteration: number
-    writable: WritableStream<unknown>
+    writable?: WritableStream<unknown>
     silent: boolean
   }) => Promise<ClaudeTurnResult>
 }
@@ -45,18 +45,18 @@ export type CreateClaudeReactorOptions<
 /**
  * Claude reactor scaffold.
  *
- * Integrators provide `executeTurn` (prefer a `"use step"` function) and Thread
+ * Integrators provide `executeTurn` (prefer a `"use step"` function) and Context
  * keeps durability, persistence and step lifecycle.
  */
 export function createClaudeReactor<
   Context,
-  Env extends ThreadEnvironment = ThreadEnvironment,
+  Env extends ContextEnvironment = ContextEnvironment,
 >(
   options: CreateClaudeReactorOptions<Context, Env>,
-): ThreadReactor<Context, Env> {
+): ContextReactor<Context, Env> {
   return async (
-    params: ThreadReactorParams<Context, Env>,
-  ): Promise<ThreadReactionResult> => {
+    params: ContextReactorParams<Context, Env>,
+  ): Promise<ContextReactionResult> => {
     const context = asRecord(params.context.content)
     const turn = await options.executeTurn({
       env: params.env,
@@ -70,7 +70,7 @@ export function createClaudeReactor<
       silent: params.silent,
     })
 
-    const assistantEvent: ThreadItem = {
+    const assistantEvent: ContextItem = {
       id: params.eventId,
       type: OUTPUT_ITEM_TYPE,
       channel: "web",
@@ -83,7 +83,7 @@ export function createClaudeReactor<
 
     return {
       assistantEvent,
-      toolCalls: [],
+      actionRequests: [],
       messagesForModel: [],
       llm: {
         provider: "anthropic",

@@ -1,19 +1,18 @@
 import "server-only";
 
-import type { InstantRules } from "@instantdb/core";
 import { PlatformApi } from "@instantdb/platform";
 import schema from "@/instant.schema";
 
 const TENANT_TITLE_PREFIX = "ekairos-registry-visitor";
 const TENANT_MAX_VISITOR_ID_LENGTH = 72;
 
-const DEMO_PERMS: InstantRules = {
+const DEMO_PERMS = {
   $default: {
     allow: {
       $default: "true",
     },
   },
-};
+} as const;
 
 type PlatformApp = {
   id: string;
@@ -183,8 +182,8 @@ export async function ensureDemoTenant(params: {
   const api = getPlatformApi();
   const created = await api.createApp({
     title: buildTenantTitle(visitorId),
-    schema,
-    perms: DEMO_PERMS,
+    schema: schema as any,
+    perms: DEMO_PERMS as any,
   });
   const app = toPlatformApp(created.app);
   if (!app.adminToken) {
@@ -290,4 +289,26 @@ export async function resolveDemoTenantCredentials(params: {
     adminToken: cached.adminToken,
     title: cached.title,
   };
+}
+
+export async function resolveInstantCredentials(params: {
+  appId: string;
+  adminToken?: string | null;
+}): Promise<{ appId: string; adminToken: string; title: string }> {
+  const appId = normalizeAppId(params.appId);
+  if (!appId) {
+    throw new Error("appId is required.");
+  }
+
+  const explicitAdminToken = String(params.adminToken ?? "").trim();
+  if (explicitAdminToken) {
+    const cached = getCachedTenantCredentials(appId);
+    return {
+      appId,
+      adminToken: explicitAdminToken,
+      title: cached?.title ?? "registry-demo-explicit",
+    };
+  }
+
+  return await resolveDemoTenantCredentials({ appId });
 }

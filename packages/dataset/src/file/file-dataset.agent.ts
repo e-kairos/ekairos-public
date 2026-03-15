@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
+import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
 import { createDatasetSandboxStep, runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
 import { createGenerateSchemaTool } from "./generateSchema.tool"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
@@ -109,7 +109,7 @@ async function initializeSandbox(
 
 export type FileParseStoryBuilder<Env extends { orgId: string }> = {
     datasetId: string
-    story: ReturnType<ReturnType<typeof createThread<Env>>["context"]> extends any ? any : any
+    story: ReturnType<ReturnType<typeof createContext<Env>>["context"]> extends any ? any : any
 }
 
 export type DatasetResult = {
@@ -132,7 +132,7 @@ export type DatasetResult = {
  * - Llamar `getDataset()` para crear un dataset nuevo (crea un datasetId interno)
  * - Llamar `followUp(datasetId, feedback)` para iterar el mismo dataset con feedback
  *
- * Internamente corre un Story (`createThread("file.parse")`) que itera hasta que se ejecuta el tool `completeDataset`.
+ * Internamente corre un Context (`createContext("file.parse")`) que itera hasta que se ejecuta el tool `completeDataset`.
  */
 function createFileParseStoryDefinition<Env extends { orgId: string }>(
     params: FileParseStoryParams
@@ -140,7 +140,7 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    const story = createThread<Env>("file.parse")
+    const story = createContext<Env>("file.parse")
         .context(async (stored: any, env: Env) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: SandboxState = previous?.sandboxState ?? { initialized: false, filePath: "" }
@@ -250,7 +250,7 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
  *   const { datasetId } = await createFileParseStory(fileId, { instructions }).parse(env)
  *
  * - No `db` is accepted/stored (workflow-safe).
- * - All I/O happens in `"use step"` functions via Ekairos runtime (`getThreadRuntime(env).db`).
+ * - All I/O happens in `"use step"` functions via Ekairos runtime (`getContextRuntime(env).db`).
  * - `parse()` is the entrypoint; it calls `story.react(...)` internally.
  */
 export function createFileParseStory<Env extends { orgId: string }>(

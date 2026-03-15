@@ -117,8 +117,8 @@ async function main() {
   await fs.mkdir(logsDir, { recursive: true });
 
   const preflightOut = path.join(artifactsRoot, "preflight", "scan.json");
-  const modelPlanJson = path.join(reportsDir, "story-thread-model-plan.json");
-  const modelPlanMd = path.join(reportsDir, "story-thread-model-plan.md");
+  const modelPlanJson = path.join(reportsDir, "story-context-model-plan.json");
+  const modelPlanMd = path.join(reportsDir, "story-context-model-plan.md");
   const matrixOut = path.join(reportsDir, "schema-plan-org-matrix.json");
   const matrixMd = path.join(reportsDir, "schema-plan-org-matrix.md");
   const diagnosticsOut = path.join(reportsDir, "schema-plan-diagnostics.json");
@@ -156,8 +156,8 @@ async function main() {
       args: ["--repo", repoPath, "--out", preflightOut],
     },
     {
-      id: "03-plan_story_thread_model_migration",
-      scriptPath: path.join(scriptsDir, "plan_story_thread_model_migration.mjs"),
+      id: "03-plan_story_context_model_migration",
+      scriptPath: path.join(scriptsDir, "plan_story_context_model_migration.mjs"),
       args: ["--repo", repoPath, "--out-json", modelPlanJson, "--out-md", modelPlanMd],
     },
     {

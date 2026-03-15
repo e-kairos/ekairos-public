@@ -14,12 +14,12 @@ Use `./skill.sh` to list, validate, bundle, and install skills.
 - Related packages:
   - `@ekairos/domain`
   - `@ekairos/ekairos`
-  - `@ekairos/thread`
+  - `@ekairos/events`
   - `@ekairos/structure`
 
-### esolbay-thread-migration
+### esolbay-context-migration
 
-- Path: `skills/esolbay-thread-migration`
+- Path: `skills/esolbay-context-migration`
 - Purpose: Integrate new Ekairos versions in Esolbay with zero-downtime migration.
 - Includes:
   - one-command orchestrator (`run_migration_pipeline.mjs`) with per-step status,
@@ -35,7 +35,7 @@ Use `./skill.sh` to list, validate, bundle, and install skills.
   - optional generation of next migration skill draft from plan output,
   - optional dataset extraction/transform/apply/verify scripts (explicit args only).
 - Related packages:
-  - `@ekairos/thread`
+  - `@ekairos/events`
   - `@ekairos/domain`
   - `@ekairos/structure`
   - `@ekairos/story`
@@ -44,9 +44,9 @@ Use `./skill.sh` to list, validate, bundle, and install skills.
 
 ```bash
 ./skill.sh list
-./skill.sh validate esolbay-thread-migration
-./skill.sh bundle esolbay-thread-migration
-./skill.sh install esolbay-thread-migration
+./skill.sh validate esolbay-context-migration
+./skill.sh bundle esolbay-context-migration
+./skill.sh install esolbay-context-migration
 ```
 
 ## Required Env

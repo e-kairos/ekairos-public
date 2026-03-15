@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { RegistryTopbar } from "@/components/layout/registry-topbar";
 import "./globals.css";
+import { RegistrySessionProvider } from "@/lib/registry-session";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,7 +28,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
+        <RegistrySessionProvider>
+          <RegistryTopbar />
+          <div className="pt-11">{children}</div>
+        </RegistrySessionProvider>
       </body>
     </html>
   );

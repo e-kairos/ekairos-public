@@ -66,7 +66,7 @@ export async function createRowsDatasetContext(params: { adminDb: any; datasetId
   if (!fileId) throw new Error("Failed to upload dataset jsonl");
 
   await adminDb.transact(
-    adminDb.tx.thread_contexts[id()].create({
+    adminDb.tx.event_contexts[id()].create({
       createdAt: new Date(),
       updatedAt: new Date(),
       type: "structure",
@@ -86,7 +86,7 @@ export async function createRowsDatasetContext(params: { adminDb: any; datasetId
     }),
   );
 
-  await adminDb.transact(adminDb.tx.thread_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }));
+  await adminDb.transact(adminDb.tx.event_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }));
 
   return { datasetId, fileId };
 }

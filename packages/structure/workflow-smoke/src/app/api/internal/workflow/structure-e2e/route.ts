@@ -67,7 +67,7 @@ async function createRowsDatasetContext(params: { adminDb: any; datasetId: strin
   if (!fileId) throw new Error("Failed to upload dataset jsonl");
 
   await adminDb.transact(
-    adminDb.tx.thread_contexts[id()].create({
+    adminDb.tx.event_contexts[id()].create({
       createdAt: new Date(),
       updatedAt: new Date(),
       type: "structure",
@@ -87,7 +87,7 @@ async function createRowsDatasetContext(params: { adminDb: any; datasetId: strin
     }),
   );
 
-  await adminDb.transact(adminDb.tx.thread_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }));
+  await adminDb.transact(adminDb.tx.event_contexts[lookup("key", contextKey)].link({ structure_output_file: fileId }));
 
   return { datasetId, fileId };
 }
@@ -225,8 +225,8 @@ export async function POST(req: Request) {
       const key = `structure:${datasetId}`;
       const deadline = Date.now() + 120_000;
       while (Date.now() < deadline) {
-        const q = await adminDb.query({ thread_contexts: { $: { where: { key }, limit: 1 } } });
-        const ctx = q?.thread_contexts?.[0];
+        const q = await adminDb.query({ event_contexts: { $: { where: { key }, limit: 1 } } });
+        const ctx = q?.event_contexts?.[0];
         const content: any = ctx?.content ?? {};
         value = content?.structure?.outputs?.object?.value ?? null;
         if (value) break;
@@ -251,7 +251,7 @@ export async function POST(req: Request) {
     if (scenario === "trace_toolcalls") {
       const contextKey = `structure:${datasetId}`;
       const q: any = await adminDb.query({
-        thread_items: {
+        event_items: {
           $: {
             where: { "context.key": contextKey } as any,
             limit: 30,
@@ -260,7 +260,7 @@ export async function POST(req: Request) {
         },
       });
 
-      const events = q.thread_items ?? [];
+      const events = q.event_items ?? [];
       const toolParts = extractToolParts(events);
       const settled = toolParts.some((p) => p?.state === "output-available" || p?.state === "output-error");
       trace = { eventsCount: events.length, toolPartsCount: toolParts.length, hasSettledToolPart: settled };

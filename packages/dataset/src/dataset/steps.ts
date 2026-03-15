@@ -1,19 +1,19 @@
-import { getThreadRuntime, getThreadEnv } from "@ekairos/events/runtime"
+import { getContextRuntime, getContextEnv } from "@ekairos/events/runtime"
 import { DatasetService } from "../service"
 
 async function resolveEnv(env?: any) {
-  return env ?? (await getThreadEnv())
+  return env ?? (await getContextEnv())
 }
 
 export async function getDatasetServiceDb(env?: any) {
   "use step"
-  const runtime = (await getThreadRuntime(await resolveEnv(env))) as any
+  const runtime = (await getContextRuntime(await resolveEnv(env))) as any
   return runtime.db as any
 }
 
 export async function datasetGetByIdStep(params: { env?: any; datasetId: string }) {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const service = new DatasetService(db)
   return await service.getDatasetById(params.datasetId)
 }
@@ -23,7 +23,7 @@ export async function datasetReadOutputJsonlStep(params: {
   datasetId: string
 }): Promise<{ contentBase64: string }> {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
 
   const query: any = await db.query({
     dataset_datasets: {
@@ -50,7 +50,7 @@ export async function datasetUpdateSchemaStep(params: {
   status?: string
 }) {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const service = new DatasetService(db)
   return await service.updateDatasetSchema({
     datasetId: params.datasetId,
@@ -65,7 +65,7 @@ export async function datasetUploadOutputFileStep(params: {
   fileBuffer: Buffer
 }) {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const service = new DatasetService(db)
   return await service.uploadDatasetOutputFile({
     datasetId: params.datasetId,
@@ -81,7 +81,7 @@ export async function datasetUpdateStatusStep(params: {
   actualGeneratedRowCount?: number
 }) {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const service = new DatasetService(db)
   return await service.updateDatasetStatus({
     datasetId: params.datasetId,
@@ -93,7 +93,7 @@ export async function datasetUpdateStatusStep(params: {
 
 export async function datasetClearStep(params: { env?: any; datasetId: string }) {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const service = new DatasetService(db)
   return await service.clearDataset(params.datasetId)
 }
@@ -104,7 +104,7 @@ export async function datasetPreviewRowsStep(params: {
   limit?: number
 }): Promise<{ rows: any[] }> {
   "use step"
-  const db = (await getThreadRuntime(await resolveEnv(params.env)) as any).db
+  const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
   const limit = params.limit ?? 20
   const query: any = await db.query({
     dataset_records: {

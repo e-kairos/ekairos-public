@@ -1,4 +1,4 @@
-import { createThread, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
+import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
 import { createExecuteCommandTool } from "../executeCommand.tool"
 import { createClearDatasetTool } from "../clearDataset.tool"
@@ -92,7 +92,7 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    const story = createThread<Env>("dataset.transform")
+    const story = createContext<Env>("dataset.transform")
         .context(async (stored: any, env: Env) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: TransformSandboxState = previous?.sandboxState ?? { initialized: false, sourcePaths: [] }

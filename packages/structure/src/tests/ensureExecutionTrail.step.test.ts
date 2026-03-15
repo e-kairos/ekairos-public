@@ -7,7 +7,7 @@ const completeExecution = vi.fn()
 const getItems = vi.fn()
 
 vi.mock("@ekairos/events/runtime", () => ({
-  getThreadRuntime: vi.fn(async () => ({
+  getContextRuntime: vi.fn(async () => ({
     store: {
       saveItem,
       createExecution,

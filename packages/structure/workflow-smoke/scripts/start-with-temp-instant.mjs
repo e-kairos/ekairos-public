@@ -78,7 +78,7 @@ function ensureWorkspaceBuild() {
     "--filter",
     "@ekairos/domain",
     "--filter",
-    "@ekairos/thread",
+    "@ekairos/events",
     "--filter",
     "@ekairos/sandbox",
     "--filter",

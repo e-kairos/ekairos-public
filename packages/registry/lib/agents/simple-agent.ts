@@ -1,10 +1,10 @@
-import { createThread } from "@ekairos/thread"
+import { createContext } from "@ekairos/events"
 import { init } from "@instantdb/admin"
 import { z } from "zod"
 import { tool } from "ai"
 
 export function buildSimpleAgent(_db: ReturnType<typeof init>) {
-  const simpleAgentBuilder = createThread("registry.simple")
+  const simpleAgentBuilder = createContext("registry.simple")
     .context(async (stored) => {
       const previous = stored.content
       return {
