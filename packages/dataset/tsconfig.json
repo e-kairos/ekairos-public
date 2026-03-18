@@ -3,7 +3,11 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "lib": ["ES2020", "DOM"]
+    "lib": ["ES2020", "DOM"],
+    "paths": {
+      "@ekairos/domain/runtime": ["../domain/dist/runtime.d.ts"],
+      "@ekairos/openai-reactor": ["../reactors/openai-reactor/dist/index.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "**/*.test.ts", "**/tests/**"]

@@ -14,9 +14,34 @@ export class DatasetService {
         this.db = db
     }
 
+    private async resolveDatasetEntityId(datasetId: string): Promise<ServiceResult<string>> {
+        try {
+            const query: any = await (this.db as any).query({
+                dataset_datasets: {
+                    $: {
+                        where: { datasetId } as any,
+                        limit: 1,
+                    },
+                },
+            } as any)
+
+            const dataset = query.dataset_datasets?.[0]
+            const entityId = String(dataset?.id ?? "")
+            if (!entityId) {
+                return { ok: false, error: `Dataset not found with id: ${datasetId}` }
+            }
+            return { ok: true, data: entityId }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return { ok: false, error: message }
+        }
+    }
+
     async createDataset(params: {
         id?: string
-        sources?: string
+        sources?: any
+        sourceKinds?: any
         instructions?: string
         status?: string
         organizationId?: string
@@ -24,10 +49,13 @@ export class DatasetService {
     }): Promise<ServiceResult<{ datasetId: string }>> {
         try {
             const datasetId = params.id ?? newId()
+            const existing = await this.resolveDatasetEntityId(datasetId)
+            const entityId = existing.ok ? existing.data : newId()
             const mutations = []
 
             mutations.push(
-                this.db.tx.dataset_datasets[datasetId].update({
+                this.db.tx.dataset_datasets[entityId].update({
+                    datasetId,
                     sources: params.sources ?? "",
                     instructions: params.instructions ?? "",
                     status: params.status ?? "created",
@@ -49,8 +77,10 @@ export class DatasetService {
 
     async updateDataset(datasetId: string, updates: Record<string, any>): Promise<ServiceResult<void>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<void>
             await this.db.transact([
-                this.db.tx.dataset_datasets[datasetId].update({
+                this.db.tx.dataset_datasets[resolved.data].update({
                     ...updates,
                     updatedAt: Date.now(),
                 })
@@ -69,6 +99,8 @@ export class DatasetService {
         records: Array<{ rowContent: any; order: number }>
     }): Promise<ServiceResult<{ savedCount: number }>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(params.datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<{ savedCount: number }>
             const mutations: any[] = []
 
             for (const record of params.records) {
@@ -79,7 +111,7 @@ export class DatasetService {
                         order: record.order,
                         createdAt: Date.now(),
                     }),
-                    this.db.tx.dataset_datasets[params.datasetId].link({ records: [recordId] })
+                    this.db.tx.dataset_datasets[resolved.data].link({ records: [recordId] })
                 )
             }
 
@@ -101,11 +133,13 @@ export class DatasetService {
         manifestMetadata?: any
     }): Promise<ServiceResult<void>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(params.datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<void>
             const finalMutations = [...params.shardMutations]
 
             if (params.manifestMetadata) {
                 finalMutations.push(
-                    this.db.tx.dataset_datasets[params.datasetId].update({
+                    this.db.tx.dataset_datasets[resolved.data].update({
                         status: "completed",
                         updatedAt: Date.now(),
                         actualGeneratedRowCount: params.manifestMetadata.totalRowsSaved ?? 0,
@@ -194,7 +228,7 @@ export class DatasetService {
             const query: any = await (this.db as any).query({
                 dataset_datasets: {
                     $: {
-                        where: { id: datasetId } as any,
+                        where: { datasetId } as any,
                         limit: 1,
                     },
                 },
@@ -219,8 +253,10 @@ export class DatasetService {
         status?: string
     }): Promise<ServiceResult<void>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(params.datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<void>
             await this.db.transact([
-                this.db.tx.dataset_datasets[params.datasetId].update({
+                this.db.tx.dataset_datasets[resolved.data].update({
                     schema: params.schema,
                     status: params.status ?? "schema_complete",
                     updatedAt: Date.now(),
@@ -242,6 +278,8 @@ export class DatasetService {
         actualGeneratedRowCount?: number
     }): Promise<ServiceResult<void>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(params.datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<void>
             const updates: any = {
                 status: params.status,
                 updatedAt: Date.now(),
@@ -256,7 +294,7 @@ export class DatasetService {
             }
 
             await this.db.transact([
-                this.db.tx.dataset_datasets[params.datasetId].update(updates)
+                this.db.tx.dataset_datasets[resolved.data].update(updates)
             ])
 
             return { ok: true, data: undefined }
@@ -269,11 +307,13 @@ export class DatasetService {
 
     async getDatasetRecordsForDeletion(datasetId: string): Promise<ServiceResult<Array<{ id: string }>>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<Array<{ id: string }>>
             const query: any = await this.db.query({
                 dataset_records: {
                     $: {
                         where: {
-                            "dataset.id": datasetId,
+                            "dataset.id": resolved.data,
                         } as any,
                     },
                 },
@@ -392,8 +432,10 @@ export class DatasetService {
         storagePath: string
     }): Promise<ServiceResult<void>> {
         try {
+            const resolved = await this.resolveDatasetEntityId(params.datasetId)
+            if (!resolved.ok) return resolved as ServiceResult<void>
             await this.db.transact([
-                this.db.tx.dataset_datasets[params.datasetId].link({ dataFile: params.fileId }),
+                this.db.tx.dataset_datasets[resolved.data].link({ dataFile: params.fileId }),
             ])
 
             return { ok: true, data: undefined }
@@ -409,7 +451,7 @@ export class DatasetService {
             const fileQuery: any = await this.db.query({
                 dataset_datasets: {
                     $: {
-                        where: { id: datasetId },
+                        where: { datasetId },
                         limit: 1,
                     },
                     dataFile: {},
@@ -493,6 +535,96 @@ export class DatasetService {
 
             const generator = createGenerator(linkedFile.url as string)
             return { ok: true, data: generator }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return { ok: false, error: message }
+        }
+    }
+
+    async previewRows(datasetId: string, limit: number = 20): Promise<ServiceResult<any[]>> {
+        try {
+            const readResult = await this.readRecordsFromFile(datasetId)
+            if (!readResult.ok) {
+                return readResult as ServiceResult<any[]>
+            }
+
+            const rows: any[] = []
+            for await (const record of readResult.data) {
+                rows.push(record?.rowContent)
+                if (rows.length >= limit) {
+                    break
+                }
+            }
+
+            return { ok: true, data: rows }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return { ok: false, error: message }
+        }
+    }
+
+    async readRows(params: {
+        datasetId: string
+        cursor?: number
+        limit?: number
+    }): Promise<ServiceResult<{ rows: any[]; cursor: number; done: boolean }>> {
+        try {
+            const readResult = await this.readRecordsFromFile(params.datasetId)
+            if (!readResult.ok) {
+                return readResult as ServiceResult<{ rows: any[]; cursor: number; done: boolean }>
+            }
+
+            const start = Math.max(0, Number(params.cursor ?? 0))
+            const limit = Math.max(1, Number(params.limit ?? 200))
+            const rows: any[] = []
+            let index = 0
+            let hasMore = false
+
+            for await (const record of readResult.data) {
+                if (index < start) {
+                    index++
+                    continue
+                }
+
+                if (rows.length >= limit) {
+                    hasMore = true
+                    break
+                }
+
+                rows.push(record?.rowContent)
+                index++
+            }
+
+            return {
+                ok: true,
+                data: {
+                    rows,
+                    cursor: start + rows.length,
+                    done: !hasMore,
+                },
+            }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return { ok: false, error: message }
+        }
+    }
+
+    async readOne(datasetId: string): Promise<ServiceResult<any | null>> {
+        try {
+            const readResult = await this.readRows({ datasetId, cursor: 0, limit: 2 })
+            if (!readResult.ok) {
+                return readResult as ServiceResult<any | null>
+            }
+
+            const rows = readResult.data.rows
+            if (rows.length > 1) {
+                return { ok: false, error: "dataset_first_expected_zero_or_one_row" }
+            }
+
+            return { ok: true, data: rows[0] ?? null }
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error)

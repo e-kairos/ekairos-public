@@ -30,7 +30,7 @@
   "devDependencies": {
     "@ekairos/domain": "workspace:*",
     "@ekairos/events": "workspace:*",
-    "@instantdb/admin": "0.22.126",
+    "@instantdb/admin": "0.22.158",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "dotenv": "^17.2.3",

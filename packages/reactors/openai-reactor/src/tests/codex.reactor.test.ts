@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 
 import type { ContextEnvironment } from "@ekairos/events/runtime"
-import type { ContextItem, ContextReactorParams } from "@ekairos/events"
+import type { ContextItem, ContextReactorParams, ContextSkillPackage } from "@ekairos/events"
 
 import {
   createCodexReactor,
@@ -112,6 +112,7 @@ function createParams(params: {
     systemPrompt: "You are Codex running as an Ekairos Context.",
     actions: {},
     toolsForModel: {},
+    skills: [],
     eventId: params.eventId ?? "evt-001",
     executionId: params.executionId ?? "exe-001",
     contextId: params.contextId ?? "ctx-001",
@@ -487,6 +488,42 @@ async function executeRealTurnViaHttp(
 }
 
 describe("createCodexReactor", () => {
+  it("forwards registered skills to executeTurn", async () => {
+    const collected = collectWritableChunks()
+    let receivedSkills: ContextSkillPackage[] = []
+
+    const reactor = createCodexReactor<TestContext, CodexConfig, TestEnv>({
+      resolveConfig: async () => ({
+        appServerUrl: "http://127.0.0.1:3436",
+        repoPath: "/workspace/repo",
+        providerContextId: "thr-skills",
+        model: "openai/gpt-5.2-codex",
+      }),
+      executeTurn: async ({ skills }) => {
+        receivedSkills = skills
+        return {
+          providerContextId: "thr-skills",
+          turnId: "turn-skills-001",
+          assistantText: "skills ok",
+          toolParts: [],
+        }
+      },
+    })
+
+    const params = createParams({ writable: collected.writable })
+    params.skills = [
+      {
+        name: "dataset",
+        description: "dataset skill",
+        files: [{ path: "SKILL.md", contentBase64: Buffer.from("# dataset").toString("base64") }],
+      },
+    ]
+
+    await reactor(params)
+    expect(receivedSkills).toHaveLength(1)
+    expect(receivedSkills[0]?.name).toBe("dataset")
+  })
+
   it("conversation continuity: same contextId + providerContextId across turns", async () => {
     const contextId = "ctx-continuity"
     const seededProviderContextId = "thr-continuity-001"
@@ -622,6 +659,7 @@ describe("createCodexReactor", () => {
     expect(audit.stream.emittedChunks).toBe(6)
     expect(audit.persisted.streamTraceTotalChunks).toBe(6)
     expect(audit.entities.assistantEvent.partTypes).toContain("tool-turnMetadata")
+    expect(audit.entities.assistantEvent.partTypes).not.toContain("codex-event")
     expect(audit.persisted.streamTraceChunkTypes).toMatchObject({
       "chunk.start": 1,
       "chunk.reasoning_delta": 1,
@@ -711,8 +749,9 @@ describe("createCodexReactor", () => {
     expect(hookChunks).toHaveLength(4)
     expect(audit.stream.emittedChunks).toBe(4)
     expect(audit.persisted.streamTraceTotalChunks).toBe(4)
-    expect(audit.persisted.streamTraceChunksStored).toBe(2)
+    expect(audit.persisted.streamTraceChunksStored).toBe(0)
     expect(audit.entities.assistantEvent.partTypes).toContain("tool-turnMetadata")
+    expect(audit.entities.assistantEvent.partTypes).not.toContain("codex-event")
     expect(audit.persisted.streamTraceProviderChunkTypes).toMatchObject({
       start: 1,
       text_delta: 1,

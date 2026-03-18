@@ -5,7 +5,11 @@ import {
   WEB_CHANNEL,
   type ContextItem,
 } from "@ekairos/events";
-import type { ContextEnvironment } from "@ekairos/events/runtime";
+import {
+  readPersistedContextStepStream,
+  resolveContextExecutionStreamPointer,
+  type ContextEnvironment,
+} from "@ekairos/events/runtime";
 import {
   createCodexReactor,
   type CodexConfig,
@@ -97,25 +101,6 @@ function buildTriggerEvent(prompt: string, triggerEventId?: string): ContextItem
   };
 }
 
-function collectWritableTrace() {
-  const streamEvents: Record<string, unknown>[] = [];
-  const chunks: Record<string, unknown>[] = [];
-  const writable = new WritableStream<unknown>({
-    write(value) {
-      const row = asRecord(value);
-      const type = asString(row.type);
-      if (!type.startsWith("data-")) return;
-      const event = asRecord(row.data);
-      if (!asString(event.type)) return;
-      streamEvents.push(event);
-      if (asString(event.type) === "chunk.emitted") {
-        chunks.push(event);
-      }
-    },
-  });
-  return { writable, streamEvents, chunks };
-}
-
 function normalizeContextItem(value: unknown, fallback: ContextItem): ContextItem {
   const row = asRecord(value);
   const content = asRecord(row.content);
@@ -203,16 +188,36 @@ async function resolveCredentials(body: CodexShowcaseRequestBody) {
 }
 
 function resolveAppServerUrl() {
-  const raw = asString(process.env.CODEX_APP_SERVER_URL).trim();
+  const raw =
+    asString(process.env.CODEX_APP_SERVER_URL).trim() ||
+    asString(process.env.CODEX_REACTOR_REAL_URL).trim();
   if (raw.startsWith("ws://") || raw.startsWith("wss://")) {
     return "http://127.0.0.1:4500/turn";
   }
   return raw || "http://127.0.0.1:4500/turn";
 }
 
+async function readJsonRequestBody<T>(request: Request, label: string): Promise<T> {
+  const raw = await request.text().catch(() => "");
+  if (!raw.trim()) {
+    throw new Error(`${label} request body is empty.`);
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    throw new Error(
+      `${label} request body is invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export async function handleCodexShowcaseRunRequest(request: Request) {
   try {
-    const body = (await request.json()) as CodexShowcaseRequestBody;
+    const body = await readJsonRequestBody<CodexShowcaseRequestBody>(
+      request,
+      "registry.examples.codex.run",
+    );
     const prompt = asString(body.prompt).trim();
     if (!prompt) {
       return NextResponse.json<LiveReactorShowcaseRunResponse>(
@@ -238,7 +243,6 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
     const contextId = rawContextId && isUuid(rawContextId) ? rawContextId : undefined;
     const providerContextId = asString(body.providerContextId).trim() || undefined;
     const triggerEvent = buildTriggerEvent(prompt, body.triggerEventId);
-    const { writable, streamEvents, chunks } = collectWritableTrace();
 
     const reaction = await codexShowcaseContext.react(triggerEvent, {
       env: {
@@ -254,10 +258,8 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
       },
       context: contextId ? { id: contextId } : null,
       options: {
-        writable,
         maxIterations: 1,
         maxModelSteps: 1,
-        preventClose: true,
       },
     });
 
@@ -270,6 +272,7 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
       },
       appDomain,
     );
+    const runtimeDb: any = runtime.db;
 
     const [triggerSnapshot, assistantSnapshot] = await Promise.all([
       runtime.db.query({
@@ -299,6 +302,19 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
 
     const normalizedTrigger = normalizeContextItem(triggerRow, reaction.trigger);
     const normalizedAssistant = normalizeContextItem(assistantRow, reaction.reaction);
+    const streamPointer = await resolveContextExecutionStreamPointer({
+      db: runtime.db,
+      contextId: reaction.context.id,
+    });
+    const persistedTrace =
+      streamPointer && (streamPointer.clientId || streamPointer.streamId)
+        ? await readPersistedContextStepStream({
+            db: runtime.db,
+            clientId: streamPointer.clientId ?? undefined,
+            streamId: streamPointer.streamId ?? undefined,
+          })
+        : { chunks: [], byteOffset: 0 };
+    const traceChunks = persistedTrace.chunks as Array<Record<string, unknown>>;
     const llm = deriveLlmFromAssistantEvent({
       assistantEvent: normalizedAssistant,
       requestedModel: model || null,
@@ -311,15 +327,28 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
       data: {
         appId: credentials.appId,
         contextId: reaction.context.id,
+        stream: streamPointer
+          ? {
+              executionId: streamPointer.executionId,
+              source: streamPointer.source,
+              clientId: streamPointer.clientId,
+              streamId: streamPointer.streamId,
+            }
+          : {
+              executionId: reaction.execution.id,
+              source: "none",
+              clientId: null,
+              streamId: null,
+            },
         triggerEvent: normalizedTrigger as any,
         assistantEvent: normalizedAssistant as any,
         llm,
         trace: {
-          events: streamEvents,
-          chunks,
+          events: traceChunks,
+          chunks: traceChunks,
           summary: summarizeTrace({
-            events: streamEvents,
-            chunks,
+            events: traceChunks,
+            chunks: traceChunks,
             streamTrace: turnMetadata.streamTrace,
           }),
         },
@@ -333,11 +362,13 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
         commandExecutions:
           commandExecutions.length > 0
             ? commandExecutions
-            : getCommandExecutionPartsFromStreamTrace(turnMetadata.streamTrace),
+            : getCommandExecutionPartsFromStreamTrace({ chunks: traceChunks }),
         audit: buildProviderPersistenceAudit({
           assistantEvent: normalizedAssistant,
+          chunks: traceChunks,
           streamTrace: turnMetadata.streamTrace,
           turnId: turnMetadata.turnId,
+          rawProviderEvents: asRecord(asRecord(turnMetadata.metadata).response).stream,
         }),
       },
     });
@@ -473,13 +504,35 @@ export async function handleCodexShowcaseEntitiesRequest(request: Request) {
     );
 
     const formattedExecutions = executionRows.map((row: EntityRow) =>
-      pickEntity(row, ["id", "status", "workflowRunId", "createdAt", "updatedAt"]),
+      pickEntity(row, [
+        "id",
+        "status",
+        "workflowRunId",
+        "activeStreamId",
+        "activeStreamClientId",
+        "lastStreamId",
+        "lastStreamClientId",
+        "createdAt",
+        "updatedAt",
+      ]),
     );
     const formattedItems = itemRows.map((row: EntityRow) =>
       pickEntity(row, ["id", "type", "status", "channel", "createdAt", "content"]),
     );
     const formattedSteps = stepRows.map((row: any) => ({
-      ...pickEntity(row, ["id", "status", "iteration", "kind", "createdAt", "updatedAt"]),
+      ...pickEntity(row, [
+        "id",
+        "status",
+        "iteration",
+        "kind",
+        "streamId",
+        "streamClientId",
+        "streamStartedAt",
+        "streamFinishedAt",
+        "streamAbortReason",
+        "createdAt",
+        "updatedAt",
+      ]),
       executionId: (row.execution?.id as string) ?? null,
     }));
     const formattedParts = partRows.map((row: any) => ({

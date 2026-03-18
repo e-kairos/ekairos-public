@@ -5,7 +5,8 @@ import { Loader2 } from "lucide-react";
 
 import {
   useContext,
-  type UseContextEventsHook,
+  type ContextStatus,
+  type UseContextStateHook,
 } from "@/components/ekairos/context/context";
 import {
   Conversation,
@@ -36,25 +37,40 @@ export function formatRelativeTime(dateInput: Date | string | number): string {
   return date.toLocaleDateString();
 }
 
-const useAgentEvents: UseContextEventsHook = (db, { contextId }) => {
+const useAgentState: UseContextStateHook = (db, { contextId }) => {
   if (!db || !contextId) {
-    return { events: [] };
+    return {
+      context: null,
+      contextStatus: "open",
+      events: [],
+    };
   }
   const q = db.useQuery(
     {
-      event_items: {
+      event_contexts: {
         $: {
-          where: { "context.id": contextId as any },
-          order: { createdAt: "asc" },
+          where: { id: contextId as any },
+          limit: 1,
         },
-        emails: {},
-        whatsappMessages: {},
+        items: {
+          $: {
+            order: { createdAt: "asc" },
+          },
+          emails: {},
+          whatsappMessages: {},
+        },
       },
     } as any
   );
 
-  const raw = (q as any)?.data?.event_items ?? [];
-  return { events: Array.isArray(raw) ? raw : [] };
+  const context = (q as any)?.data?.event_contexts?.[0] ?? null;
+  const raw = context?.items ?? [];
+
+  return {
+    context,
+    contextStatus: ((context?.status as ContextStatus) || "open") as ContextStatus,
+    events: Array.isArray(raw) ? raw : [],
+  };
 };
 
 export default function Agent(props: AgentProps) {
@@ -75,7 +91,7 @@ export default function Agent(props: AgentProps) {
     initialContextId,
     onContextUpdate,
     enableResumableStreams,
-    events: useAgentEvents,
+    state: useAgentState,
   });
 
   const instanceId = useMemo(() => {

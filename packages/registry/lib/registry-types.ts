@@ -12,6 +12,8 @@ export type RegistryItem = {
   title: string
   subtitle: string
   category: "core" | "compound" | "template"
+  previewMode?: "static" | "ephemeral-app"
+  previewHint?: string
   props?: PropDefinition[]
   render: () => ReactNode
   code: string

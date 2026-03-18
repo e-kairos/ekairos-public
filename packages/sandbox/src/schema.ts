@@ -6,6 +6,7 @@ export const sandboxDomain: DomainSchemaResult = domain("sandbox").schema({
   entities: {
     sandbox_sandboxes: i.entity({
       externalSandboxId: i.string().optional().indexed(),
+      sandboxUserId: i.string().optional().indexed(),
       provider: i.string().indexed(),
       sandboxUrl: i.string().optional(),
       status: i.string().indexed(),
@@ -20,7 +21,20 @@ export const sandboxDomain: DomainSchemaResult = domain("sandbox").schema({
       shutdownAt: i.number().optional().indexed(),
     }),
   },
-  links: {},
+  links: {
+    sandbox_user: {
+      forward: {
+        on: "sandbox_sandboxes",
+        has: "one",
+        label: "user",
+      },
+      reverse: {
+        on: "$users",
+        has: "many",
+        label: "sandboxes",
+      },
+    },
+  },
   rooms: {},
 })
 

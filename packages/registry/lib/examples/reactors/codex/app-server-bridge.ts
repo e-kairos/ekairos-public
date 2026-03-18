@@ -46,6 +46,28 @@ function randomId(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 }
 
+function truncate(value: string, max = 240): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max)}...`;
+}
+
+async function readJsonResponseBody(response: Response): Promise<AnyRecord> {
+  const raw = await response.text().catch(() => "");
+  if (!raw.trim()) {
+    throw new Error("HTTP provider returned an empty JSON body.");
+  }
+
+  try {
+    return asRecord(JSON.parse(raw));
+  } catch (error) {
+    throw new Error(
+      `HTTP provider returned invalid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }. body=${truncate(raw)}`,
+    );
+  }
+}
+
 export async function runCodexTurn(args: RunCodexTurnArgs): Promise<CodexBridgeTurnResult> {
   const url = asString(args.config.appServerUrl).trim();
   if (!url) {
@@ -72,7 +94,7 @@ export async function runCodexTurn(args: RunCodexTurnArgs): Promise<CodexBridgeT
     throw new Error(`HTTP provider failed (${response.status}): ${body || response.statusText}`);
   }
 
-  const payload = asRecord(await response.json());
+  const payload = await readJsonResponseBody(response);
   const stream = asArray<AnyRecord>(payload.stream);
   for (const chunk of stream) {
     await args.emitChunk(chunk);

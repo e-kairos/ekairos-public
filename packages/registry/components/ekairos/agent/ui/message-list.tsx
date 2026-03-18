@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useMemo, useState } from "react";
+import React, { memo, useMemo, useState, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,11 @@ type MessageListProps = {
   toolComponents: Record<string, any>;
   classNames?: AgentClassNames;
   showReasoning: boolean;
+  renderMessageActions?: (params: {
+    message: any;
+    status: "streaming" | "ready";
+    isLatest: boolean;
+  }) => ReactNode;
 };
 
 const MessageList = memo(function MessageList({
@@ -25,6 +30,7 @@ const MessageList = memo(function MessageList({
   toolComponents,
   classNames,
   showReasoning,
+  renderMessageActions,
 }: MessageListProps) {
   const { events, contextStatus, sendStatus } = context;
 
@@ -102,6 +108,7 @@ const MessageList = memo(function MessageList({
               classNames={classNames}
               showReasoning={showReasoning}
             />
+            {renderMessageActions ? renderMessageActions({ message, status, isLatest }) : null}
           </div>
         );
       })}

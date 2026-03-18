@@ -50,6 +50,7 @@ export function buildCodexParts(params: {
   includeReasoningPart: boolean
   completedOnly?: boolean
   semanticChunks?: unknown[]
+  rawChunks?: unknown[]
   result: {
     providerContextId: string
     turnId: string
@@ -65,6 +66,12 @@ export function buildCodexParts(params: {
   const parts: Array<{ sequence: number; part: AnyRecord }> = []
   const streamTrace = asRecord(params.streamTrace)
   const capturedChunks =
+    asArray<AnyRecord>(params.rawChunks).length > 0
+      ? asArray<AnyRecord>(params.rawChunks)
+      : asArray<AnyRecord>(params.semanticChunks).length > 0
+        ? asArray<AnyRecord>(params.semanticChunks)
+        : asArray<AnyRecord>(streamTrace.chunks)
+  const semanticChunks =
     asArray<AnyRecord>(params.semanticChunks).length > 0
       ? asArray<AnyRecord>(params.semanticChunks)
       : asArray<AnyRecord>(streamTrace.chunks)
@@ -94,7 +101,7 @@ export function buildCodexParts(params: {
     return method === "turn/completed"
   })
 
-  const completedAgentMessages = capturedChunks
+  const completedAgentMessages = semanticChunks
     .map((chunk) => {
       const data = asRecord(chunk.data)
       const method = asString(data.method)
@@ -121,7 +128,7 @@ export function buildCodexParts(params: {
     .map((chunk) => asString(asRecord(asRecord(chunk.data).params).delta))
     .join("")
     .trim()
-  const completedReasoningItems = capturedChunks
+  const completedReasoningItems = semanticChunks
     .map((chunk) => {
       const data = asRecord(chunk.data)
       const method = asString(data.method)
@@ -157,7 +164,25 @@ export function buildCodexParts(params: {
     }
   }
 
-  if (params.includeReasoningPart) {
+  if (params.includeReasoningPart && reasoningFromStream) {
+    const lastReasoningChunk = findLastChunk((chunk) => {
+      const data = asRecord(chunk.data)
+      const method = asString(data.method)
+      return method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta"
+    })
+    parts.push({
+      sequence: lastReasoningChunk?.sequence ?? lastChunkSequence + 1,
+      part: {
+        type: "reasoning",
+        text: reasoningFromStream,
+        metadata: {
+          source: "codex.timeline.full",
+          sequence: lastReasoningChunk?.sequence ?? lastChunkSequence + 1,
+          at: lastReasoningChunk?.at ?? "",
+        },
+      },
+    })
+  } else if (params.includeReasoningPart) {
     for (const reasoningItem of completedReasoningItems) {
       parts.push({
         sequence: reasoningItem.sequence,
@@ -250,7 +275,11 @@ export function buildCodexParts(params: {
     }
   }
 
-  if (params.includeReasoningPart && completedReasoningItems.length === 0) {
+  if (
+    params.includeReasoningPart &&
+    !reasoningFromStream &&
+    completedReasoningItems.length === 0
+  ) {
     const reasoningText = asString(params.result.reasoningText || reasoningFromStream).trim()
     if (reasoningText && !params.completedOnly) {
       parts.push({
@@ -310,7 +339,7 @@ export function buildCodexParts(params: {
     })
   }
 
-  const tokenUsageChunk = [...capturedChunks]
+  const tokenUsageChunk = [...semanticChunks]
     .reverse()
     .find((chunk) => {
       const data = asRecord(chunk.data)

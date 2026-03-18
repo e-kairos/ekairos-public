@@ -26,6 +26,14 @@ export {
   getContextRuntime,
 } from "./runtime.step.js"
 
+export {
+  createContextStepStreamClientId,
+  createPersistedContextStepStream,
+  readPersistedContextStepStream,
+  resolveContextExecutionStreamPointer,
+  waitForContextExecutionStreamPointer,
+} from "./steps/stream.steps.js"
+
 export type { ContextEnvironment, ContextRuntime } from "./context.config.js"
 
 export { registerContextEnv, getContextEnv } from "./env.js"

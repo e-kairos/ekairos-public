@@ -33,3 +33,8 @@ export {
   type ContextActionRequest,
   type ContextReactionLLM,
 } from "./context.reactor.js"
+
+export type {
+  ContextSkillPackage,
+  ContextSkillPackageFile,
+} from "./context.skill.js"

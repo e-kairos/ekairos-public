@@ -1,0 +1,13 @@
+name = "dataset"
+version = "0.1.0"
+description = "Materialize and persist datasets using the Ekairos runtime manifest."
+kind = "action"
+namespace = "ekairos"
+tags = ["dataset", "ekairos", "instantdb", "runtime"]
+
+[runtime]
+language = "javascript"
+entrypoint = "code/complete_dataset.mjs"
+
+[permissions]
+network = ["https://api.instantdb.com", "https://storage.instantdb.com", "https://*"]

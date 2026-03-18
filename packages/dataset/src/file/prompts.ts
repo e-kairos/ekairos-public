@@ -175,9 +175,10 @@ function buildSchemaSection(context: FileParseStoryContext): string {
 function buildInstructions(context: FileParseStoryContext): string {
     const datasetWorkstation = getDatasetWorkstation(context.datasetId)
     const outputPath = getDatasetOutputPath(context.datasetId)
-
-
-    const currentTask = "Review FilePreview section to understand file structure, then generate JSON Schema for a SINGLE RECORD, then parse the file and generate the dataset"
+    const hasProvidedSchema = Boolean(context.schema?.schema)
+    const currentTask = hasProvidedSchema
+        ? "Review FilePreview section, use the provided schema as the output contract, then parse the file and generate the dataset"
+        : "Review FilePreview section to understand file structure, then generate JSON Schema for a SINGLE RECORD, then parse the file and generate the dataset"
 
     let xml = create()
         .ele("Instructions")
@@ -186,16 +187,30 @@ function buildInstructions(context: FileParseStoryContext): string {
         .ele("Action").txt("Review the FilePreview section in Context to understand the file structure").up()
         .ele("Note").txt("FilePreview contains: TotalRows (total data rows), Metadata (file properties with JSON output), Head (first N raw file lines), Tail (last N lines if present), Mid (middle sample for large files). Each section shows Description, Script (full Python code), Command, Stdout (raw content), Stderr. This allows you to understand the exact file format.").up()
         .up()
-        .ele("Step", { number: "2", name: "Generate JSON Schema" })
-        .ele("Action").txt("Call generateSchema to create a JSON Schema for a SINGLE DATA RECORD (one row of data)").up()
-        .ele("Requirements")
-        .ele("Requirement").txt("Schema describes ONE DATA RECORD structure only (type: object, not array)").up()
-        .ele("Requirement").txt("Schema represents data records ONLY, not header sections or metadata").up()
-        .ele("Requirement").txt("All property names must be lowercaseCamelCase").up()
-        .ele("Requirement").txt("Include all data columns/fields from records, exclude header fields").up()
-        .ele("Requirement").txt("Define correct data types for each field").up()
-        .up()
-        .up()
+    if (hasProvidedSchema) {
+        xml = xml
+            .ele("Step", { number: "2", name: "Use Provided Schema" })
+            .ele("Action").txt("Use the provided schema as the output contract for every row in output.jsonl").up()
+            .ele("Requirements")
+            .ele("Requirement").txt("Every output row must conform exactly to the provided schema").up()
+            .ele("Requirement").txt("Do not call generateSchema when a schema is already provided").up()
+            .up()
+            .up()
+    } else {
+        xml = xml
+            .ele("Step", { number: "2", name: "Generate JSON Schema" })
+            .ele("Action").txt("Call generateSchema to create a JSON Schema for a SINGLE DATA RECORD (one row of data)").up()
+            .ele("Requirements")
+            .ele("Requirement").txt("Schema describes ONE DATA RECORD structure only (type: object, not array)").up()
+            .ele("Requirement").txt("Schema represents data records ONLY, not header sections or metadata").up()
+            .ele("Requirement").txt("All property names must be lowercaseCamelCase").up()
+            .ele("Requirement").txt("Include all data columns/fields from records, exclude header fields").up()
+            .ele("Requirement").txt("Define correct data types for each field").up()
+            .up()
+            .up()
+    }
+
+    xml = xml
         .ele("Step", { number: "3", name: "Generate Dataset JSONL" })
         .ele("Action").txt(`Use executeCommand to parse the file and generate output.jsonl in the dataset workstation`).up()
         .ele("Requirements")

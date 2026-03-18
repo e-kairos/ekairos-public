@@ -1,6 +1,15 @@
 "use client";
 
 import React, { useMemo } from "react";
+import {
+  Terminal,
+  TerminalActions,
+  TerminalContent,
+  TerminalCopyButton,
+  TerminalHeader,
+  TerminalStatus,
+  TerminalTitle,
+} from "@/components/ai-elements/terminal";
 
 type CodexStepsPartsProps = {
   parts: Array<Record<string, unknown>>;
@@ -13,6 +22,9 @@ type StepPartView = {
   detail?: string;
   state: string;
   provider: string;
+  command?: string;
+  terminalOutput?: string;
+  terminalStreaming?: boolean;
 };
 
 type StepView = {
@@ -31,12 +43,24 @@ function asString(value: unknown): string {
 }
 
 function detectStepKind(phase: string, provider: string): StepKind {
-  const p = `${phase} ${provider}`.toLowerCase();
-  if (p.includes("reasoning")) return "reasoning";
-  if (p.includes("text_") || p.includes("agentmessage")) return "message";
-  if (p.includes("action") || p.includes("tool")) return "action";
-  if (p.includes("tokenusage") || p.includes("response_metadata") || p.includes("usage")) return "usage";
-  if (p.includes("turn/") || p.includes("chunk.start") || p.includes("chunk.finish")) return "turn";
+  const normalized = `${phase} ${provider}`.toLowerCase();
+  if (normalized.includes("reasoning")) return "reasoning";
+  if (normalized.includes("text_") || normalized.includes("agentmessage")) return "message";
+  if (normalized.includes("action") || normalized.includes("tool")) return "action";
+  if (
+    normalized.includes("tokenusage") ||
+    normalized.includes("response_metadata") ||
+    normalized.includes("usage")
+  ) {
+    return "usage";
+  }
+  if (
+    normalized.includes("turn/") ||
+    normalized.includes("chunk.start") ||
+    normalized.includes("chunk.finish")
+  ) {
+    return "turn";
+  }
   return "runtime";
 }
 
@@ -50,14 +74,14 @@ function stepTitle(kind: StepKind): string {
 }
 
 function isCompleted(phase: string, provider: string, state: string): boolean {
-  const p = `${phase} ${provider}`.toLowerCase();
+  const normalized = `${phase} ${provider}`.toLowerCase();
   if (state === "output-available") return true;
   return (
-    p.includes("finish") ||
-    p.includes("completed") ||
-    p.includes("reasoning_end") ||
-    p.includes("text_end") ||
-    p.includes("action_output_available")
+    normalized.includes("finish") ||
+    normalized.includes("completed") ||
+    normalized.includes("reasoning_end") ||
+    normalized.includes("text_end") ||
+    normalized.includes("action_output_available")
   );
 }
 
@@ -99,6 +123,10 @@ function extractAction(detail: Record<string, unknown>): string {
   const chunkData = asRecord(detail.chunkData);
   const params = asRecord(chunkData.params);
   return asString(params.toolCallId || params.itemId || params.id);
+}
+
+function isCommandExecutionPart(part: Record<string, unknown>): boolean {
+  return asString(part.type) === "tool-commandExecution";
 }
 
 function toVirtualCodexParts(parts: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
@@ -161,6 +189,48 @@ export function CodexStepsParts({ parts }: CodexStepsPartsProps) {
     const buckets = new Map<StepKind, StepView>();
 
     for (const part of sourceParts) {
+      if (isCommandExecutionPart(part)) {
+        const input = asRecord(part.input);
+        const output = asRecord(part.output);
+        const state = asString(part.state) || "output-streaming";
+        const command = asString(input.command) || "command";
+        const outputText = asString(output.text);
+        const status = asString(output.status);
+        const summary = status ? `${command} (${status})` : command;
+
+        const existing = buckets.get("action");
+        const viewPart: StepPartView = {
+          summary,
+          detail: "commandExecution",
+          state,
+          provider: "codex",
+          command,
+          terminalOutput: outputText,
+          terminalStreaming:
+            state === "input-streaming" ||
+            state === "input-available" ||
+            state === "output-streaming",
+        };
+
+        if (!existing) {
+          buckets.set("action", {
+            id: "action",
+            title: stepTitle("action"),
+            status:
+              state === "output-available" || state === "output-error"
+                ? "completed"
+                : "running",
+            parts: [viewPart],
+          });
+        } else {
+          if (existing.status !== "completed" && state === "output-available") {
+            existing.status = "completed";
+          }
+          existing.parts.push(viewPart);
+        }
+        continue;
+      }
+
       const metadata = asRecord(part.metadata);
       const output = asRecord(part.output);
       const input = asRecord(part.input);
@@ -169,12 +239,21 @@ export function CodexStepsParts({ parts }: CodexStepsPartsProps) {
       const resolvedDetail = Object.keys(detail).length > 0 ? detail : fallbackDetail;
 
       const phase = asString(metadata.phase) || asString(output.phase) || asString(input.phase);
-      const provider = asString(metadata.providerChunkType) || asString(output.providerChunkType) || asString(input.providerChunkType);
-      const label = asString(metadata.label) || asString(output.label) || asString(input.label) || "event";
+      const provider =
+        asString(metadata.providerChunkType) ||
+        asString(output.providerChunkType) ||
+        asString(input.providerChunkType);
+      const label =
+        asString(metadata.label) ||
+        asString(output.label) ||
+        asString(input.label) ||
+        "event";
       const state = asString(part.state) || "output-streaming";
 
       const kind = detectStepKind(phase, provider);
-      const status: StepView["status"] = isCompleted(phase, provider, state) ? "completed" : "running";
+      const status: StepView["status"] = isCompleted(phase, provider, state)
+        ? "completed"
+        : "running";
 
       const actionText = extractAction(resolvedDetail);
       const text = extractText(resolvedDetail);
@@ -222,13 +301,16 @@ export function CodexStepsParts({ parts }: CodexStepsPartsProps) {
   if (!steps.length) return null;
 
   return (
-    <div className="mb-2 space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-950/15 p-3">
+    <div className="space-y-2 rounded-2xl border border-emerald-500/20 bg-emerald-950/10 p-3">
       <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-emerald-300/90">
         Codex steps
       </p>
       <div className="space-y-2">
         {steps.map((step) => (
-          <div key={step.id} className="rounded border border-emerald-500/20 bg-black/20 px-2 py-1.5">
+          <div
+            key={step.id}
+            className="rounded border border-emerald-500/20 bg-black/20 px-2 py-1.5"
+          >
             <div className="mb-1 flex items-center justify-between">
               <p className="font-mono text-[11px] text-emerald-100">{step.title}</p>
               <span
@@ -243,11 +325,37 @@ export function CodexStepsParts({ parts }: CodexStepsPartsProps) {
             </div>
             <div className="space-y-1">
               {step.parts.map((part, idx) => (
-                <div key={`${step.id}:${idx}`} className="grid grid-cols-[1fr_72px] gap-2">
-                  <span className="truncate font-mono text-[11px] text-emerald-100/95">{part.summary}</span>
-                  <span className="truncate text-right font-mono text-[10px] text-emerald-300/80">
-                    {part.state}
-                  </span>
+                <div key={`${step.id}:${idx}`} className="space-y-1.5">
+                  <div className="grid grid-cols-[1fr_72px] gap-2">
+                    <span className="truncate font-mono text-[11px] text-emerald-100/95">
+                      {part.summary}
+                    </span>
+                    <span className="truncate text-right font-mono text-[10px] text-emerald-300/80">
+                      {part.state}
+                    </span>
+                  </div>
+                  {part.command ? (
+                    <Terminal
+                      output={part.terminalOutput || ""}
+                      isStreaming={Boolean(part.terminalStreaming)}
+                      className="rounded border-emerald-500/20 bg-black text-emerald-100"
+                    >
+                      <TerminalHeader className="border-emerald-500/20 bg-black/70 px-2.5 py-1.5">
+                        <TerminalTitle className="text-[10px] text-emerald-300/90">
+                          $ {part.command}
+                        </TerminalTitle>
+                        <div className="flex items-center gap-1">
+                          <TerminalStatus className="text-[10px] text-amber-300/90">
+                            streaming
+                          </TerminalStatus>
+                          <TerminalActions>
+                            <TerminalCopyButton className="size-6 text-emerald-300/80 hover:bg-emerald-500/10 hover:text-emerald-100" />
+                          </TerminalActions>
+                        </div>
+                      </TerminalHeader>
+                      <TerminalContent className="max-h-48 p-2.5 text-[11px]" />
+                    </Terminal>
+                  ) : null}
                 </div>
               ))}
             </div>

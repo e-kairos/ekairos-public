@@ -6,7 +6,7 @@ const codexTest = runRealCodexE2E ? test : test.skip;
 
 let cleanupCodexEnvironment: (() => Promise<void>) | void;
 
-codexTest.beforeAll(async () => {
+test.beforeAll(async () => {
   const explicitRealUrl = String(process.env.CODEX_REACTOR_REAL_URL ?? "").trim();
   if (explicitRealUrl) {
     process.env.CODEX_REACTOR_REAL = "0";
@@ -19,7 +19,7 @@ codexTest.beforeAll(async () => {
   cleanupCodexEnvironment = await setupCodexRealEnvironment();
 });
 
-codexTest.afterAll(async () => {
+test.afterAll(async () => {
   if (cleanupCodexEnvironment) {
     await cleanupCodexEnvironment();
   }
@@ -43,6 +43,14 @@ codexTest("examples/codex runs through context + codex reactor with real codex a
   );
 
   await page.getByTestId("examples-codex-run").click();
+
+  await expect
+    .poll(
+      async () => await page.getByTestId("message-assistant").count(),
+      { timeout: 240_000 },
+    )
+    .toBeGreaterThanOrEqual(1);
+
   const runResponse = await runResponsePromise;
 
   expect(runResponse.status()).toBe(200);
@@ -68,4 +76,16 @@ codexTest("examples/codex runs through context + codex reactor with real codex a
   expect(payload.data?.assistantEvent?.id).toBeTruthy();
   expect(payload.data?.metadata?.providerContextId).toBeTruthy();
   expect(payload.data?.metadata?.turnId).toBeTruthy();
+
+  await expect(page.getByTestId("examples-codex-message-list")).toBeVisible();
+
+  await expect
+    .poll(
+      async () => {
+        const content = await page.getByTestId("examples-codex-message-list").textContent();
+        return (content ?? "").trim().length;
+      },
+      { timeout: 60_000 },
+    )
+    .toBeGreaterThan(0);
 });

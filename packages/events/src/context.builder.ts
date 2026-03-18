@@ -1,6 +1,7 @@
 import type { Tool } from "ai"
 
 import type { ContextEnvironment } from "./context.config.js"
+import type { ContextSkillPackage } from "./context.skill.js"
 import {
   ContextEngine,
   type ContextModelInit,
@@ -28,6 +29,10 @@ export interface ContextConfig<
     context: StoredContext<Context>,
     env: Env,
   ) => Promise<string> | string
+  skills?: (
+    context: StoredContext<Context>,
+    env: Env,
+  ) => Promise<ContextSkillPackage[]> | ContextSkillPackage[]
   actions: (
     context: StoredContext<Context>,
     env: Env,
@@ -92,6 +97,11 @@ export function context<
       throw new Error("Context config is missing narrative()")
     }
 
+    protected async buildSkills(contextValue: StoredContext<Context>, env: Env) {
+      if (config.skills) return config.skills(contextValue, env)
+      return []
+    }
+
     protected async buildTools(contextValue: StoredContext<Context>, env: Env) {
       if (config.actions) return config.actions(contextValue, env)
       if (config.tools) return config.tools(contextValue, env)
@@ -127,6 +137,11 @@ type BuilderSystemPrompt<Context, Env extends ContextEnvironment> = (
   env: Env,
 ) => Promise<string> | string
 
+type BuilderSkills<Context, Env extends ContextEnvironment> = (
+  context: StoredContext<Context>,
+  env: Env,
+) => Promise<ContextSkillPackage[]> | ContextSkillPackage[]
+
 type BuilderTools<Context, Env extends ContextEnvironment> = (
   context: StoredContext<Context>,
   env: Env,
@@ -156,6 +171,7 @@ type FluentContextBuilder<Context, Env extends ContextEnvironment> = {
   expandEvents(fn: BuilderExpandEvents<Context, Env>): FluentContextBuilder<Context, Env>
   narrative(fn: BuilderSystemPrompt<Context, Env>): FluentContextBuilder<Context, Env>
   system(fn: BuilderSystemPrompt<Context, Env>): FluentContextBuilder<Context, Env>
+  skills(fn: BuilderSkills<Context, Env>): FluentContextBuilder<Context, Env>
   actions(fn: BuilderTools<Context, Env>): FluentContextBuilder<Context, Env>
   tools(fn: BuilderTools<Context, Env>): FluentContextBuilder<Context, Env>
   model(model: BuilderModel<Context, Env>): FluentContextBuilder<Context, Env>
@@ -241,6 +257,10 @@ export function createContext<Env extends ContextEnvironment = ContextEnvironmen
       },
       system(system) {
         fluentState.narrative = system
+        return builder
+      },
+      skills(skillsFactory) {
+        fluentState.skills = skillsFactory
         return builder
       },
       actions(actionsFactory) {

@@ -44,7 +44,7 @@ const DEFAULT_HEAD_LINES = 50
 const DEFAULT_TAIL_LINES = 20
 const DEFAULT_MID_LINES = 20
 
-const SANDBOX_SCRIPT_DIRECTORY = "/vercel/sandbox/lib/domain/dataset/file/scripts"
+const SANDBOX_SCRIPT_DIRECTORY = "/tmp/ekairos/dataset/file/scripts"
 
 const PYTHON_SCRIPT_FILES = [
     "file_metadata.py",

@@ -13,12 +13,14 @@ import { applyToolExecutionResultToParts } from "./context.toolcalls.js"
 import type { ContextStreamEvent } from "./context.stream.js"
 
 import type { SerializableToolForModel } from "./tools-to-model-tools.js"
+import type { ContextSkillPackage } from "./context.skill.js"
 import { toolsToModelTools } from "./tools-to-model-tools.js"
 import {
   createAiSdkReactor,
   type ContextReactor,
 } from "./context.reactor.js"
 import {
+  createPersistedContextStepStream,
   closeContextStream,
 } from "./steps/stream.steps.js"
 import {
@@ -48,6 +50,11 @@ export interface ContextOptions<Context = any, Env extends ContextEnvironment = 
     lastEvent: ContextItem,
   ) => void | boolean | Promise<void | boolean>
 }
+
+type BuilderSkills<Context, Env extends ContextEnvironment> = (
+  context: StoredContext<Context>,
+  env: Env,
+) => Promise<ContextSkillPackage[]> | ContextSkillPackage[]
 
 type ContextBenchmarkRecorder = {
   measure<T>(name: string, run: () => Promise<T> | T): Promise<T>
@@ -627,6 +634,13 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     env: Env,
   ): Promise<Record<string, ContextTool>> | Record<string, ContextTool>
 
+  protected async buildSkills(
+    _context: StoredContext<Context>,
+    _env: Env,
+  ): Promise<ContextSkillPackage[]> {
+    return []
+  }
+
   /**
    * First-class event expansion stage (runs on every iteration of the durable loop).
    *
@@ -868,6 +882,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
 
     let updatedContext: StoredContext<Context> = { ...currentContext, status: "open_streaming" }
     let currentStepId: string | null = null
+    let currentStepStream:
+      | Awaited<ReturnType<typeof createPersistedContextStepStream>>
+      | null = null
 
     const failExecution = async () => {
       try {
@@ -919,6 +936,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             }),
         )
         currentStepId = stepCreate.stepId
+        currentStepStream = await createPersistedContextStepStream({
+          env: params.env,
+          executionId,
+          stepId: stepCreate.stepId,
+        })
         await emitContextEvents({
           silent,
           writable,
@@ -971,6 +993,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           params.__benchmark,
           `${stagePrefix}.actionsMs`,
           async () => await story.buildTools(updatedContext, params.env),
+        )
+        const skillsAll = await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.skillsMs`,
+          async () => await story.buildSkills(updatedContext, params.env),
         )
 
         // IMPORTANT: step args must be serializable.
@@ -1030,6 +1057,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               systemPrompt,
               actions: toolsAll as Record<string, unknown>,
               toolsForModel,
+              skills: skillsAll,
               eventId: reactionEventId,
               executionId,
               contextId: String(currentContext.id),
@@ -1041,6 +1069,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               silent,
               writable,
               persistReactionParts,
+              emitStreamChunk: async (chunk) => {
+                await currentStepStream?.write(chunk)
+              },
             }),
         )
 
@@ -1124,6 +1155,10 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               { executionId, contextId: String(currentContext.id) },
             ),
         )
+        if (currentStepStream) {
+          await currentStepStream.close()
+          currentStepStream = null
+        }
 
         story.opts.onEventCreated?.(assistantEventEffective)
 
@@ -1583,6 +1618,17 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
 
       throw new Error(`ContextEngine: maxIterations reached (${maxIterations}) without completion`)
     } catch (error) {
+      if (currentStepStream) {
+        try {
+          await currentStepStream.abort(
+            error instanceof Error ? error.message : String(error),
+          )
+        } catch {
+          // noop
+        } finally {
+          currentStepStream = null
+        }
+      }
       // Best-effort: persist failure on the current iteration step (if any)
       if (currentStepId) {
         const failedStepId = currentStepId

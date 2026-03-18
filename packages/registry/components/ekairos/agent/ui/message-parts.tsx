@@ -25,7 +25,6 @@ import {
   ToolInput,
   ToolOutput,
 } from "@/components/ekairos/tools/tool";
-import { CodexStepsParts } from "./reactors/codex-steps-parts";
 import { FileIcon } from "@/components/ekairos/prompt/file-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -47,7 +46,7 @@ function humanizeToolName(toolName: string): string {
     // Control / escalation
     requestDirection: "Escalar a soporte interno",
     end: "Finalizar",
-    "codex-event": "Codex event",
+    "reactor-event": "Reactor event",
   };
 
   if (map[toolName]) return map[toolName];
@@ -62,7 +61,7 @@ function humanizeToolName(toolName: string): string {
 function summarizeToolPart(part: any): string {
   const partType = String(part?.type ?? "");
   const toolName =
-    partType === "codex-event" ? "codex-event" : partType.replace(/^tool-/, "");
+    partType === "reactor-event" ? "reactor-event" : partType.replace(/^tool-/, "");
   const state = String(part?.state ?? "");
   const out = part?.output;
   const err = typeof part?.errorText === "string" ? part.errorText : "";
@@ -71,7 +70,7 @@ function summarizeToolPart(part: any): string {
       ? (part.metadata as Record<string, unknown>)
       : null;
 
-  if (toolName === "codex-event") {
+  if (toolName === "reactor-event") {
     const phase =
       typeof metadata?.phase === "string" ? metadata.phase : "";
     const label =
@@ -80,9 +79,9 @@ function summarizeToolPart(part: any): string {
         : "";
     if (label) return label;
     if (phase) return phase;
-    if (state === "output-available") return "Codex event completed";
-    if (state === "output-error") return "Codex event failed";
-    return "Codex event";
+    if (state === "output-available") return "Reactor event completed";
+    if (state === "output-error") return "Reactor event failed";
+    return "Reactor event";
   }
 
   if (state === "output-error") {
@@ -158,23 +157,6 @@ const MessageParts = memo(function MessageParts({
     return -1;
   }, [message?.parts]);
 
-  const codexParts = useMemo(
-    () =>
-      (Array.isArray(message?.parts) ? message.parts : []).filter(
-        (p: any) => p && typeof p === "object" && p.type === "codex-event"
-      ),
-    [message?.parts],
-  );
-
-  const firstCodexPartIdx = useMemo(() => {
-    const parts = Array.isArray(message?.parts) ? message.parts : [];
-    for (let idx = 0; idx < parts.length; idx += 1) {
-      const p = parts[idx];
-      if (p && typeof p === "object" && p.type === "codex-event") return idx;
-    }
-    return -1;
-  }, [message?.parts]);
-
   useEffect(() => {
     setIsCoTOpen(Boolean(isStreaming));
   }, [isStreaming]);
@@ -188,7 +170,7 @@ const MessageParts = memo(function MessageParts({
   const renderTool = (part: any, i: number) => {
     const partType = String(part?.type ?? "");
     const toolName =
-      partType === "codex-event" ? "codex-event" : partType.replace(/^tool-/, "");
+      partType === "reactor-event" ? "reactor-event" : partType.replace(/^tool-/, "");
     const ToolComponent = toolComponents?.[toolName];
 
     // Special case: createMessage should render like a normal assistant message,
@@ -292,7 +274,8 @@ const MessageParts = memo(function MessageParts({
     .filter(Boolean)
     .join("\n\n")
     .trim();
-  const hasReasoningContent = isStreaming || combinedReasoningText.length > 0;
+  const hasReasoningContent =
+    reasoningParts.length > 0 && (isStreaming || combinedReasoningText.length > 0);
 
   const extractTitle = (text: string): { title: string; content: string } => {
     const boldMatch = text.match(/\*\*(.+?)\*\*/);
@@ -480,10 +463,7 @@ const MessageParts = memo(function MessageParts({
         if (part.type === "reasoning") return null;
         if (part.type === "tool-turnMetadata") return null;
 
-        if (part.type === "codex-event") {
-          if (i !== firstCodexPartIdx) return null;
-          return <CodexStepsParts key={`codex-steps:${i}`} parts={codexParts} />;
-        }
+        if (part.type === "reactor-event") return null;
 
         if (part.type === "text") {
           return (

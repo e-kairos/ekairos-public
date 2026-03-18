@@ -18,8 +18,8 @@ import {
   type ContextStatus,
   type SendStatus,
   type ContextValue,
+  type UseContextState,
   type UseContextStateHook,
-  type UseContextEventsHook,
   type UseContextOptions,
 } from "./types";
 
@@ -157,12 +157,17 @@ function mergeEvents(params: {
   return merged;
 }
 
-const useDefaultContext: UseContextStateHook = (db, { contextId }) => {
+const useDefaultState: UseContextStateHook = (db, { contextId }) => {
   const contextRes = db.useQuery(
     (contextId
       ? {
           event_contexts: {
             $: { where: { id: contextId as any }, limit: 1 },
+            items: {
+              $: {
+                order: { createdAt: "asc" },
+              },
+            },
           },
         }
       : null) as any
@@ -171,49 +176,14 @@ const useDefaultContext: UseContextStateHook = (db, { contextId }) => {
   const ctx = (contextRes as any)?.data?.event_contexts?.[0] ?? null;
   const contextStatus = ((ctx?.status as ContextStatus) ||
     "open") as ContextStatus;
+  const raw = (ctx?.items ?? []) as ContextEventForUI[] | undefined;
 
-  return { context: ctx, contextStatus };
-};
-
-const useDefaultEvents: UseContextEventsHook = (db, { contextId }) => {
-  const eventsRes = db.useQuery(
-    (contextId
-      ? {
-          event_items: {
-            $: {
-              where: { "context.id": contextId as any },
-              order: { createdAt: "asc" },
-            },
-          },
-        }
-      : null) as any
-  );
-
-  const raw = (eventsRes as any)?.data?.event_items ?? [];
-  return { events: Array.isArray(raw) ? (raw as ContextEventForUI[]) : [] };
-};
-
-function eventToMessage(ev: ContextEventForUI): UIMessage {
-  const type = String(ev?.type ?? "");
-  const role =
-    type === INPUT_TEXT_ITEM_TYPE || type === "input" || type.startsWith("user.")
-      ? "user"
-      : "assistant";
   return {
-    id: String(ev.id),
-    role,
-    parts: Array.isArray(ev.content?.parts) ? ev.content.parts : [],
-    metadata: {
-      channel: ev.channel,
-      type: ev.type,
-      createdAt: ev.createdAt,
-      eventId: ev.id,
-      status: ev.status,
-      emails: ev.emails,
-      whatsappMessages: ev.whatsappMessages,
-    },
-  };
-}
+    context: ctx,
+    contextStatus,
+    events: Array.isArray(raw) ? raw : [],
+  } satisfies UseContextState;
+};
 
 function messageToEphemeralEvent(
   msg: UIMessage,
@@ -249,8 +219,7 @@ export function useContext(db: any, opts: UseContextOptions): ContextValue {
     initialContextId,
     onContextUpdate,
     enableResumableStreams = false,
-    context: useContextImpl = useDefaultContext,
-    events: useEventsImpl = useDefaultEvents,
+    state: useStateImpl = useDefaultState,
   } = opts;
 
   const [contextId, setContextId] = useState<string | null>(
@@ -292,8 +261,9 @@ export function useContext(db: any, opts: UseContextOptions): ContextValue {
     [onContextUpdate]
   );
 
-  const { contextStatus } = useContextImpl(db, { contextId });
-  const { events: persistedEventsUnsorted } = useEventsImpl(db, { contextId });
+  const { contextStatus, events: persistedEventsUnsorted } = useStateImpl(db, {
+    contextId,
+  });
 
   const persistedEvents = useMemo(() => {
     const events = Array.isArray(persistedEventsUnsorted)
@@ -316,11 +286,6 @@ export function useContext(db: any, opts: UseContextOptions): ContextValue {
       return String(a?.id).localeCompare(String(b?.id));
     });
   }, [persistedEventsUnsorted]);
-
-  const persistedMessages = useMemo(
-    () => persistedEvents.map(eventToMessage),
-    [persistedEvents]
-  );
 
   const keyFor = useMemo(() => makeStorageKey(apiUrl), [apiUrl]);
   const runIdKeyFor = useCallback(

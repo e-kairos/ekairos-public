@@ -178,7 +178,7 @@ function createAiSdkStreamEvent(params: {
     content: {
       parts: [
         {
-          type: "ai-sdk-event",
+          type: "reactor-event",
           state: toOutputState(chunkType, params.chunk.state),
           input: payload,
           output: payload,
@@ -186,7 +186,7 @@ function createAiSdkStreamEvent(params: {
             source: "ai-sdk.stream.chunk",
             phase: chunkType,
             label,
-            eventType: "ai-sdk-event",
+            eventType: "reactor-event",
             sequence: params.sequence,
             chunkType,
             providerChunkType,
@@ -216,7 +216,7 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
           text: data.reaction.text,
         },
         {
-          type: "ai-sdk-event",
+          type: "reactor-event",
           state: "output-available",
           input: {
             phase: "chunk.finish",
@@ -229,7 +229,7 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
           metadata: {
             source: "ai-sdk.stream.chunk",
             phase: "chunk.finish",
-            eventType: "ai-sdk-event",
+            eventType: "reactor-event",
           },
         },
       ],

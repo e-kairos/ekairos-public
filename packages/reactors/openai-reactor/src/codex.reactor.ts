@@ -1,5 +1,7 @@
 import {
   OUTPUT_ITEM_TYPE,
+  createContextStepStreamChunk,
+  type ContextSkillPackage,
   type ContextItem,
   type ContextReactionResult,
   type ContextReactor,
@@ -46,6 +48,7 @@ export type CodexExecuteTurnArgs<
   iteration: number
   instruction: string
   config: Config
+  skills: ContextSkillPackage[]
   writable?: WritableStream<unknown>
   silent: boolean
   emitChunk: (providerChunk: unknown) => Promise<void>
@@ -431,6 +434,7 @@ export function createCodexReactor<
     const chunkTypeCounters = new Map<string, number>()
     const providerChunkTypeCounters = new Map<string, number>()
     const capturedChunks: CodexMappedChunk[] = []
+    const allCapturedChunks: CodexMappedChunk[] = []
     const semanticChunks: AnyRecord[] = []
 
     const context = asRecord(params.context.content)
@@ -491,6 +495,7 @@ export function createCodexReactor<
         includeReasoningPart,
         completedOnly: true,
         semanticChunks,
+        rawChunks: allCapturedChunks,
         result: {
           providerContextId: streamedProviderContextId,
           turnId: streamedTurnId,
@@ -510,7 +515,6 @@ export function createCodexReactor<
     }
 
     const emitChunk = async (providerChunk: unknown) => {
-      if (params.silent) return
       const mapped = options.mapChunk
         ? options.mapChunk(providerChunk)
         : defaultMapCodexChunk(providerChunk)
@@ -529,6 +533,10 @@ export function createCodexReactor<
           ? mapped.raw ?? toJsonSafe(providerChunk)
           : undefined,
       }
+      allCapturedChunks.push({
+        ...mappedChunk,
+        raw: mapped.raw ?? toJsonSafe(providerChunk),
+      })
 
       chunkTypeCounters.set(
         mapped.chunkType,
@@ -591,27 +599,33 @@ export function createCodexReactor<
       }
 
       const payload = {
-        type: "chunk.emitted",
         at: now,
+        sequence: mappedChunk.sequence,
         chunkType: mappedChunk.chunkType,
-        contextId: params.contextId,
-        executionId: params.executionId,
-        stepId: params.stepId,
-        itemId: params.eventId,
-        actionRef: mappedChunk.actionRef,
         provider: "codex",
         providerChunkType: mappedChunk.providerChunkType,
-        sequence: mappedChunk.sequence,
+        actionRef: mappedChunk.actionRef,
         data: mappedChunk.data,
-        raw: mappedChunk.raw ?? mapped.raw ?? toJsonSafe(providerChunk),
+        raw: mapped.raw ?? toJsonSafe(providerChunk),
       }
+
+      await params.emitStreamChunk?.(
+        createContextStepStreamChunk(payload),
+      )
 
       if (params.writable) {
         const writer = params.writable.getWriter()
         try {
           await writer.write({
             type: "data-chunk.emitted",
-            data: payload,
+            data: {
+              type: "chunk.emitted",
+              contextId: params.contextId,
+              executionId: params.executionId,
+              stepId: params.stepId,
+              itemId: params.eventId,
+              ...payload,
+            },
           })
         } finally {
           writer.releaseLock()
@@ -630,6 +644,7 @@ export function createCodexReactor<
       iteration: params.iteration,
       instruction,
       config,
+      skills: params.skills,
       writable: params.writable,
       silent: params.silent,
       emitChunk,
@@ -641,7 +656,6 @@ export function createCodexReactor<
           totalChunks: chunkSequence,
           chunkTypes: Object.fromEntries(chunkTypeCounters.entries()),
           providerChunkTypes: Object.fromEntries(providerChunkTypeCounters.entries()),
-          chunks: capturedChunks,
         }
       : undefined
 
@@ -659,6 +673,7 @@ export function createCodexReactor<
           toolName,
           includeReasoningPart,
           semanticChunks,
+          rawChunks: allCapturedChunks,
           result: turn,
           instruction,
           streamTrace,

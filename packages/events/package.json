@@ -115,8 +115,8 @@
   "dependencies": {
     "@ai-sdk/openai": "^2.0.52",
     "@ekairos/domain": "^1.22.0",
-    "@instantdb/admin": "0.22.126",
-    "@instantdb/core": "0.22.126",
+    "@instantdb/admin": "0.22.158",
+    "@instantdb/core": "0.22.142",
     "@vercel/mcp-adapter": "^1.0.0",
     "@vercel/sandbox": "^0.0.23",
     "ai": "^5.0.95",

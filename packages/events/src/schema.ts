@@ -24,6 +24,10 @@ export const eventsDomain: DomainSchemaResult = domain("events")
                 updatedAt: i.date().optional(),
                 status: i.string().optional().indexed(), // executing | completed | failed
                 workflowRunId: i.string().optional().indexed(),
+                activeStreamId: i.string().optional().indexed(),
+                activeStreamClientId: i.string().optional().indexed(),
+                lastStreamId: i.string().optional().indexed(),
+                lastStreamClientId: i.string().optional().indexed(),
             }),
             event_steps: i.entity({
                 createdAt: i.date().indexed(),
@@ -39,6 +43,11 @@ export const eventsDomain: DomainSchemaResult = domain("events")
                 actionResults: i.any().optional(),
                 continueLoop: i.boolean().optional(),
                 errorText: i.string().optional(),
+                streamId: i.string().optional().indexed(),
+                streamClientId: i.string().optional().indexed(),
+                streamStartedAt: i.date().optional().indexed(),
+                streamFinishedAt: i.date().optional().indexed(),
+                streamAbortReason: i.string().optional(),
             }),
             event_parts: i.entity({
                 key: i.string().unique().indexed(), // `${stepId}:${idx}`
@@ -152,6 +161,18 @@ export const eventsDomain: DomainSchemaResult = domain("events")
             contextPartsStep: {
                 forward: { on: "event_parts", has: "one", label: "step" },
                 reverse: { on: "event_steps", has: "many", label: "parts" },
+            },
+            contextStepStream: {
+                forward: { on: "event_steps", has: "one", label: "stream" },
+                reverse: { on: "$streams" as any, has: "many", label: "step" },
+            },
+            contextExecutionActiveStream: {
+                forward: { on: "event_executions", has: "one", label: "activeStream" },
+                reverse: { on: "$streams" as any, has: "many", label: "activeOf" },
+            },
+            contextExecutionLastStream: {
+                forward: { on: "event_executions", has: "one", label: "lastStream" },
+                reverse: { on: "$streams" as any, has: "many", label: "lastOf" },
             },
             documentFile: {
                 forward: {

@@ -255,7 +255,7 @@ function createCodexStreamEvent(params: {
     content: {
       parts: [
         {
-          type: "codex-event",
+          type: "reactor-event",
           state: toOutputState(chunkType),
           input: payload,
           output: payload,
@@ -263,7 +263,7 @@ function createCodexStreamEvent(params: {
             source: "codex.stream.event",
             phase: chunkType,
             label,
-            eventType: "codex-event",
+            eventType: "reactor-event",
             sequence: params.sequence,
             chunkType,
             providerChunkType,
@@ -293,7 +293,7 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
           text: data.reaction.text,
         },
         {
-          type: "codex-event",
+          type: "reactor-event",
           state: "output-available",
           input: {
             phase: "turn.completed",
@@ -306,7 +306,7 @@ function createReactionEvent(data: FixtureData): ContextEventForUI {
           metadata: {
             source: "codex.stream.event",
             phase: "turn.completed",
-            eventType: "codex-event",
+            eventType: "reactor-event",
           },
         },
       ],

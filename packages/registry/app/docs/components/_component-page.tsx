@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { vscDarkPlus, vs } from "react-syntax-highlighter/dist/esm/styles/prism"
 import type { RegistryItem } from "@/lib/registry-types"
+import { useRegistrySession } from "@/lib/registry-session"
 import { cn } from "@/lib/utils"
 
 const REGISTRY_HOST = "registry.ekairos.dev"
@@ -71,6 +72,7 @@ type ComponentDocPageProps = {
 export function ComponentDocPage({ item }: ComponentDocPageProps) {
   const [view, setView] = useState<"preview" | "code">("preview")
   const [isDark, setIsDark] = useState(false)
+  const registrySession = useRegistrySession()
 
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"))
@@ -140,8 +142,51 @@ export function ComponentDocPage({ item }: ComponentDocPageProps) {
 
         <div className="border border-border/80 rounded-xl min-h-[400px] relative overflow-hidden bg-card">
           {view === "preview" ? (
-            <div className="flex justify-center w-full p-8">
-              {item.render()}
+            <div className="w-full p-8 space-y-4">
+              {item.previewMode === "ephemeral-app" ? (
+                <div
+                  data-testid="component-preview-ephemeral-app"
+                  className="rounded-2xl border border-border/80 bg-background px-4 py-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="space-y-2">
+                      <p className="text-[0.65rem] uppercase tracking-[0.35em] text-muted-foreground">
+                        ephemeral app
+                      </p>
+                      <p className="text-sm text-muted-foreground max-w-2xl">
+                        {item.previewHint || "This preview runs against the current ephemeral Instant app for this visitor session."}
+                      </p>
+                      <div className="grid gap-2 font-mono text-[11px] text-muted-foreground md:grid-cols-2">
+                        <div
+                          data-testid="component-preview-app-status"
+                          className="rounded border border-border/70 bg-card px-2 py-1"
+                        >
+                          status: {registrySession.status}
+                        </div>
+                        <div
+                          data-testid="component-preview-app-id"
+                          className="rounded border border-border/70 bg-card px-2 py-1"
+                        >
+                          appId: {registrySession.session?.appId || "-"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void registrySession.recreateSession()}
+                      className="rounded-full border border-border px-4 py-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground disabled:opacity-50"
+                      disabled={registrySession.status === "initializing"}
+                    >
+                      New app
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex justify-center w-full">
+                {item.render()}
+              </div>
             </div>
           ) : (
             <div className="relative h-full">

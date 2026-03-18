@@ -7,7 +7,8 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "file/scripts"
+    "file/scripts",
+    "skill"
   ],
   "publishConfig": {
     "access": "public"
@@ -24,16 +25,6 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./query": {
-      "types": "./dist/query/index.d.ts",
-      "require": "./dist/query/index.js",
-      "default": "./dist/query/index.js"
-    },
-    "./transform": {
-      "types": "./dist/transform/index.d.ts",
-      "require": "./dist/transform/index.js",
-      "default": "./dist/transform/index.js"
-    },
     "./file/scripts": {
       "default": "./dist/file/scripts"
     },
@@ -46,7 +37,10 @@
     "dev": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run -c vitest.config.mts"
+    "test": "vitest run -c vitest.config.mts",
+    "test:direct": "vitest run -c vitest.config.mts src/tests/dataset.builder.instant.test.ts",
+    "test:tool": "vitest run -c vitest.config.mts src/tests/materializeDataset.tool.instant.test.ts",
+    "test:ai-sdk:instant": "vitest run -c vitest.codex.config.mts src/tests/materializeDataset.ai-sdk.instant.test.ts"
   },
   "dependencies": {
     "@ekairos/domain": "^1.22.0",
@@ -60,6 +54,8 @@
     "zod": "^4.1.8"
   },
   "devDependencies": {
+    "@ai-sdk/openai": "^2.0.42",
+    "@ekairos/openai-reactor": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "dotenv": "^17.2.3",

@@ -3,12 +3,15 @@ import { domain, type DomainSchemaResult } from "@ekairos/domain"
 
 const entities = {
   dataset_datasets: i.entity({
+    datasetId: i.string().unique().indexed(),
+    sandboxId: i.string().optional().indexed(),
     status: i.string().optional().indexed(),
     createdAt: i.number().optional().indexed(),
     updatedAt: i.number().optional(),
     organizationId: i.string().optional().indexed(),
     title: i.string().optional(),
-    sources: i.string().optional(),
+    sources: i.json().optional(),
+    sourceKinds: i.json().optional(),
     instructions: i.string().optional(),
     analysis: i.json().optional(),
     schema: i.json().optional(),

@@ -1,4 +1,4 @@
-import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
+import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
 import { createExecuteCommandTool } from "../executeCommand.tool"
 import { createClearDatasetTool } from "../clearDataset.tool"
@@ -7,7 +7,7 @@ import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles"
 import { id } from "@instantdb/admin"
 import { generateSourcePreview, TransformSourcePreviewContext } from "./filepreview"
 import { datasetReadOutputJsonlStep, datasetUpdateSchemaStep } from "../dataset/steps"
-import { createDatasetSandboxStep, runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
 
 export type TransformDatasetContext = {
     datasetId: string
@@ -30,6 +30,7 @@ export type TransformDatasetAgentParams = {
     datasetId?: string
     model?: string
     sandboxId?: string
+    reactor?: ContextReactor<any, any>
 }
 
 // Sandbox initialization state (closure-based)
@@ -92,16 +93,13 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    const story = createContext<Env>("dataset.transform")
+    let storyBuilder = createContext<Env>("dataset.transform")
         .context(async (stored: any, env: Env) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: TransformSandboxState = previous?.sandboxState ?? { initialized: false, sourcePaths: [] }
-            const existingSandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
-
-            let sandboxId = existingSandboxId
+            const sandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
             if (!sandboxId) {
-                const created = await createDatasetSandboxStep({ env, runtime: "python3.13", timeoutMs: 10 * 60 * 1000 })
-                sandboxId = created.sandboxId
+                throw new Error("dataset_sandbox_required")
             }
 
         const { sourcePaths, outputPath } = await ensureSourcesInSandbox(
@@ -187,8 +185,14 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
             .shouldContinue(({ reactionEvent }: { reactionEvent: any }) => {
                 return !didToolExecute(reactionEvent as any, "completeDataset")
             })
-        .model(model)
-        .build()
+
+    if (params.reactor) {
+        storyBuilder = storyBuilder.reactor(params.reactor as any)
+    } else {
+        storyBuilder = storyBuilder.model(model)
+    }
+
+    const story = storyBuilder.build()
 
     return { datasetId, story }
 }
@@ -201,6 +205,7 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
         datasetId?: string
         model?: string
         sandboxId?: string
+        reactor?: ContextReactor<any, any>
     },
 ) {
     const { datasetId, story } = createTransformDatasetStoryDefinition<Env>({
@@ -210,6 +215,7 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
         datasetId: params.datasetId,
         model: params.model,
         sandboxId: params.sandboxId,
+        reactor: params.reactor,
     })
 
     return {

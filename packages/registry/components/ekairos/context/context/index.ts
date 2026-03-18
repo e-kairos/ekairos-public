@@ -7,8 +7,8 @@ export type {
   SendStatus,
   ContextValue,
   UseContextArgs,
+  UseContextState,
   UseContextStateHook,
-  UseContextEventsHook,
   UseContextOptions,
 } from "./types";
 export { ASSISTANT_MESSAGE_TYPE, INPUT_TEXT_ITEM_TYPE } from "./types";

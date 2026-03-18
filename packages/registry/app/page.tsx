@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { getRegistry } from "@/app/[component]/route";
 import { reactorShowcases } from "@/lib/examples/reactors/registry";
+import { domainRegistry } from "@/lib/domain-registry";
 
 export const revalidate = 3600;
 
@@ -9,9 +10,9 @@ const HIDDEN_PREFIXES = ["ai-elements-", "ekairos-prompt-", "ekairos-tools-"];
 
 const SECTION_LINKS = [
   {
-    label: "Docs",
-    href: "/docs/library/ekairos-lib",
-    description: "Architecture, install surface, and context-first integration notes.",
+    label: "Domains",
+    href: "/docs/domains/events",
+    description: "Start from the domain surface, schema, lifecycle, and demos.",
   },
   {
     label: "Components",
@@ -119,6 +120,7 @@ export default async function HomePage() {
   const featured = getFeatured(items);
   const docsHighlights = getDocsHighlights(items);
   const componentCount = items.length;
+  const domainCount = domainRegistry.length;
   const exampleLinks = [
     ...reactorShowcases.map((showcase) => ({
       title: showcase.title,
@@ -157,9 +159,10 @@ export default async function HomePage() {
               Context-aware UI blocks for AI products, docs, and runnable examples.
             </h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground md:text-base">
-              The landing now treats the registry as a product surface, not a dump of cards.
-              Browse the public component library, inspect context-first flows, and jump into examples
-              that run against the ephemeral Instant app provisioned for the current session.
+              The registry is now entered through the domain surface first. Start from
+              `event_contexts` and `event_items`, then drill into the components and examples that
+              render the same persisted runtime over the ephemeral Instant app provisioned for the
+              current session.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -189,9 +192,9 @@ export default async function HomePage() {
               </div>
               <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Docs lanes
+                  Domains
                 </p>
-                <p className="mt-2 text-2xl font-semibold">{docsHighlights.length}</p>
+                <p className="mt-2 text-2xl font-semibold">{domainCount}</p>
               </div>
               <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-3">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
@@ -246,17 +249,18 @@ export default async function HomePage() {
                   <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-500">
-                        Context-first docs
+                        Domain-first docs
                       </p>
                       <h2 className="mt-2 text-xl font-semibold text-white">
-                        The public surface is already wired to context.
+                        Registry is a domain surface, not a flat UI shelf.
                       </h2>
                       <p className="mt-2 text-sm leading-6 text-neutral-400">
-                        Installables, docs, and examples are aligned to the current runtime shape,
-                        including the ephemeral Instant app session created for the visitor.
+                        Start from the `events` schema and the context engine around
+                        `event_contexts` and `event_items`, then drill into components and demos
+                        that share the same persistence model.
                       </p>
                       <div className="mt-4 rounded-xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-[11px] text-neutral-300">
-                        GET /r/context-state-panel.json
+                        /docs/domains/events
                       </div>
                     </div>
 

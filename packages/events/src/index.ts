@@ -152,6 +152,13 @@ export {
   validateContextStreamTimeline,
 } from "./context.stream.js"
 
+export {
+  CONTEXT_STEP_STREAM_VERSION,
+  createContextStepStreamChunk,
+  parseContextStepStreamChunk,
+  encodeContextStepStreamChunk,
+} from "./context.step-stream.js"
+
 export type {
   ContextStreamEvent,
   ContextCreatedEvent,
@@ -173,3 +180,6 @@ export type {
   PartUpdatedEvent,
   ChunkEmittedEvent,
 } from "./context.stream.js"
+
+export type { ContextStepStreamChunk } from "./context.step-stream.js"
+export type { ContextSkillPackage, ContextSkillPackageFile } from "./context.skill.js"

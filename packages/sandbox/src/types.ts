@@ -1,4 +1,21 @@
+import type { RuntimeDomainSource } from "@ekairos/domain/runtime"
+
 export type SandboxId = string
+
+export type SandboxDatasetConfig = {
+  enabled?: boolean
+}
+
+export type SandboxSkillPackageFile = {
+  path: string
+  contentBase64: string
+}
+
+export type SandboxInstallableSkill = {
+  name: string
+  description?: string
+  files: SandboxSkillPackageFile[]
+}
 
 export type SandboxConfig = {
   /**
@@ -17,6 +34,43 @@ export type SandboxConfig = {
   resources?: { vcpus?: number }
   purpose?: string
   params?: Record<string, any>
+  env?: Record<string, unknown>
+  domain?: RuntimeDomainSource
+  dataset?: SandboxDatasetConfig
+  skills?: SandboxInstallableSkill[]
+  /**
+   * Vercel-specific options.
+   */
+  vercel?: {
+    /**
+     * Linked project name or id. Optional when cwd already contains `.vercel/project.json`.
+     */
+    project?: string
+    /**
+     * Team slug or org id. Optional when cwd already contains `.vercel/project.json`.
+     */
+    scope?: string
+    /**
+     * Working directory used to resolve `.vercel/project.json` or run `vercel env pull`.
+     */
+    cwd?: string
+    /**
+     * Environment to use for OIDC/env pull.
+     */
+    environment?: "development" | "preview" | "production"
+    /**
+     * Explicit Vercel token or OIDC token override.
+     */
+    token?: string
+    /**
+     * Explicit project id override.
+     */
+    projectId?: string
+    /**
+     * Explicit org/team id override.
+     */
+    orgId?: string
+  }
   /**
    * Daytona-specific options.
    */

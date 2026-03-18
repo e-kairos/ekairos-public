@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Moon, Sun, Menu } from "lucide-react"
+import { domainRegistry } from "@/lib/domain-registry"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { registryData } from "@/lib/ui-registry"
 import { cn } from "@/lib/utils"
@@ -30,6 +31,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
   }
 
   const isComponentActive = (itemId: string) => pathname === `/docs/components/${itemId}`
+  const isDomainActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`)
   const isLinkActive = (href: string) => pathname === href
 
   const libraryLinks = [
@@ -66,6 +68,28 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div>
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3 px-2 font-semibold">
+                domains
+              </div>
+              <div className="space-y-1">
+                {domainRegistry.map(domain => (
+                  <Link
+                    key={domain.id}
+                    href={domain.href}
+                    className={cn(
+                      "block px-3 py-1.5 text-sm transition-colors rounded-md",
+                      isDomainActive(domain.href)
+                        ? "bg-muted text-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    )}
+                  >
+                    {domain.title.toLowerCase()}
+                  </Link>
+                ))}
+              </div>
+            </div>
+
             <div>
               <div className="text-xs text-muted-foreground uppercase tracking-wider mb-3 px-2 font-semibold">core</div>
               <div className="space-y-1">
@@ -166,7 +190,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </header>
 
           <div className="flex-1 overflow-auto pt-14">
-            <div className="max-w-3xl mx-auto p-8 space-y-8">
+            <div className="w-full max-w-6xl mx-auto px-4 py-6 md:px-6 md:py-8 space-y-6">
               {children}
             </div>
           </div>

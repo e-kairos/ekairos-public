@@ -3,6 +3,8 @@ import type { ModelMessage, UIMessageChunk } from "ai"
 import type { ContextEnvironment } from "../context.config.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextIdentifier, StoredContext, ContextItem } from "../context.store.js"
+import type { ContextStepStreamChunk } from "../context.step-stream.js"
+import type { ContextSkillPackage } from "../context.skill.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 
 export type ContextActionRequest = {
@@ -43,6 +45,7 @@ export type ContextReactorParams<
   systemPrompt: string
   actions: Record<string, unknown>
   toolsForModel: Record<string, SerializableToolForModel>
+  skills: ContextSkillPackage[]
   eventId: string
   executionId: string
   contextId: string
@@ -53,6 +56,7 @@ export type ContextReactorParams<
   silent: boolean
   writable?: WritableStream<UIMessageChunk>
   persistReactionParts?: (parts: any[]) => Promise<void>
+  emitStreamChunk?: (chunk: ContextStepStreamChunk) => Promise<void>
 }
 
 export type ContextReactor<

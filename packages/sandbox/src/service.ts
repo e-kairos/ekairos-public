@@ -1,16 +1,25 @@
-import { Sandbox as VercelSandbox } from "@vercel/sandbox"
+import { Sandbox as VercelSandbox, type NetworkPolicy } from "@vercel/sandbox"
 import { Daytona, Image, type DaytonaConfig, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { id, type InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain"
+import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtime"
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
 import { sandboxDomain } from "./schema.js"
-import type { SandboxConfig, SandboxProvider } from "./types.js"
+import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
+import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { existsSync, promises as fs } from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { promisify } from "node:util"
 
 type SandboxSchemaType = SchemaOf<typeof sandboxDomain>
+const execFileAsync = promisify(execFile)
 
 export interface SandboxRecord {
   id: string
   externalSandboxId?: string
+  sandboxUserId?: string
   provider: string
   sandboxUrl?: string
   status: "creating" | "active" | "shutdown" | "error" | "recreating"
@@ -38,6 +47,48 @@ type SpritesSandbox = {
 
 type ProviderSandbox = VercelSandbox | DaytonaSandbox | SpritesSandbox
 
+const EKAIROS_ROOT_DIR = "/vercel/sandbox/.ekairos"
+const EKAIROS_RUNTIME_MANIFEST_PATH = `${EKAIROS_ROOT_DIR}/runtime.json`
+const EKAIROS_HTTP_HELPER_PATH = `${EKAIROS_ROOT_DIR}/instant-http.mjs`
+const EKAIROS_QUERY_SCRIPT_PATH = `${EKAIROS_ROOT_DIR}/query.mjs`
+const CODEX_HOME_DIR = "/vercel/sandbox/.codex"
+const CODEX_SKILLS_DIR = `${CODEX_HOME_DIR}/skills`
+const INSTANT_API_BASE_URL = "https://api.instantdb.com"
+
+type SandboxEkairosManifest = {
+  version: 1
+  instant: {
+    apiBaseUrl: string
+    appId: string
+  }
+  sandbox: {
+    sandboxUserId: string
+  }
+  domain: {
+    name: string
+    contextString?: string
+    schemaJson?: any
+  }
+  dataset?: {
+    enabled: true
+  }
+}
+
+type ResolvedEkairosBootstrap = {
+  appId: string
+  sandboxUserId: string
+  scopedToken: string
+  manifest: SandboxEkairosManifest
+  networkPolicy: NetworkPolicy
+  env: Record<string, string>
+}
+
+type SandboxInstalledSkill = {
+  name: string
+  rootDir: string
+  files: Array<{ path: string; content: Buffer }>
+}
+
 function formatInstantSchemaError(err: any): string {
   const base = err instanceof Error ? err.message : String(err)
   const body = err?.body
@@ -64,6 +115,15 @@ function formatInstantSchemaError(err: any): string {
   return base + " | missing attributes: " + uniq.join(", ")
 }
 
+function formatSandboxError(err: any): string {
+  const base = err instanceof Error ? err.message : String(err)
+  const text = typeof err?.text === "string" ? err.text.trim() : ""
+  const json = err?.json ? JSON.stringify(err.json) : ""
+  const detail = text || json
+  if (!detail) return base
+  return `${base}: ${detail}`
+}
+
 export class SandboxService {
   private adminDb: InstantAdminDatabase<SandboxSchemaType>
 
@@ -83,8 +143,446 @@ export class SandboxService {
     return { teamId, projectId, token }
   }
 
-  private static async provisionVercelSandbox(config: SandboxConfig): Promise<VercelSandbox> {
-    const creds = SandboxService.getVercelCredentials()
+  private static getDomainName(domain: RuntimeDomainSource): string {
+    const metaName = typeof domain?.meta?.name === "string" ? domain.meta.name.trim() : ""
+    const contextName = typeof (domain as any)?.context === "function" ? String((domain as any).context()?.name ?? "").trim() : ""
+    return metaName || contextName || "domain"
+  }
+
+  private static getDomainContextString(domain: RuntimeDomainSource): string {
+    if (typeof domain?.contextString !== "function") return ""
+    try {
+      return String(domain.contextString() ?? "").trim()
+    } catch {
+      return ""
+    }
+  }
+
+  private static cloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T
+  }
+
+  private static buildEkairosNetworkPolicy(params: { scopedToken: string; datasetEnabled: boolean }): NetworkPolicy {
+    const allow: Record<string, any[]> = {
+      "api.instantdb.com": [
+        {
+          transform: [
+            {
+              headers: {
+                "as-token": params.scopedToken,
+              },
+            },
+          ],
+        },
+      ],
+    }
+
+    if (params.datasetEnabled) {
+      allow["pypi.org"] = []
+      allow["files.pythonhosted.org"] = []
+      allow["*.pythonhosted.org"] = []
+    }
+
+    return {
+      allow,
+    }
+  }
+
+  private static buildEkairosManifest(params: {
+    appId: string
+    sandboxUserId: string
+    domain: RuntimeDomainSource
+    datasetEnabled: boolean
+  }): SandboxEkairosManifest {
+    const contextString = SandboxService.getDomainContextString(params.domain)
+    const schemaJson = SandboxService.cloneJson((params.domain as any).toInstantSchema())
+    return {
+      version: 1,
+      instant: {
+        apiBaseUrl: INSTANT_API_BASE_URL,
+        appId: params.appId,
+      },
+      sandbox: {
+        sandboxUserId: params.sandboxUserId,
+      },
+      domain: {
+        name: SandboxService.getDomainName(params.domain),
+        ...(contextString ? { contextString } : {}),
+        schemaJson,
+      },
+      ...(params.datasetEnabled ? { dataset: { enabled: true } } : {}),
+    }
+  }
+
+  private static buildEkairosRuntimeFiles(manifest: SandboxEkairosManifest): Array<{ path: string; content: Buffer }> {
+    const httpHelper = [
+      "import { readFile } from 'node:fs/promises'",
+      "import { randomUUID } from 'node:crypto'",
+      "",
+      "export async function readRuntimeManifest(manifestPath) {",
+      `  const resolvedPath = manifestPath || ${JSON.stringify(EKAIROS_RUNTIME_MANIFEST_PATH)}`,
+      "  return JSON.parse(await readFile(resolvedPath, 'utf8'))",
+      "}",
+      "",
+      "export async function instantQuery(query, manifestPath) {",
+      "  const manifest = await readRuntimeManifest(manifestPath)",
+      "  const response = await fetch(`${manifest.instant.apiBaseUrl}/admin/query`, {",
+      "    method: 'POST',",
+      "    headers: {",
+      "      'content-type': 'application/json',",
+      "      'app-id': manifest.instant.appId,",
+      "    },",
+      "    body: JSON.stringify({ query }),",
+      "  })",
+      "  const text = await response.text()",
+      "  if (!response.ok) {",
+      "    throw new Error(JSON.stringify({ status: response.status, body: text }))",
+      "  }",
+      "  return text ? JSON.parse(text) : {}",
+      "}",
+      "",
+      "export async function instantTransact(steps, manifestPath) {",
+      "  const manifest = await readRuntimeManifest(manifestPath)",
+      "  const response = await fetch(`${manifest.instant.apiBaseUrl}/admin/transact`, {",
+      "    method: 'POST',",
+      "    headers: {",
+      "      'content-type': 'application/json',",
+      "      'app-id': manifest.instant.appId,",
+      "    },",
+      "    body: JSON.stringify({ steps, 'throw-on-missing-attrs?': true }),",
+      "  })",
+      "  const text = await response.text()",
+      "  if (!response.ok) {",
+      "    throw new Error(JSON.stringify({ status: response.status, body: text }))",
+      "  }",
+      "  return text ? JSON.parse(text) : {}",
+      "}",
+      "",
+      "export function newId() {",
+      "  return randomUUID()",
+      "}",
+      "",
+      "export function decodeArg(encodedJson) {",
+      "  return JSON.parse(Buffer.from(encodedJson, 'base64url').toString('utf8'))",
+      "}",
+      "",
+    ].join("\n")
+
+    const queryScript = [
+      `import { decodeArg, instantQuery } from ${JSON.stringify(EKAIROS_HTTP_HELPER_PATH)}`,
+      "",
+      "const encodedQuery = process.argv[2] ?? ''",
+      `const manifestPath = process.argv[3] ?? ${JSON.stringify(EKAIROS_RUNTIME_MANIFEST_PATH)}`,
+      "",
+      "if (!encodedQuery) {",
+      "  console.error('ekairos_query_required')",
+      "  process.exit(1)",
+      "}",
+      "",
+      "const query = decodeArg(encodedQuery)",
+      "try {",
+      "  const result = await instantQuery(query, manifestPath)",
+      "  process.stdout.write(JSON.stringify(result))",
+      "} catch (error) {",
+      "  console.error(error instanceof Error ? error.message : String(error))",
+      "  process.exit(1)",
+      "}",
+      "",
+    ].join("\n")
+
+    const files: Array<{ path: string; content: Buffer }> = [
+      {
+        path: EKAIROS_HTTP_HELPER_PATH,
+        content: Buffer.from(httpHelper, "utf8"),
+      },
+      {
+        path: EKAIROS_RUNTIME_MANIFEST_PATH,
+        content: Buffer.from(JSON.stringify(manifest, null, 2), "utf8"),
+      },
+      {
+        path: EKAIROS_QUERY_SCRIPT_PATH,
+        content: Buffer.from(queryScript, "utf8"),
+      },
+    ]
+
+    return files
+  }
+
+  private static async resolveInstantUserIdByRefreshToken(params: {
+    appId: string
+    adminToken: string
+    refreshToken: string
+  }): Promise<string> {
+    const response = await fetch(
+      `${INSTANT_API_BASE_URL}/admin/users?refresh_token=${encodeURIComponent(params.refreshToken)}`,
+      {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${params.adminToken}`,
+          "app-id": params.appId,
+        },
+      },
+    )
+
+    const text = await response.text()
+    let parsed: any = null
+    try {
+      parsed = text ? JSON.parse(text) : null
+    } catch {
+      parsed = null
+    }
+
+    if (!response.ok) {
+      throw new Error(parsed?.message || parsed?.error || text || "instant_refresh_token_lookup_failed")
+    }
+
+    const userId = String(parsed?.user?.id ?? "").trim()
+    if (!userId) {
+      throw new Error("instant_refresh_token_user_id_missing")
+    }
+    return userId
+  }
+
+  private static async resolveEkairosBootstrap(config: SandboxConfig): Promise<ResolvedEkairosBootstrap | null> {
+    const hasRuntimeBinding = config.env !== undefined || config.domain !== undefined
+    if (!hasRuntimeBinding) return null
+    if (!config.env || !config.domain) {
+      throw new Error("sandbox_runtime_requires_env_and_domain")
+    }
+
+    const provider = SandboxService.resolveProvider(config)
+    if (provider !== "vercel") {
+      throw new Error("ekairos_runtime_requires_vercel_provider")
+    }
+    const datasetEnabled = Boolean(config.dataset?.enabled)
+
+    const runtime = await resolveRuntime(
+      config.domain as RuntimeDomainSource,
+      config.env as Record<string, unknown>,
+    )
+
+    const adminDb = (runtime as any)?.db
+    const appId = String(adminDb?.config?.appId ?? "").trim()
+    const adminToken = String(adminDb?.config?.adminToken ?? "").trim()
+
+    if (!adminDb || !appId || !adminToken) {
+      throw new Error("ekairos_runtime_admin_db_required")
+    }
+
+    const provisionalSandboxUserId = randomUUID()
+    const scopedToken = await adminDb.auth.createToken({ id: provisionalSandboxUserId })
+    const sandboxUserId = await SandboxService.resolveInstantUserIdByRefreshToken({
+      appId,
+      adminToken,
+      refreshToken: scopedToken,
+    })
+
+    return {
+      appId,
+      sandboxUserId,
+      scopedToken,
+      manifest: SandboxService.buildEkairosManifest({
+        appId,
+        sandboxUserId,
+        domain: config.domain,
+        datasetEnabled,
+      }),
+      networkPolicy: SandboxService.buildEkairosNetworkPolicy({ scopedToken, datasetEnabled }),
+      env: {
+        EKAIROS_RUNTIME_MANIFEST_PATH: EKAIROS_RUNTIME_MANIFEST_PATH,
+        EKAIROS_SANDBOX_USER_ID: sandboxUserId,
+        EKAIROS_INSTANT_APP_ID: appId,
+        CODEX_HOME: CODEX_HOME_DIR,
+      },
+    }
+  }
+
+  private static async bootstrapEkairosFiles(sandbox: VercelSandbox, manifest: SandboxEkairosManifest): Promise<void> {
+    await SandboxService.safeMkDir(sandbox, EKAIROS_ROOT_DIR)
+    await SandboxService.safeMkDir(sandbox, CODEX_HOME_DIR)
+    await SandboxService.safeMkDir(sandbox, CODEX_SKILLS_DIR)
+    await sandbox.writeFiles(SandboxService.buildEkairosRuntimeFiles(manifest))
+  }
+
+  private static async safeMkDir(sandbox: VercelSandbox, dirPath: string): Promise<void> {
+    try {
+      await sandbox.mkDir(dirPath)
+    } catch (error) {
+      const message = formatSandboxError(error)
+      if (message.includes("File exists")) {
+        return
+      }
+      throw error
+    }
+  }
+
+  private static buildSkillInstallSet(skills: SandboxInstallableSkill[]): SandboxInstalledSkill[] {
+    return skills.map((skill) => {
+      const skillName = String(skill.name ?? "").trim()
+      if (!skillName) {
+        throw new Error("sandbox_skill_name_required")
+      }
+
+      const rootDir = `${CODEX_SKILLS_DIR}/${skillName}`
+      const files = (skill.files ?? []).map((file) => {
+        const relativePath = String(file.path ?? "").replace(/\\/g, "/").replace(/^\/+/, "").trim()
+        if (!relativePath) {
+          throw new Error(`sandbox_skill_file_path_required:${skillName}`)
+        }
+        return {
+          path: `${rootDir}/${relativePath}`,
+          content: Buffer.from(String(file.contentBase64 ?? ""), "base64"),
+        }
+      })
+
+      return {
+        name: skillName,
+        rootDir,
+        files,
+      }
+    })
+  }
+
+  private static async bootstrapSkills(
+    sandbox: VercelSandbox,
+    skills: SandboxInstallableSkill[],
+  ): Promise<Array<{ name: string; rootDir: string; fileCount: number }>> {
+    const installSet = SandboxService.buildSkillInstallSet(skills)
+    if (installSet.length === 0) return []
+
+    await SandboxService.safeMkDir(sandbox, CODEX_HOME_DIR)
+    await SandboxService.safeMkDir(sandbox, CODEX_SKILLS_DIR)
+    for (const skill of installSet) {
+      await SandboxService.safeMkDir(sandbox, skill.rootDir)
+      const parentDirs = Array.from(
+        new Set(
+          skill.files
+            .map((file) => path.posix.dirname(file.path))
+            .filter((dirPath) => dirPath && dirPath !== "." && dirPath !== skill.rootDir),
+        ),
+      ).sort((a, b) => a.length - b.length)
+      for (const dirPath of parentDirs) {
+        await SandboxService.safeMkDir(sandbox, dirPath)
+      }
+      await sandbox.writeFiles(skill.files)
+    }
+
+    return installSet.map((skill) => ({
+      name: skill.name,
+      rootDir: skill.rootDir,
+      fileCount: skill.files.length,
+    }))
+  }
+
+  private static resolveVercelWorkingDirectory(config: SandboxConfig): string {
+    const fromConfig = String(config.vercel?.cwd ?? "").trim()
+    if (fromConfig) return path.resolve(fromConfig)
+    const fromEnv = String(process.env.SANDBOX_VERCEL_CWD ?? "").trim()
+    if (fromEnv) return path.resolve(fromEnv)
+    return process.cwd()
+  }
+
+  private static findLinkedVercelProjectFile(startDir: string): string | null {
+    let current = path.resolve(startDir)
+    while (true) {
+      const candidate = path.join(current, ".vercel", "project.json")
+      if (existsSync(candidate)) return candidate
+      const parent = path.dirname(current)
+      if (parent === current) return null
+      current = parent
+    }
+  }
+
+  private static async readLinkedVercelProject(config: SandboxConfig): Promise<{
+    orgId?: string
+    projectId?: string
+    projectName?: string
+    cwd: string
+  }> {
+    const cwd = SandboxService.resolveVercelWorkingDirectory(config)
+    const file = SandboxService.findLinkedVercelProjectFile(cwd)
+    if (!file) {
+      return { cwd }
+    }
+    try {
+      const parsed = JSON.parse(await fs.readFile(file, "utf8"))
+      return {
+        cwd,
+        orgId: typeof parsed?.orgId === "string" ? parsed.orgId : undefined,
+        projectId: typeof parsed?.projectId === "string" ? parsed.projectId : undefined,
+        projectName: typeof parsed?.projectName === "string" ? parsed.projectName : undefined,
+      }
+    } catch {
+      return { cwd }
+    }
+  }
+
+  private static async pullVercelOidcToken(config: SandboxConfig): Promise<string> {
+    const cwd = SandboxService.resolveVercelWorkingDirectory(config)
+    const tmpPath = path.join(os.tmpdir(), `ekairos-vercel-env-${Date.now()}-${Math.random().toString(36).slice(2)}.env`)
+    const args = ["env", "pull", tmpPath, "--yes", "--environment", String(config.vercel?.environment ?? "development")]
+    const scope = String(config.vercel?.scope ?? process.env.SANDBOX_VERCEL_SCOPE ?? "").trim()
+    if (scope) {
+      args.push("--scope", scope)
+    }
+    const token = String(process.env.VERCEL_TOKEN ?? process.env.SANDBOX_VERCEL_TOKEN ?? "").trim()
+    if (token) {
+      args.push("--token", token)
+    }
+
+    const isWindows = process.platform === "win32"
+    const command = isWindows ? (process.env.COMSPEC || "cmd.exe") : "vercel"
+    const commandArgs = isWindows ? ["/c", "vercel", ...args] : args
+
+    try {
+      await execFileAsync(command, commandArgs, {
+        cwd,
+        windowsHide: true,
+        timeout: 120000,
+        maxBuffer: 1024 * 1024 * 10,
+      })
+      const content = await fs.readFile(tmpPath, "utf8")
+      const match = content.match(/VERCEL_OIDC_TOKEN=\"?([^\r\n\"]+)\"?/)
+      const oidc = String(match?.[1] ?? "").trim()
+      if (!oidc) {
+        throw new Error("VERCEL_OIDC_TOKEN missing from vercel env pull output")
+      }
+      return oidc
+    } finally {
+      await fs.rm(tmpPath, { force: true }).catch(() => {})
+    }
+  }
+
+  private static async resolveVercelCredentials(config: SandboxConfig) {
+    const explicitTeamId = String(config.vercel?.orgId ?? process.env.SANDBOX_VERCEL_TEAM_ID ?? "").trim()
+    const explicitProjectId = String(config.vercel?.projectId ?? process.env.SANDBOX_VERCEL_PROJECT_ID ?? "").trim()
+    const explicitToken = String(config.vercel?.token ?? process.env.SANDBOX_VERCEL_TOKEN ?? process.env.VERCEL_OIDC_TOKEN ?? "").trim()
+    if (explicitTeamId && explicitProjectId && explicitToken) {
+      return { teamId: explicitTeamId, projectId: explicitProjectId, token: explicitToken }
+    }
+
+    const linked = await SandboxService.readLinkedVercelProject(config)
+    const teamId = explicitTeamId || String(linked.orgId ?? "").trim()
+    const projectId = explicitProjectId || String(linked.projectId ?? "").trim()
+    let token = explicitToken
+    if (!token) {
+      token = await SandboxService.pullVercelOidcToken(config)
+    }
+
+    if (!teamId || !projectId || !token) {
+      throw new Error(
+        "Missing Vercel sandbox credentials. Link the project (`vercel link`) and ensure `vercel env pull` can resolve VERCEL_OIDC_TOKEN, or provide explicit SANDBOX_VERCEL_* env vars.",
+      )
+    }
+
+    return { teamId, projectId, token }
+  }
+
+  private static async provisionVercelSandbox(
+    config: SandboxConfig,
+    extra?: { networkPolicy?: NetworkPolicy; env?: Record<string, string> },
+  ): Promise<VercelSandbox> {
+    const creds = await SandboxService.resolveVercelCredentials(config)
 
     return await VercelSandbox.create({
       teamId: creds.teamId,
@@ -96,6 +594,8 @@ export class SandboxService {
       // Don't normalize to "python3"/"node22" as that can cause provider-side 400s.
       runtime: (config.runtime ?? "node22") as any,
       resources: { vcpus: config.resources?.vcpus ?? 2 },
+      networkPolicy: extra?.networkPolicy,
+      env: extra?.env,
     } as any)
   }
 
@@ -523,27 +1023,58 @@ export class SandboxService {
     const now = Date.now()
     const provider = SandboxService.resolveProvider(config)
     let daytonaEphemeral: boolean | undefined = undefined
+    let installedSkills: Array<{ name: string; rootDir: string; fileCount: number }> = []
 
     try {
+      const ekairos = await SandboxService.resolveEkairosBootstrap(config)
       const baseParams =
         config.params && typeof config.params === "object" && !Array.isArray(config.params) ? config.params : {}
 
       await this.adminDb.transact(
         this.adminDb.tx.sandbox_sandboxes[sandboxId].update({
           status: "creating",
+          ...(ekairos ? { sandboxUserId: ekairos.sandboxUserId } : {}),
           provider,
           timeout: config.timeoutMs,
           runtime: config.runtime,
           vcpus: config.resources?.vcpus,
           ports: config.ports as any,
           purpose: config.purpose,
-          params: baseParams,
+          params: {
+            ...baseParams,
+            ...(ekairos
+              ? {
+                  ekairos: {
+                    enabled: true,
+                    sandboxUserId: ekairos.sandboxUserId,
+                    instant: {
+                      appId: ekairos.appId,
+                      apiBaseUrl: ekairos.manifest.instant.apiBaseUrl,
+                    },
+                    bootstrap: {
+                      manifestPath: EKAIROS_RUNTIME_MANIFEST_PATH,
+                      queryScriptPath: EKAIROS_QUERY_SCRIPT_PATH,
+                    },
+                    domain: ekairos.manifest.domain,
+                    ...(config.dataset?.enabled ? { dataset: { enabled: true } } : {}),
+                    ...(Array.isArray(config.skills) && config.skills.length > 0
+                      ? {
+                          skills: config.skills.map((skill) => ({
+                            name: skill.name,
+                            fileCount: Array.isArray(skill.files) ? skill.files.length : 0,
+                          })),
+                        }
+                      : {}),
+                  },
+                }
+              : {}),
+          },
           createdAt: now,
           updatedAt: now,
         }),
       )
 
-      let sandbox: ProviderSandbox
+      let sandbox: ProviderSandbox | null = null
       try {
         if (provider === "daytona") {
           const daytona = new Daytona(SandboxService.getDaytonaConfig())
@@ -603,10 +1134,30 @@ export class SandboxService {
             config,
           })
         } else {
-          sandbox = await SandboxService.provisionVercelSandbox(config)
+          const vercelEnv = {
+            ...(Array.isArray(config.skills) && config.skills.length > 0 ? { CODEX_HOME: CODEX_HOME_DIR } : {}),
+            ...(ekairos?.env ?? {}),
+          }
+          sandbox = await SandboxService.provisionVercelSandbox(config, {
+            networkPolicy: ekairos?.networkPolicy,
+            env: Object.keys(vercelEnv).length > 0 ? vercelEnv : undefined,
+          })
+          if (ekairos) {
+            await SandboxService.bootstrapEkairosFiles(sandbox as VercelSandbox, ekairos.manifest)
+          }
+          if (Array.isArray(config.skills) && config.skills.length > 0) {
+            installedSkills = await SandboxService.bootstrapSkills(sandbox as VercelSandbox, config.skills)
+          }
         }
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
+        const msg = formatSandboxError(e)
+        if (sandbox && provider === "vercel") {
+          try {
+            await (sandbox as VercelSandbox).stop()
+          } catch {
+            // ignore cleanup errors during failed bootstrap
+          }
+        }
         await this.adminDb.transact(
           this.adminDb.tx.sandbox_sandboxes[sandboxId].update({
             status: "error",
@@ -626,14 +1177,42 @@ export class SandboxService {
 
       const sandboxUrl = provider === "sprites" ? (sandbox as SpritesSandbox).url : undefined
 
-      await this.adminDb.transact(
+      const activateMutations: any[] = [
         this.adminDb.tx.sandbox_sandboxes[sandboxId].update({
           status: "active",
           externalSandboxId,
+          ...(ekairos ? { sandboxUserId: ekairos.sandboxUserId } : {}),
           ...(sandboxUrl ? { sandboxUrl } : {}),
           updatedAt: Date.now(),
           params: {
             ...baseParams,
+            ...(ekairos
+              ? {
+                  ekairos: {
+                    enabled: true,
+                    sandboxUserId: ekairos.sandboxUserId,
+                    instant: {
+                      appId: ekairos.appId,
+                      apiBaseUrl: ekairos.manifest.instant.apiBaseUrl,
+                    },
+                    bootstrap: {
+                      manifestPath: EKAIROS_RUNTIME_MANIFEST_PATH,
+                      queryScriptPath: EKAIROS_QUERY_SCRIPT_PATH,
+                    },
+                    domain: ekairos.manifest.domain,
+                    ...(config.dataset?.enabled ? { dataset: { enabled: true } } : {}),
+                    ...(installedSkills.length > 0 ? { skills: installedSkills } : {}),
+                  },
+                }
+              : {}),
+            ...(provider === "vercel"
+              ? {
+                  vercel: {
+                    ...(baseParams as any)?.vercel,
+                    ...(config.vercel ?? {}),
+                  },
+                }
+              : {}),
             ...(provider === "daytona"
               ? {
                   daytona: {
@@ -657,7 +1236,11 @@ export class SandboxService {
               : {}),
           },
         }),
-      )
+      ]
+      if (ekairos) {
+        activateMutations.push(this.adminDb.tx.sandbox_sandboxes[sandboxId].link({ user: ekairos.sandboxUserId }))
+      }
+      await this.adminDb.transact(activateMutations)
 
       return { ok: true, data: { sandboxId } }
     } catch (e) {
@@ -768,7 +1351,7 @@ export class SandboxService {
         return { ok: false, error: "Valid sandbox record not found" }
       }
 
-      const creds = SandboxService.getVercelCredentials()
+      const creds = await SandboxService.resolveVercelCredentials(record?.params ?? {})
 
       try {
         const maxAttempts = 20
@@ -807,6 +1390,13 @@ export class SandboxService {
     } catch (e) {
       return { ok: false, error: formatInstantSchemaError(e) }
     }
+  }
+
+  private async getSandboxRecord(sandboxId: string): Promise<any | null> {
+    const recordResult: any = await this.adminDb.query({
+      sandbox_sandboxes: { $: { where: { id: sandboxId } as any, limit: 1 }, user: {} },
+    })
+    return recordResult?.sandbox_sandboxes?.[0] ?? null
   }
 
   async stopSandbox(sandboxId: string): Promise<ServiceResult<void>> {
@@ -861,6 +1451,47 @@ export class SandboxService {
       )
 
       return { ok: true, data: undefined }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
+  async query(sandboxId: string, query: Record<string, any>): Promise<ServiceResult<any>> {
+    try {
+      const record = await this.getSandboxRecord(sandboxId)
+      if (!record) {
+        return { ok: false, error: "Valid sandbox record not found" }
+      }
+
+      if (record.provider !== "vercel") {
+        return { ok: false, error: "sandbox_query_requires_vercel_provider" }
+      }
+
+      const queryScriptPath = String(record?.params?.ekairos?.bootstrap?.queryScriptPath ?? "").trim()
+      if (!queryScriptPath) {
+        return { ok: false, error: "sandbox_query_not_configured" }
+      }
+
+      const manifestPath =
+        String(record?.params?.ekairos?.bootstrap?.manifestPath ?? "").trim() || EKAIROS_RUNTIME_MANIFEST_PATH
+      const encodedQuery = Buffer.from(JSON.stringify(query), "utf8").toString("base64url")
+
+      const result = await this.runCommand(sandboxId, "node", [queryScriptPath, encodedQuery, manifestPath])
+      if (!result.ok) {
+        return result as ServiceResult<any>
+      }
+
+      const stdout = String(result.data.output ?? "").trim()
+      if (!stdout) {
+        return { ok: false, error: "sandbox_query_empty_response" }
+      }
+
+      try {
+        return { ok: true, data: JSON.parse(stdout) }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, error: `sandbox_query_invalid_json: ${message}` }
+      }
     } catch (e) {
       return { ok: false, error: formatInstantSchemaError(e) }
     }

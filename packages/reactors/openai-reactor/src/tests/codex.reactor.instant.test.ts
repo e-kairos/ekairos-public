@@ -1,12 +1,13 @@
 /* @vitest-environment node */
 
-import { afterAll, beforeAll, expect } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { randomUUID } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { createContext, eventsDomain, type ContextItem } from "@ekairos/events"
 import { init } from "@instantdb/admin"
+import { readPersistedContextStepStream } from "@ekairos/events/runtime"
 
 import { createCodexReactor, type CodexConfig, type CodexExecuteTurnArgs, type CodexTurnResult } from "../index.js"
 import { describeInstant, itInstant, destroyContextTestApp, provisionContextTestApp } from "./_env.ts"
@@ -287,6 +288,10 @@ function readString(row: Record<string, unknown> | undefined, key: string): stri
 
 let appId: string | null = null
 let db: ReturnType<typeof init> | null = null
+const hasCodexAppServer = Boolean(
+  asString(process.env.CODEX_REACTOR_REAL_URL).trim() ||
+    asString(process.env.CODEX_APP_SERVER_URL).trim(),
+)
 
 function currentDb() {
   if (!db) {
@@ -294,6 +299,8 @@ function currentDb() {
   }
   return db
 }
+
+const itCodexInstant = hasCodexAppServer ? itInstant : it.skip
 
 describeInstant("codex reactor + Instant integration", () => {
   beforeAll(async () => {
@@ -320,13 +327,10 @@ describeInstant("codex reactor + Instant integration", () => {
     }
   }, 5 * 60 * 1000)
 
-  itInstant("captures full Codex output and verifies persisted context state against an ephemeral app", async () => {
+  itCodexInstant("captures full Codex output and verifies persisted context state against an ephemeral app", async () => {
     const appServerUrl =
       asString(process.env.CODEX_REACTOR_REAL_URL).trim() ||
       asString(process.env.CODEX_APP_SERVER_URL).trim()
-    if (!appServerUrl) {
-      throw new Error("Missing CODEX_REACTOR_REAL_URL / CODEX_APP_SERVER_URL for Codex integration test.")
-    }
 
     const repoPath = resolve(process.cwd(), "..", "..", "..")
     const timer = createStageTimer()
@@ -425,6 +429,15 @@ describeInstant("codex reactor + Instant integration", () => {
     const codexOutput = asRecord(asRecord(metadataPart).output)
     const streamTrace = asRecord(codexOutput.streamTrace)
     const emittedPayloads = getChunkPayloads(collected.written)
+    const firstStepRow = stepRows[0]
+    const stepStreamClientId = readString(firstStepRow, "streamClientId")
+    const stepStreamId = readString(firstStepRow, "streamId")
+    const persistedStream = await readPersistedContextStepStream({
+      db: currentDb(),
+      clientId: stepStreamClientId ?? undefined,
+      streamId: stepStreamId ?? undefined,
+    })
+    const persistedStreamChunks = persistedStream.chunks.map((chunk) => asRecord(chunk))
 
     const audit = {
       test: "codex reactor + Instant integration",
@@ -442,6 +455,7 @@ describeInstant("codex reactor + Instant integration", () => {
         emittedChunks: emittedPayloads.length,
         rawWritten: collected.written,
         payloads: emittedPayloads,
+        persistedChunks: persistedStreamChunks,
       },
       persisted: {
         context: contextRow,
@@ -480,16 +494,28 @@ describeInstant("codex reactor + Instant integration", () => {
 
     expect(readString(contextRow, "status")).toBe("closed")
     expect(readString(executionRow, "status")).toBe("completed")
+    expect(readString(executionRow, "activeStreamClientId")).toBe(null)
+    expect(readString(executionRow, "lastStreamClientId")).toBe(stepStreamClientId)
     expect(stepRows.length).toBeGreaterThan(0)
     expect(itemRows.length).toBeGreaterThan(0)
     expect(reactionItem).toBeTruthy()
     expect(readString(reactionItem, "status")).toBe("completed")
     expect(providerChunks.length).toBeGreaterThan(0)
     expect(emittedPayloads.length).toBeGreaterThan(0)
+    expect(stepStreamClientId).toBeTruthy()
+    expect(stepStreamId).toBeTruthy()
+    expect(persistedStreamChunks.length).toBeGreaterThan(0)
+    expect(
+      persistedStreamChunks.some(
+        (chunk) =>
+          asString(chunk.chunkType) === "chunk.text_delta" ||
+          asString(chunk.chunkType) === "chunk.text_end",
+      ),
+    ).toBe(true)
     expect(commandParts.length).toBeGreaterThan(0)
     expect(asString(codexOutput.providerContextId)).not.toBe("")
     expect(asString(codexOutput.turnId)).not.toBe("")
     expect(asString(asRecord(assistantTextPart).text)).not.toBe("")
-    expect(Array.isArray(streamTrace.chunks)).toBe(true)
+    expect(Array.isArray(streamTrace.chunks)).toBe(false)
   }, 10 * 60 * 1000)
 })

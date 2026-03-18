@@ -1,10 +1,17 @@
 type AnyRecord = Record<string, unknown>;
 
 type EventWithParts = {
+  id?: string;
+  type?: string;
+  channel?: string;
+  createdAt?: string | Date;
+  status?: string;
   content?: {
     parts?: unknown[];
   };
 };
+
+const CONTEXT_STEP_STREAM_VERSION = 1;
 
 function asArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
@@ -20,9 +27,38 @@ export function asString(value: unknown): string {
   return String(value);
 }
 
+export function parsePersistedCodexStreamChunk(
+  value: string | Record<string, unknown>,
+) {
+  const parsed =
+    typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+  const row = asRecord(parsed);
+  const version = typeof row.version === "number" ? row.version : -1;
+  if (version !== CONTEXT_STEP_STREAM_VERSION) {
+    throw new Error(`Unsupported persisted stream chunk version: ${String(row.version)}`);
+  }
+  const at = asString(row.at);
+  const chunkType = asString(row.chunkType);
+  if (!at || !chunkType) {
+    throw new Error("Invalid persisted stream chunk.");
+  }
+  return row;
+}
+
 function asFiniteNumber(value: unknown): number | null {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function countByChunkKey(
+  chunks: Array<AnyRecord>,
+  key: "chunkType" | "providerChunkType",
+) {
+  return chunks.reduce<Record<string, number>>((acc, chunk) => {
+    const label = asString(chunk[key]) || "unknown";
+    acc[label] = (acc[label] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 function readParts(event: EventWithParts | null | undefined) {
@@ -63,6 +99,8 @@ export function getCommandExecutionPartsFromStreamTrace(streamTraceInput: unknow
       input?: AnyRecord;
       outputText?: string;
       completed?: AnyRecord;
+      sequence?: number;
+      at?: string;
     }
   >();
 
@@ -76,6 +114,9 @@ export function getCommandExecutionPartsFromStreamTrace(streamTraceInput: unknow
         commands.set(asString(item.id), {
           ...(commands.get(asString(item.id)) ?? {}),
           input: item,
+          sequence:
+            typeof chunk.sequence === "number" ? chunk.sequence : undefined,
+          at: asString(chunk.at),
         });
       }
       continue;
@@ -85,6 +126,11 @@ export function getCommandExecutionPartsFromStreamTrace(streamTraceInput: unknow
       if (!itemId) continue;
       const current = commands.get(itemId) ?? {};
       current.outputText = `${current.outputText ?? ""}${asString(paramsRecord.delta)}`;
+      current.sequence =
+        typeof chunk.sequence === "number"
+          ? Math.max(current.sequence ?? 0, chunk.sequence)
+          : current.sequence;
+      current.at = asString(chunk.at) || current.at;
       commands.set(itemId, current);
       continue;
     }
@@ -94,6 +140,11 @@ export function getCommandExecutionPartsFromStreamTrace(streamTraceInput: unknow
         const itemId = asString(item.id);
         const current = commands.get(itemId) ?? {};
         current.completed = item;
+        current.sequence =
+          typeof chunk.sequence === "number"
+            ? Math.max(current.sequence ?? 0, chunk.sequence)
+            : current.sequence;
+        current.at = asString(chunk.at) || current.at;
         commands.set(itemId, current);
       }
     }
@@ -102,37 +153,321 @@ export function getCommandExecutionPartsFromStreamTrace(streamTraceInput: unknow
   return Array.from(commands.entries()).map(([toolCallId, command]) => {
     const input = asRecord(command.input);
     const completed = asRecord(command.completed);
-    const outputText = asString(completed.aggregatedOutput || command.outputText).trim();
-    const status = asString(completed.status || input.status || "completed").trim();
+    const isCompleted = Object.keys(completed).length > 0;
+    const outputText = asString(completed.aggregatedOutput || command.outputText);
+    const status = asString(completed.status || input.status).trim();
     const exitCode =
       typeof completed.exitCode === "number" ? completed.exitCode : undefined;
+    const resolvedStatus =
+      status ||
+      (isCompleted ? "completed" : outputText.trim().length > 0 ? "running" : "pending");
+    const state =
+      isCompleted
+        ? resolvedStatus === "failed" || (typeof exitCode === "number" && exitCode !== 0)
+          ? "output-error"
+          : "output-available"
+        : outputText.trim().length > 0
+          ? "output-streaming"
+          : Object.keys(input).length > 0
+            ? "input-available"
+            : "input-streaming";
 
     return {
       type: "tool-commandExecution",
       toolName: "commandExecution",
       toolCallId,
-      state:
-        status === "failed" || (typeof exitCode === "number" && exitCode !== 0)
-          ? "output-error"
-          : "output-available",
+      state,
       input: {
         command: asString(input.command),
         cwd: asString(input.cwd),
         commandActions: asArray(input.commandActions),
       },
       output: {
-        text: outputText,
+        text: outputText.trimEnd(),
         exitCode,
         durationMs:
           typeof completed.durationMs === "number" ? completed.durationMs : undefined,
-        status,
+        status: resolvedStatus,
       },
       errorText:
-        status === "failed"
+        resolvedStatus === "failed"
           ? asString(completed.error || completed.message || "command_execution_failed")
           : undefined,
+      metadata: {
+        source: "codex.timeline",
+        sequence: command.sequence ?? 0,
+        at: command.at ?? "",
+      },
     };
   });
+}
+
+export function buildCodexReplayAssistantEvent(params: {
+  eventId: string;
+  createdAt: string;
+  chunks: Array<Record<string, unknown>>;
+}) {
+  const chunks = asArray<AnyRecord>(params.chunks);
+  const messageParts = new Map<
+    string,
+    {
+      itemId: string;
+      sequence: number;
+      at: string;
+      text: string;
+      order: number;
+    }
+  >();
+  const messageOrder: string[] = [];
+  const completedMessageIds = new Set<string>();
+  const completedReasoningItems: Array<{
+    sequence: number;
+    at: string;
+    itemId: string;
+    text: string;
+  }> = [];
+  let reasoningText = "";
+  let diff = "";
+  let providerContextId = "";
+  let turnId = "";
+  let tokenUsage: Record<string, unknown> = {};
+  let turnCompleted = false;
+  let turnCompletedSequence = 0;
+  let turnCompletedAt = "";
+
+  const ensureMessagePart = (itemId: string, chunk: AnyRecord) => {
+    const normalizedId = itemId || `agent-message:${messageOrder.length + 1}`;
+    const existing = messageParts.get(normalizedId);
+    if (existing) return existing;
+    const next = {
+      itemId: normalizedId,
+      sequence: typeof chunk.sequence === "number" ? chunk.sequence : 0,
+      at: asString(chunk.at),
+      text: "",
+      order: messageOrder.length,
+    };
+    messageOrder.push(normalizedId);
+    messageParts.set(normalizedId, next);
+    return next;
+  };
+
+  for (const chunk of chunks) {
+    const data = asRecord(chunk.data);
+    const paramsRecord = asRecord(data.params);
+    const item = asRecord(paramsRecord.item);
+    const turn = asRecord(paramsRecord.turn);
+    const method = asString(data.method);
+
+    providerContextId =
+      asString(paramsRecord.threadId) ||
+      asString(paramsRecord.providerContextId) ||
+      asString(turn.threadId) ||
+      asString(turn.providerContextId) ||
+      providerContextId;
+    turnId = asString(paramsRecord.turnId) || asString(turn.id) || turnId;
+
+    if (method === "item/started" && asString(item.type) === "agentMessage") {
+      ensureMessagePart(asString(item.id), chunk);
+      continue;
+    }
+
+    if (method === "item/agentMessage/delta") {
+      const messagePart = ensureMessagePart(asString(paramsRecord.itemId), chunk);
+      messagePart.text += asString(paramsRecord.delta);
+      messagePart.sequence =
+        typeof chunk.sequence === "number"
+          ? Math.max(messagePart.sequence, chunk.sequence)
+          : messagePart.sequence;
+      messagePart.at = asString(chunk.at) || messagePart.at;
+      continue;
+    }
+
+    if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") {
+      reasoningText += asString(paramsRecord.delta);
+      continue;
+    }
+
+    if (method === "turn/diff/updated") {
+      diff = asString(paramsRecord.diff) || diff;
+      continue;
+    }
+
+    if (method === "thread/tokenUsage/updated" || method === "context/tokenUsage/updated") {
+      tokenUsage = asRecord(paramsRecord.tokenUsage);
+      continue;
+    }
+
+    if (method === "item/completed" && asString(item.type) === "agentMessage") {
+      const messagePart = ensureMessagePart(asString(item.id), chunk);
+      const completedText = asString(item.text);
+      if (completedText) {
+        messagePart.text = completedText;
+      }
+      messagePart.sequence =
+        typeof chunk.sequence === "number"
+          ? Math.max(messagePart.sequence, chunk.sequence)
+          : messagePart.sequence;
+      messagePart.at = asString(chunk.at) || messagePart.at;
+      completedMessageIds.add(messagePart.itemId);
+      continue;
+    }
+
+    if (method === "item/completed" && asString(item.type) === "reasoning") {
+      const text = asString(item.summary || item.text).trim();
+      if (!text) continue;
+      completedReasoningItems.push({
+        sequence: typeof chunk.sequence === "number" ? chunk.sequence : 0,
+        at: asString(chunk.at),
+        itemId: asString(item.id),
+        text,
+      });
+      continue;
+    }
+
+    if (method === "turn/completed") {
+      turnCompleted = true;
+      turnCompletedSequence =
+        typeof chunk.sequence === "number" ? chunk.sequence : turnCompletedSequence;
+      turnCompletedAt = asString(chunk.at) || turnCompletedAt;
+    }
+  }
+
+  const entries: Array<{ sequence: number; part: Record<string, unknown> }> = [];
+  const sortedMessageParts = Array.from(messageParts.values()).sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    return a.order - b.order;
+  });
+
+  for (const message of sortedMessageParts) {
+    if (!message.text.trim()) continue;
+    entries.push({
+      sequence: message.sequence,
+      part: {
+        type: "text",
+        text: message.text,
+        metadata: {
+          source: completedMessageIds.has(message.itemId)
+            ? "codex.timeline"
+            : "codex.timeline.live",
+          sequence: message.sequence,
+          at: message.at,
+          itemId: message.itemId,
+        },
+      },
+    });
+  }
+
+  if (reasoningText.trim()) {
+    const lastReasoningChunk = [...chunks].reverse().find((chunk) => {
+      const data = asRecord(chunk.data);
+      const method = asString(data.method);
+      return method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta";
+    });
+    entries.push({
+      sequence:
+        typeof lastReasoningChunk?.sequence === "number" ? lastReasoningChunk.sequence : 0,
+      part: {
+        type: "reasoning",
+        text: reasoningText.trim(),
+        metadata: {
+          source: "codex.timeline.full",
+          sequence:
+            typeof lastReasoningChunk?.sequence === "number" ? lastReasoningChunk.sequence : 0,
+          at: asString(lastReasoningChunk?.at),
+        },
+      },
+    });
+  } else {
+    for (const reasoningItem of completedReasoningItems) {
+      entries.push({
+        sequence: reasoningItem.sequence,
+        part: {
+          type: "reasoning",
+          text: reasoningItem.text,
+          metadata: {
+            source: "codex.timeline",
+            sequence: reasoningItem.sequence,
+            at: reasoningItem.at,
+            itemId: reasoningItem.itemId,
+          },
+        },
+      });
+    }
+  }
+
+  const streamTrace = {
+    totalChunks: chunks.length,
+    chunkTypes: countByChunkKey(chunks, "chunkType"),
+    providerChunkTypes: countByChunkKey(chunks, "providerChunkType"),
+    chunks,
+  };
+  const commandExecutions = getCommandExecutionPartsFromStreamTrace({
+    chunks,
+  });
+
+  for (const commandExecution of commandExecutions) {
+    const metadata = asRecord(commandExecution.metadata);
+    entries.push({
+      sequence:
+        typeof metadata.sequence === "number" ? metadata.sequence : chunks.length + entries.length,
+      part: commandExecution,
+    });
+  }
+
+  entries.push({
+    sequence: turnCompleted ? turnCompletedSequence : chunks.length + entries.length,
+    part: {
+      type: "tool-turnMetadata",
+      toolName: "turnMetadata",
+      toolCallId: turnId || providerContextId || params.eventId,
+      state: turnCompleted ? "output-available" : "output-streaming",
+      input: {},
+      output: {
+        providerContextId: providerContextId || null,
+        turnId: turnId || null,
+        diff,
+        tokenUsage,
+        streamTrace,
+      },
+      metadata: {
+        source: "codex.stream.replay",
+        sequence: turnCompleted ? turnCompletedSequence : chunks.length + entries.length,
+        at: turnCompleted ? turnCompletedAt : "",
+      },
+    },
+  });
+
+  const parts = entries
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((entry) => entry.part);
+  const event = {
+    id: params.eventId,
+    type: "output",
+    channel: "web",
+    createdAt: params.createdAt,
+    status: turnCompleted ? "completed" : "pending",
+    content: {
+      parts,
+    },
+  };
+  const metadata = resolveTurnMetadata(event);
+
+  return {
+    event,
+    metadata,
+    streamTrace,
+    trace: {
+      events: chunks,
+      chunks,
+      summary: summarizeTrace({
+        events: chunks,
+        chunks,
+        streamTrace,
+      }),
+    },
+    commandExecutions,
+    isCompleted: turnCompleted,
+  };
 }
 
 export function resolveTurnMetadata(event: EventWithParts | null | undefined, llm?: unknown) {
@@ -249,11 +584,17 @@ export function summarizeTrace(params: {
 
 export function buildProviderPersistenceAudit(params: {
   assistantEvent: EventWithParts | null | undefined;
+  chunks?: unknown;
   streamTrace: unknown;
   turnId?: string | null;
+  rawProviderEvents?: unknown;
 }) {
   const streamTrace = asRecord(params.streamTrace);
-  const chunks = asArray<AnyRecord>(streamTrace.chunks);
+  const chunks =
+    asArray<AnyRecord>(params.chunks).length > 0
+      ? asArray<AnyRecord>(params.chunks)
+      : asArray<AnyRecord>(streamTrace.chunks);
+  const rawProviderEvents = asArray<AnyRecord>(params.rawProviderEvents);
   const providerOrder = chunks
     .map((chunk) => {
       const data = asRecord(chunk.data);
@@ -368,6 +709,30 @@ export function buildProviderPersistenceAudit(params: {
 
   const providerKeys = providerOrder.map((entry) => asString(entry.key));
   const persistedKeys = persistedOrder.map((entry) => asString(entry.key));
+  const missingInPersisted = providerKeys.filter((key) => !persistedKeys.includes(key));
+  const extraInPersisted = persistedKeys.filter((key) => !providerKeys.includes(key));
+  const providerReasoningEvents = rawProviderEvents.filter((event) => {
+    const method = asString(event.method);
+    const item = asRecord(asRecord(event.params).item);
+    return (
+      method.includes("reasoning") ||
+      (method === "item/completed" && asString(item.type) === "reasoning")
+    );
+  });
+  const persistedReasoningParts = persistedParts.filter(
+    (part) => asString(part.type) === "reasoning",
+  );
+  const providerTextEvents = rawProviderEvents.filter((event) => {
+    const method = asString(event.method);
+    const item = asRecord(asRecord(event.params).item);
+    return (
+      method === "item/agentMessage/delta" ||
+      (method === "item/completed" && asString(item.type) === "agentMessage")
+    );
+  });
+  const persistedTextParts = persistedParts.filter(
+    (part) => asString(part.type) === "text",
+  );
 
   return {
     orderMatches:
@@ -375,5 +740,23 @@ export function buildProviderPersistenceAudit(params: {
       providerKeys.every((key, index) => key === persistedKeys[index]),
     providerOrder,
     persistedOrder,
+    rawProviderEvents,
+    rawReactorChunks: chunks,
+    rawPersistedParts: persistedParts,
+    comparison: {
+      providerEventCount: rawProviderEvents.length,
+      reactorChunkCount: chunks.length,
+      persistedPartCount: persistedParts.length,
+      persistedCodexEventCount: 0,
+      persistedRawProviderEventCount: 0,
+      providerReasoningEventCount: providerReasoningEvents.length,
+      persistedReasoningPartCount: persistedReasoningParts.length,
+      providerTextEventCount: providerTextEvents.length,
+      persistedTextPartCount: persistedTextParts.length,
+      rawProviderStoredInParts: false,
+      rawProviderMatchesPersistedRaw: null,
+      missingInPersisted,
+      extraInPersisted,
+    },
   };
 }

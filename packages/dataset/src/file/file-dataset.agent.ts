@@ -1,5 +1,5 @@
-import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
-import { createDatasetSandboxStep, runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
+import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
 import { createGenerateSchemaTool } from "./generateSchema.tool"
 import { createCompleteDatasetTool } from "../completeDataset.tool"
 import { createExecuteCommandTool } from "../executeCommand.tool"
@@ -33,6 +33,7 @@ export type FileParseStoryParams = {
     sandboxId?: string
     datasetId?: string
     model?: string
+    reactor?: ContextReactor<any, any>
 }
 
 // Sandbox initialization state (closure-based)
@@ -140,16 +141,13 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    const story = createContext<Env>("file.parse")
+    let storyBuilder = createContext<Env>("file.parse")
         .context(async (stored: any, env: Env) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: SandboxState = previous?.sandboxState ?? { initialized: false, filePath: "" }
-            const existingSandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
-
-            let sandboxId = existingSandboxId
+            const sandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
             if (!sandboxId) {
-                const created = await createDatasetSandboxStep({ env, runtime: "python3.13", timeoutMs: 10 * 60 * 1000 })
-                sandboxId = created.sandboxId
+                throw new Error("dataset_sandbox_required")
             }
 
         const sandboxFilePath = await initializeSandbox(
@@ -211,34 +209,46 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
             ].join("\n")
         })
         .actions(async (_stored: any, env: Env) => {
-            return {
-            executeCommand: createExecuteCommandTool({
-                    datasetId,
-                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
-                    env,
-            }),
-            generateSchema: createGenerateSchemaTool({
-                    datasetId,
-                    fileId: params.fileId,
-                    env,
-            }),
-            completeDataset: createCompleteDatasetTool({
-                    datasetId,
-                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
-                    env,
-            }),
-            clearDataset: createClearDatasetTool({
+            const existingSchema = (_stored?.content?.ctx?.schema as any)?.schema
+            const actions: Record<string, any> = {
+                executeCommand: createExecuteCommandTool({
                     datasetId,
                     sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
                     env,
                 }),
-                } as any
-            })
+                completeDataset: createCompleteDatasetTool({
+                    datasetId,
+                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
+                    env,
+                }),
+                clearDataset: createClearDatasetTool({
+                    datasetId,
+                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
+                    env,
+                }),
+            }
+
+            if (!existingSchema) {
+                actions.generateSchema = createGenerateSchemaTool({
+                    datasetId,
+                    fileId: params.fileId,
+                    env,
+                })
+            }
+
+            return actions as any
+        })
             .shouldContinue(({ reactionEvent }: { reactionEvent: any }) => {
             return !didToolExecute(reactionEvent as any, "completeDataset")
         })
-        .model(model)
-        .build()
+        
+    if (params.reactor) {
+        storyBuilder = storyBuilder.reactor(params.reactor as any)
+    } else {
+        storyBuilder = storyBuilder.model(model)
+    }
+
+    const story = storyBuilder.build()
 
     return { datasetId, story }
 }
@@ -260,6 +270,7 @@ export function createFileParseStory<Env extends { orgId: string }>(
         sandboxId?: string
         datasetId?: string
         model?: string
+        reactor?: ContextReactor<any, any>
     },
 ) {
     const params: FileParseStoryParams = {
@@ -268,6 +279,7 @@ export function createFileParseStory<Env extends { orgId: string }>(
         sandboxId: opts?.sandboxId,
         datasetId: opts?.datasetId,
         model: opts?.model,
+        reactor: opts?.reactor,
     }
     const { datasetId, story } = createFileParseStoryDefinition<Env>(params)
 

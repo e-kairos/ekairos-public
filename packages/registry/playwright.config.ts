@@ -24,6 +24,12 @@ export default defineConfig({
       ...process.env,
       NODE_ENV: "test",
       PLAYWRIGHT_TEST: "1",
+      ...(process.env.CODEX_REAL_E2E === "1"
+        ? {
+            CODEX_APP_SERVER_URL: "http://127.0.0.1:4310/turn",
+            CODEX_DISABLE_AUTO_BRIDGE: "1",
+          }
+        : {}),
     },
   },
   projects: [
@@ -33,4 +39,3 @@ export default defineConfig({
     },
   ],
 });
-

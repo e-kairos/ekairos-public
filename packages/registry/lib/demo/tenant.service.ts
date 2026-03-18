@@ -12,6 +12,11 @@ const DEMO_PERMS = {
       $default: "true",
     },
   },
+  $streams: {
+    allow: {
+      view: "true",
+    },
+  },
 } as const;
 
 type PlatformApp = {

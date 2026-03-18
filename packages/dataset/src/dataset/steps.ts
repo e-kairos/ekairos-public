@@ -24,23 +24,26 @@ export async function datasetReadOutputJsonlStep(params: {
 }): Promise<{ contentBase64: string }> {
   "use step"
   const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    const query: any = await db.query({
+      dataset_datasets: {
+        $: { where: { datasetId: params.datasetId } as any, limit: 1 },
+        dataFile: {},
+      } as any,
+    })
 
-  const query: any = await db.query({
-    dataset_datasets: {
-      $: { where: { id: params.datasetId } as any, limit: 1 },
-      dataFile: {},
-    } as any,
-  })
+    const dataset = query.dataset_datasets?.[0]
+    const linkedFile = Array.isArray(dataset?.dataFile) ? dataset.dataFile[0] : dataset?.dataFile
+    const url = linkedFile?.url
+    if (url) {
+      const fileBuffer = await fetch(url).then((r) => r.arrayBuffer())
+      return { contentBase64: Buffer.from(fileBuffer).toString("base64") }
+    }
 
-  const dataset = query.dataset_datasets?.[0]
-  const linkedFile = Array.isArray(dataset?.dataFile) ? dataset.dataFile[0] : dataset?.dataFile
-  const url = linkedFile?.url
-  if (!url) {
-    throw new Error("Dataset output file not found")
+    await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
   }
 
-  const fileBuffer = await fetch(url).then((r) => r.arrayBuffer())
-  return { contentBase64: Buffer.from(fileBuffer).toString("base64") }
+  throw new Error("Dataset output file not found")
 }
 
 export async function datasetUpdateSchemaStep(params: {
@@ -105,21 +108,11 @@ export async function datasetPreviewRowsStep(params: {
 }): Promise<{ rows: any[] }> {
   "use step"
   const db = (await getContextRuntime(await resolveEnv(params.env)) as any).db
-  const limit = params.limit ?? 20
-  const query: any = await db.query({
-    dataset_records: {
-      $: {
-        where: { "dataset.id": params.datasetId } as any,
-        order: { order: "asc" },
-        limit,
-      },
-      dataset: {},
-    } as any,
-  })
-
-  const rows = Array.isArray(query.dataset_records)
-    ? query.dataset_records.map((r: any) => r?.rowContent).filter((r: any) => r !== undefined)
-    : []
-  return { rows }
+  const service = new DatasetService(db)
+  const rowsResult = await service.previewRows(params.datasetId, params.limit ?? 20)
+  if (!rowsResult.ok) {
+    throw new Error(rowsResult.error)
+  }
+  return { rows: rowsResult.data }
 }
 

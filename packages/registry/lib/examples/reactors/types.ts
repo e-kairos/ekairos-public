@@ -32,6 +32,12 @@ export type LiveReactorShowcaseTrace = {
 export type LiveReactorShowcaseRunPayload = {
   appId: string;
   contextId: string;
+  stream?: {
+    executionId: string | null;
+    source: "active" | "last" | "none";
+    clientId: string | null;
+    streamId: string | null;
+  };
   triggerEvent: ContextEventForUI;
   assistantEvent: ContextEventForUI;
   llm: Record<string, unknown> | null;
@@ -48,6 +54,10 @@ export type LiveReactorShowcaseRunPayload = {
     orderMatches: boolean;
     providerOrder: Array<Record<string, unknown>>;
     persistedOrder: Array<Record<string, unknown>>;
+    rawProviderEvents?: Array<Record<string, unknown>>;
+    rawReactorChunks?: Array<Record<string, unknown>>;
+    rawPersistedParts?: Array<Record<string, unknown>>;
+    comparison?: Record<string, unknown>;
   };
 };
 

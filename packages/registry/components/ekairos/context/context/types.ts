@@ -45,20 +45,16 @@ export type UseContextArgs = {
   contextId: string | null;
 };
 
+export type UseContextState = {
+  context: any | null;
+  contextStatus: ContextStatus;
+  events: ContextEventForUI[];
+};
+
 export type UseContextStateHook = (
   db: any,
   args: UseContextArgs
-) => {
-  context: any | null;
-  contextStatus: ContextStatus;
-};
-
-export type UseContextEventsHook = (
-  db: any,
-  args: UseContextArgs
-) => {
-  events: ContextEventForUI[];
-};
+) => UseContextState;
 
 export type UseContextOptions = {
   apiUrl: string;
@@ -69,11 +65,8 @@ export type UseContextOptions = {
   /**
    * Optional hook overrides. These MUST be hooks (they call db.useQuery).
    *
-   * If omitted, defaults are used:
-   * - context(): fetches `event_contexts` by id
-   * - events(): fetches `event_items` by context id (no emails/whatsapp relations)
+   * If omitted, the default implementation fetches the context and its items in one tree query.
    */
-  context?: UseContextStateHook;
-  events?: UseContextEventsHook;
+  state?: UseContextStateHook;
 };
 
