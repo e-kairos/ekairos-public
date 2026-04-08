@@ -4,7 +4,10 @@ import type { ContextEnvironment } from "../context.config.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextItem, ContextIdentifier } from "../context.store.js"
 import { OUTPUT_ITEM_TYPE } from "../context.events.js"
-import { createContextStepStreamChunk } from "../context.step-stream.js"
+import {
+  createContextStepStreamChunk,
+  type ContextStepStreamChunk,
+} from "../context.step-stream.js"
 import { mapAiSdkChunkToContextEvent } from "../reactors/ai-sdk.chunk-map.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 import { writeContextTraceEvents } from "./trace.steps.js"
@@ -106,7 +109,7 @@ export async function executeReaction(params: {
   executionId?: string
   contextId?: string
   stepId?: string
-  emitStreamChunk?: (chunk: Record<string, unknown>) => Promise<void>
+  emitStreamChunk?: (chunk: ContextStepStreamChunk) => Promise<void>
 }): Promise<{
   assistantEvent: ContextItem
   toolCalls: any[]
