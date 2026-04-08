@@ -3,7 +3,6 @@ import type { UIMessageChunk } from "ai"
 import type { ContextEnvironment } from "../context.config.js"
 import {
   contextStreamByteLength,
-  encodeContextStepStreamChunk,
   parseContextStepStreamChunk,
   type ContextStepStreamChunk,
 } from "../context.step-stream.js"
@@ -95,12 +94,21 @@ export function createContextStepStreamClientId(stepId: string): string {
   return `event-step:${normalized}`
 }
 
+export type PersistedContextStepStreamSession = {
+  stream: WritableStream<string>
+  streamId: string
+  clientId: string
+  executionId: string
+  stepId: string
+}
+
 export async function createPersistedContextStepStream(params: {
   env: ContextEnvironment
   executionId: string
   stepId: string
   clientId?: string
-}) {
+}): Promise<PersistedContextStepStreamSession> {
+  "use step"
   const { getContextRuntime } = await import("../runtime.js")
   const runtime = await getContextRuntime(params.env)
   const db: any = (runtime as any)?.db
@@ -144,59 +152,85 @@ export async function createPersistedContextStepStream(params: {
     ] as any,
   )
 
-  let settled = false
-
-  async function finalize(options: { abortReason?: string | null }) {
-    const now = new Date()
-    const txs: any[] = [
-      db.tx.event_steps[params.stepId].update({
-        streamFinishedAt: now,
-        streamAbortReason: options.abortReason ?? null,
-        updatedAt: now,
-      }),
-      db.tx.event_executions[params.executionId].update({
-        activeStreamId: null,
-        activeStreamClientId: null,
-        lastStreamId: streamId,
-        lastStreamClientId: clientId,
-        updatedAt: now,
-      }),
-    ]
-    const unsetActive = createUnsetStreamLinkTx(
-      db,
-      params.executionId,
-      "activeStream",
-      streamId,
-    )
-    if (unsetActive) txs.push(unsetActive)
-    await db.transact(txs as any)
-  }
-
   return {
-    clientId,
+    stream: writeStream as unknown as WritableStream<string>,
     streamId,
-    async write(chunk: ContextStepStreamChunk) {
-      await writer.write(encodeContextStepStreamChunk(chunk))
-    },
-    async close() {
-      if (settled) return
-      settled = true
-      try {
-        await writer.close()
-      } finally {
-        await finalize({ abortReason: null })
-      }
-    },
-    async abort(reason?: string | null) {
-      if (settled) return
-      settled = true
-      try {
-        await writer.abort(reason ?? "aborted")
-      } finally {
-        await finalize({ abortReason: reason ?? "aborted" })
-      }
-    },
+    clientId,
+    executionId: params.executionId,
+    stepId: params.stepId,
   }
+}
+
+async function finalizePersistedContextStepStream(params: {
+  env: ContextEnvironment
+  session: PersistedContextStepStreamSession
+  mode: "close" | "abort"
+  abortReason?: string | null
+}) {
+  "use step"
+  const { getContextRuntime } = await import("../runtime.js")
+  const runtime = await getContextRuntime(params.env)
+  const db: any = (runtime as any)?.db
+
+  const writer = params.session.stream.getWriter()
+  try {
+    if (params.mode === "abort") {
+      await writer.abort(params.abortReason ?? "aborted")
+    } else {
+      await writer.close()
+    }
+  } finally {
+    writer.releaseLock()
+  }
+
+  const now = new Date()
+  const txs: any[] = [
+    db.tx.event_steps[params.session.stepId].update({
+      streamFinishedAt: now,
+      streamAbortReason:
+        params.mode === "abort" ? params.abortReason ?? "aborted" : null,
+      updatedAt: now,
+    }),
+    db.tx.event_executions[params.session.executionId].update({
+      activeStreamId: null,
+      activeStreamClientId: null,
+      lastStreamId: params.session.streamId,
+      lastStreamClientId: params.session.clientId,
+      updatedAt: now,
+    }),
+  ]
+  const unsetActive = createUnsetStreamLinkTx(
+    db,
+    params.session.executionId,
+    "activeStream",
+    params.session.streamId,
+  )
+  if (unsetActive) txs.push(unsetActive)
+  await db.transact(txs as any)
+}
+
+export async function closePersistedContextStepStream(params: {
+  env: ContextEnvironment
+  session: PersistedContextStepStreamSession
+}) {
+  return await finalizePersistedContextStepStream({
+    env: params.env,
+    session: params.session,
+    mode: "close",
+  })
+}
+
+export async function abortPersistedContextStepStream(params: {
+  env: ContextEnvironment
+  session: PersistedContextStepStreamSession
+  reason?: string | null
+}) {
+  return await finalizePersistedContextStepStream({
+    env: params.env,
+    session: params.session,
+    mode: "abort",
+    abortReason: params.reason,
+  })
 }
 
 export async function readPersistedContextStepStream(params: {

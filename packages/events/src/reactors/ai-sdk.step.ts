@@ -6,11 +6,11 @@ import type { ContextItem, ContextIdentifier } from "../context.store.js"
 import { OUTPUT_ITEM_TYPE } from "../context.events.js"
 import {
   createContextStepStreamChunk,
-  type ContextStepStreamChunk,
+  encodeContextStepStreamChunk,
 } from "../context.step-stream.js"
-import { mapAiSdkChunkToContextEvent } from "../reactors/ai-sdk.chunk-map.js"
+import { mapAiSdkChunkToContextEvent } from "./ai-sdk.chunk-map.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
-import { writeContextTraceEvents } from "./trace.steps.js"
+import { writeContextTraceEvents } from "../steps/trace.steps.js"
 
 type WorkflowMeta = {
   workflowRunId?: string | number
@@ -88,13 +88,16 @@ function safeErrorJson(error: unknown) {
 }
 
 /**
- * Executes a full "reaction" inside a single workflow step:
- * - load events from store
- * - convert events to model messages
- * - run the streaming model call and emit chunks
- * - extract tool calls from the resulting assistant event
+ * AI SDK-backed reaction execution inside a single workflow step.
+ *
+ * Provider-specific responsibilities live here:
+ * - load items from store
+ * - build model messages
+ * - stream through the AI SDK
+ * - map provider chunks to the Context stream contract
+ * - emit UI chunks and persist step stream chunks
  */
-export async function executeReaction(params: {
+export async function executeAiSdkReaction(params: {
   env: ContextEnvironment
   contextIdentifier: ContextIdentifier
   model: ContextModelInit
@@ -105,11 +108,11 @@ export async function executeReaction(params: {
   maxSteps: number
   sendStart?: boolean
   silent?: boolean
+  contextStepStream?: WritableStream<string>
   writable?: WritableStream<UIMessageChunk>
   executionId?: string
   contextId?: string
   stepId?: string
-  emitStreamChunk?: (chunk: ContextStepStreamChunk) => Promise<void>
 }): Promise<{
   assistantEvent: ContextItem
   toolCalls: any[]
@@ -136,7 +139,7 @@ export async function executeReaction(params: {
   try {
     events = await store.getItems(params.contextIdentifier)
   } catch (error) {
-    console.error("[ekairos/story] reaction.step store.getItems failed")
+    console.error("[ekairos/story] ai-sdk.step store.getItems failed")
     throw error
   }
 
@@ -144,14 +147,16 @@ export async function executeReaction(params: {
   try {
     messagesForModel = (await store.itemsToModelMessages(events)) as ModelMessage[]
   } catch (error) {
-    console.error("[ekairos/story] reaction.step store.itemsToModelMessages failed", safeErrorJson(error))
+    console.error(
+      "[ekairos/story] ai-sdk.step store.itemsToModelMessages failed",
+      safeErrorJson(error),
+    )
     throw error
   }
 
   const { jsonSchema, gateway, smoothStream, stepCountIs, streamText } = await import("ai")
   const { extractToolCallsFromParts } = await import("../context.toolcalls.js")
 
-  // Match DurableAgent-style model init behavior:
   const resolvedModel =
     typeof params.model === "string"
       ? gateway(params.model)
@@ -159,11 +164,10 @@ export async function executeReaction(params: {
         ? await params.model()
         : (() => {
             throw new Error(
-              "Invalid model init passed to executeReaction. Expected a model id string or an async model factory.",
+              "Invalid model init passed to executeAiSdkReaction. Expected a model id string or an async model factory.",
             )
           })()
 
-  // Wrap plain JSON Schema objects so the AI SDK doesn't attempt Zod conversion at runtime.
   const toolsForStreamText: Record<string, any> = {}
   for (const [name, t] of Object.entries(params.tools)) {
     toolsForStreamText[name] = {
@@ -183,7 +187,6 @@ export async function executeReaction(params: {
     experimental_transform: smoothStream({ delayInMs: 30, chunking: "word" }),
   })
 
-  // Ensure the underlying stream is consumed (AI SDK requirement)
   result.consumeStream()
 
   let resolveFinish!: (value: ContextItem) => void
@@ -199,50 +202,51 @@ export async function executeReaction(params: {
   const mappedProvider =
     modelId.includes("/") ? modelId.split("/")[0] : undefined
 
-  const uiStream = result
-    .toUIMessageStream({
-      sendStart: Boolean(params.sendStart),
-      generateMessageId: () => params.eventId,
-      messageMetadata() {
-        return { eventId: params.eventId }
-      },
-      onFinish: ({ messages }: { messages: UIMessage[] }) => {
-        const lastMessage = messages[messages.length - 1]
-        const event: ContextItem = {
-          id: params.eventId,
-          type: OUTPUT_ITEM_TYPE,
-          channel: "web",
-          createdAt: new Date().toISOString(),
-          content: { parts: lastMessage?.parts ?? [] },
-        }
-        resolveFinish(event)
-      },
-      onError: (e: unknown) => {
-        rejectFinish(e)
-        return e instanceof Error ? e.message : String(e)
-      },
-    })
-    // Filter out per-step finish boundary. Workflow will emit a single finish.
-    .pipeThrough(
-      new TransformStream<UIMessageChunk, UIMessageChunk>({
-        transform(chunk, controller) {
-          const contextId =
-            typeof params.contextId === "string" && params.contextId.length > 0
-              ? params.contextId
-              : undefined
+  const contextStepStreamWriter = params.contextStepStream?.getWriter()
 
-          if (contextId) {
-            const mapped = mapAiSdkChunkToContextEvent({
-              chunk,
-              contextId,
-              executionId: params.executionId,
-              stepId: params.stepId,
-              itemId: params.eventId,
-              provider: mappedProvider,
-              sequence: ++chunkSequence,
-            })
-            void params.emitStreamChunk?.(
-              createContextStepStreamChunk({
+  try {
+    const uiStream = result
+      .toUIMessageStream({
+        sendStart: Boolean(params.sendStart),
+        generateMessageId: () => params.eventId,
+        messageMetadata() {
+          return { eventId: params.eventId }
+        },
+        onFinish: ({ messages }: { messages: UIMessage[] }) => {
+          const lastMessage = messages[messages.length - 1]
+          const event: ContextItem = {
+            id: params.eventId,
+            type: OUTPUT_ITEM_TYPE,
+            channel: "web",
+            createdAt: new Date().toISOString(),
+            content: { parts: lastMessage?.parts ?? [] },
+          }
+          resolveFinish(event)
+        },
+        onError: (e: unknown) => {
+          rejectFinish(e)
+          return e instanceof Error ? e.message : String(e)
+        },
+      })
+      .pipeThrough(
+        new TransformStream<UIMessageChunk, UIMessageChunk>({
+          async transform(chunk, controller) {
+            const contextId =
+              typeof params.contextId === "string" && params.contextId.length > 0
+                ? params.contextId
+                : undefined
+
+            if (contextId) {
+              const mapped = mapAiSdkChunkToContextEvent({
+                chunk,
+                contextId,
+                executionId: params.executionId,
+                stepId: params.stepId,
+                itemId: params.eventId,
+                provider: mappedProvider,
+                sequence: ++chunkSequence,
+              })
+              const persistedChunk = createContextStepStreamChunk({
                 at: mapped.at,
                 sequence: mapped.sequence,
                 chunkType: mapped.chunkType,
@@ -257,40 +261,47 @@ export async function executeReaction(params: {
                   mapped.raw && typeof mapped.raw === "object"
                     ? (mapped.raw as Record<string, unknown>)
                     : undefined,
-              }),
-            )
-            controller.enqueue({
-              type: "data-chunk.emitted",
-              data: mapped,
-            } as unknown as UIMessageChunk)
-          }
+              })
 
-          if (chunk.type === "finish") return
-          controller.enqueue(chunk)
-        },
-      }),
-    )
+              if (contextStepStreamWriter) {
+                await contextStepStreamWriter.write(
+                  encodeContextStepStreamChunk(persistedChunk),
+                )
+              }
 
-  if (params.writable) {
-    await uiStream.pipeTo(params.writable, { preventClose: true })
-  } else {
-    const reader = uiStream.getReader()
-    try {
-      while (true) {
-        const { done } = await reader.read()
-        if (done) break
+              controller.enqueue({
+                type: "data-chunk.emitted",
+                data: mapped,
+              } as unknown as UIMessageChunk)
+            }
+
+            if (chunk.type === "finish") return
+            controller.enqueue(chunk)
+          },
+        }),
+      )
+
+    if (params.writable) {
+      await uiStream.pipeTo(params.writable, { preventClose: true })
+    } else {
+      const reader = uiStream.getReader()
+      try {
+        while (true) {
+          const { done } = await reader.read()
+          if (done) break
+        }
+      } finally {
+        reader.releaseLock()
       }
-    } finally {
-      reader.releaseLock()
     }
+  } finally {
+    contextStepStreamWriter?.releaseLock()
   }
 
   const assistantEvent = await finishPromise
   const finishedAtMs = Date.now()
   const toolCalls = extractToolCallsFromParts((assistantEvent as any)?.content?.parts)
 
-  // Best-effort usage extraction (AI SDK provider dependent).
-  // We keep this loose because providers differ and SDK evolves quickly.
   const latencyMs = Math.max(0, finishedAtMs - startedAtMs)
   let usage: any = undefined
   let providerMetadata: any = undefined
@@ -312,8 +323,6 @@ export async function executeReaction(params: {
     providerMetadata = undefined
   }
 
-  // Workflow steps must return serializable values. Provider SDKs may include
-  // classes/streams/etc in metadata, so we defensively sanitize.
   function toPlainJson(value: unknown) {
     if (typeof value === "undefined") return undefined
     try {
@@ -325,12 +334,10 @@ export async function executeReaction(params: {
   const usageJson = toPlainJson(usage)
   const providerMetadataJson = toPlainJson(providerMetadata)
 
-  // Derive provider/model from gateway id when available.
   const provider =
     modelId.includes("/") ? modelId.split("/")[0] : (providerMetadata?.provider as string | undefined)
   const model = modelId.includes("/") ? modelId.split("/").slice(1).join("/") : (providerMetadata?.model as string | undefined)
 
-  // Token accounting: attempt to read cached prompt tokens from OpenAI-like usage shapes.
   const promptTokens = Number(usage?.promptTokens ?? usage?.prompt_tokens ?? usage?.inputTokens ?? 0) || 0
   const completionTokens =
     Number(usage?.completionTokens ?? usage?.completion_tokens ?? usage?.outputTokens ?? 0) || 0
@@ -421,8 +428,3 @@ export async function executeReaction(params: {
 
   return { assistantEvent, toolCalls, messagesForModel, llm }
 }
-
-
-
-
-

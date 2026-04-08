@@ -20,6 +20,8 @@ import {
   type ContextReactor,
 } from "./context.reactor.js"
 import {
+  abortPersistedContextStepStream,
+  closePersistedContextStepStream,
   createPersistedContextStepStream,
   closeContextStream,
 } from "./steps/stream.steps.js"
@@ -1067,11 +1069,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               // Only emit a `start` chunk once per story turn.
               sendStart: !silent && iter === 0,
               silent,
+              contextStepStream: currentStepStream?.stream,
               writable,
               persistReactionParts,
-              emitStreamChunk: async (chunk) => {
-                await currentStepStream?.write(chunk)
-              },
             }),
         )
 
@@ -1156,7 +1156,10 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             ),
         )
         if (currentStepStream) {
-          await currentStepStream.close()
+          await closePersistedContextStepStream({
+            env: params.env,
+            session: currentStepStream,
+          })
           currentStepStream = null
         }
 
@@ -1620,9 +1623,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     } catch (error) {
       if (currentStepStream) {
         try {
-          await currentStepStream.abort(
-            error instanceof Error ? error.message : String(error),
-          )
+          await abortPersistedContextStepStream({
+            env: params.env,
+            session: currentStepStream,
+            reason: error instanceof Error ? error.message : String(error),
+          })
         } catch {
           // noop
         } finally {

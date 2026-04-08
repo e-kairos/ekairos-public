@@ -1,7 +1,7 @@
 import type { ContextEnvironment } from "../context.config.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextIdentifier, StoredContext, ContextItem } from "../context.store.js"
-import { executeReaction } from "../steps/reaction.steps.js"
+import { executeAiSdkReaction } from "./ai-sdk.step.js"
 import type {
   ContextActionRequest,
   ContextReactor,
@@ -86,7 +86,7 @@ export function createAiSdkReactor<
           })
         : params.maxModelSteps
 
-    const result = await executeReaction({
+    const result = await executeAiSdkReaction({
       env: params.env,
       contextIdentifier: params.contextIdentifier,
       model,
@@ -97,11 +97,11 @@ export function createAiSdkReactor<
       maxSteps,
       sendStart: params.sendStart,
       silent: params.silent,
+      contextStepStream: params.contextStepStream,
       writable: params.writable,
       executionId: params.executionId,
       contextId: params.contextId,
       stepId: params.stepId,
-      emitStreamChunk: params.emitStreamChunk,
     })
 
     return {

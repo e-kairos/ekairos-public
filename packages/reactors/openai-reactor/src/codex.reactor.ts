@@ -1,6 +1,7 @@
 import {
   OUTPUT_ITEM_TYPE,
   createContextStepStreamChunk,
+  encodeContextStepStreamChunk,
   type ContextSkillPackage,
   type ContextItem,
   type ContextReactionResult,
@@ -431,6 +432,7 @@ export function createCodexReactor<
     params: ContextReactorParams<Context, Env>,
   ): Promise<ContextReactionResult> => {
     let chunkSequence = 0
+    const contextStepStreamWriter = params.contextStepStream?.getWriter()
     const chunkTypeCounters = new Map<string, number>()
     const providerChunkTypeCounters = new Map<string, number>()
     const capturedChunks: CodexMappedChunk[] = []
@@ -609,9 +611,13 @@ export function createCodexReactor<
         raw: mapped.raw ?? toJsonSafe(providerChunk),
       }
 
-      await params.emitStreamChunk?.(
-        createContextStepStreamChunk(payload),
-      )
+      if (contextStepStreamWriter) {
+        await contextStepStreamWriter.write(
+          encodeContextStepStreamChunk(
+            createContextStepStreamChunk(payload),
+          ),
+        )
+      }
 
       if (params.writable) {
         const writer = params.writable.getWriter()
@@ -633,81 +639,85 @@ export function createCodexReactor<
       }
     }
 
-    const turn = await options.executeTurn({
-      env: params.env,
-      context,
-      triggerEvent: params.triggerEvent,
-      contextId: params.contextId,
-      eventId: params.eventId,
-      executionId: params.executionId,
-      stepId: params.stepId,
-      iteration: params.iteration,
-      instruction,
-      config,
-      skills: params.skills,
-      writable: params.writable,
-      silent: params.silent,
-      emitChunk,
-    })
-    const finishedAtMs = Date.now()
+    try {
+      const turn = await options.executeTurn({
+        env: params.env,
+        context,
+        triggerEvent: params.triggerEvent,
+        contextId: params.contextId,
+        eventId: params.eventId,
+        executionId: params.executionId,
+        stepId: params.stepId,
+        iteration: params.iteration,
+        instruction,
+        config,
+        skills: params.skills,
+        writable: params.writable,
+        silent: params.silent,
+        emitChunk,
+      })
+      const finishedAtMs = Date.now()
 
-    const streamTrace: CodexStreamTrace | undefined = includeStreamTraceInOutput
-      ? {
-          totalChunks: chunkSequence,
-          chunkTypes: Object.fromEntries(chunkTypeCounters.entries()),
-          providerChunkTypes: Object.fromEntries(providerChunkTypeCounters.entries()),
-        }
-      : undefined
+      const streamTrace: CodexStreamTrace | undefined = includeStreamTraceInOutput
+        ? {
+            totalChunks: chunkSequence,
+            chunkTypes: Object.fromEntries(chunkTypeCounters.entries()),
+            providerChunkTypes: Object.fromEntries(providerChunkTypeCounters.entries()),
+          }
+        : undefined
 
-    const usagePayload = toJsonSafe(turn.usage ?? asRecord(turn.metadata).usage)
-    const usageMetrics = extractUsageMetrics(usagePayload)
+      const usagePayload = toJsonSafe(turn.usage ?? asRecord(turn.metadata).usage)
+      const usageMetrics = extractUsageMetrics(usagePayload)
 
-    const assistantEvent: ContextItem = {
-      id: params.eventId,
-      type: OUTPUT_ITEM_TYPE,
-      channel: "web",
-      createdAt: new Date().toISOString(),
-      status: "completed",
-      content: {
-        parts: buildCodexParts({
-          toolName,
-          includeReasoningPart,
-          semanticChunks,
-          rawChunks: allCapturedChunks,
-          result: turn,
-          instruction,
-          streamTrace,
-        }),
-      },
-    }
+      const assistantEvent: ContextItem = {
+        id: params.eventId,
+        type: OUTPUT_ITEM_TYPE,
+        channel: "web",
+        createdAt: new Date().toISOString(),
+        status: "completed",
+        content: {
+          parts: buildCodexParts({
+            toolName,
+            includeReasoningPart,
+            semanticChunks,
+            rawChunks: allCapturedChunks,
+            result: turn,
+            instruction,
+            streamTrace,
+          }),
+        },
+      }
 
-    return {
-      assistantEvent,
-      actionRequests: [],
-      messagesForModel: [],
-      llm: {
-        provider: "codex",
-        model: asString(config.model || "codex"),
-        promptTokens: usageMetrics.promptTokens,
-        promptTokensCached: usageMetrics.promptTokensCached,
-        promptTokensUncached: usageMetrics.promptTokensUncached,
-        completionTokens: usageMetrics.completionTokens,
-        totalTokens: usageMetrics.totalTokens,
-        latencyMs: Math.max(0, finishedAtMs - startedAtMs),
-        rawUsage: usagePayload,
-        rawProviderMetadata: toJsonSafe({
-          providerContextId: turn.providerContextId,
-          turnId: turn.turnId,
-          metadata: turn.metadata ?? null,
-          streamTrace: streamTrace
-            ? {
-                totalChunks: streamTrace.totalChunks,
-                chunkTypes: streamTrace.chunkTypes,
-                providerChunkTypes: streamTrace.providerChunkTypes,
-              }
-            : undefined,
-        }),
-      },
+      return {
+        assistantEvent,
+        actionRequests: [],
+        messagesForModel: [],
+        llm: {
+          provider: "codex",
+          model: asString(config.model || "codex"),
+          promptTokens: usageMetrics.promptTokens,
+          promptTokensCached: usageMetrics.promptTokensCached,
+          promptTokensUncached: usageMetrics.promptTokensUncached,
+          completionTokens: usageMetrics.completionTokens,
+          totalTokens: usageMetrics.totalTokens,
+          latencyMs: Math.max(0, finishedAtMs - startedAtMs),
+          rawUsage: usagePayload,
+          rawProviderMetadata: toJsonSafe({
+            providerContextId: turn.providerContextId,
+            turnId: turn.turnId,
+            metadata: turn.metadata ?? null,
+            streamTrace: streamTrace
+              ? {
+                  totalChunks: streamTrace.totalChunks,
+                  chunkTypes: streamTrace.chunkTypes,
+                  providerChunkTypes: streamTrace.providerChunkTypes,
+                }
+              : undefined,
+          }),
+        },
+      }
+    } finally {
+      contextStepStreamWriter?.releaseLock()
     }
   }
 }
