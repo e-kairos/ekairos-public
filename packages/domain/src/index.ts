@@ -290,6 +290,7 @@ type AnyEntityDef = EntitiesDef[string];
 type BaseEntitiesPhantom = {
   $users: EntityDef<any, any, any>;
   $files: EntityDef<any, any, any>;
+  $streams: EntityDef<any, any, any>;
 };
 type WithBase<E extends EntitiesDef> = MergeEntities<E, BaseEntitiesPhantom>;
 
@@ -1044,7 +1045,7 @@ export function domain(arg?: unknown): any {
 
               assertNoDuplicateLinkAttributes(finalLinks as LinksDef<any>);
 
-              // Include base entities ($users, $files) that InstantDB manages
+              // Include base entities ($users, $files, $streams) that InstantDB manages
               // These need to be explicitly included since InstantDB doesn't auto-add them
               const baseEntities = {
                 $users: i.entity({
@@ -1055,6 +1056,12 @@ export function domain(arg?: unknown): any {
                   url: i.string().optional(),
                   contentType: i.string().optional(),
                   size: i.number().optional(),
+                }),
+                $streams: i.entity({
+                  clientId: i.string().optional().indexed(),
+                  size: i.number().optional(),
+                  createdAt: i.date().optional().indexed(),
+                  updatedAt: i.date().optional().indexed(),
                 }),
               };
 
