@@ -53,18 +53,6 @@ export async function closeContextStream(params: {
   }
 }
 
-function readWaitUntil(
-  env: ContextEnvironment,
-): ((promise: Promise<any>) => void) | undefined {
-  const candidate =
-    typeof (env as any)?.waitUntil === "function"
-      ? (env as any).waitUntil
-      : typeof (env as any)?.after === "function"
-        ? (env as any).after
-        : undefined
-  return typeof candidate === "function" ? candidate : undefined
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {}
 }
@@ -120,10 +108,8 @@ export async function createPersistedContextStepStream(params: {
 
   const clientId = asString(params.clientId) || createContextStepStreamClientId(params.stepId)
   const startedAt = new Date()
-  const waitUntil = readWaitUntil(params.env)
   const writeStream = db.streams.createWriteStream({
     clientId,
-    waitUntil,
   })
   const streamId = await writeStream.streamId()
 
