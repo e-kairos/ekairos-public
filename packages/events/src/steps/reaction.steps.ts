@@ -4,6 +4,7 @@ import type { ContextEnvironment } from "../context.config.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextItem, ContextIdentifier } from "../context.store.js"
 import { OUTPUT_ITEM_TYPE } from "../context.events.js"
+import { createContextStepStreamChunk } from "../context.step-stream.js"
 import { mapAiSdkChunkToContextEvent } from "../reactors/ai-sdk.chunk-map.js"
 import type { SerializableToolForModel } from "../tools-to-model-tools.js"
 import { writeContextTraceEvents } from "./trace.steps.js"
@@ -105,6 +106,7 @@ export async function executeReaction(params: {
   executionId?: string
   contextId?: string
   stepId?: string
+  emitStreamChunk?: (chunk: Record<string, unknown>) => Promise<void>
 }): Promise<{
   assistantEvent: ContextItem
   toolCalls: any[]
@@ -236,6 +238,24 @@ export async function executeReaction(params: {
               provider: mappedProvider,
               sequence: ++chunkSequence,
             })
+            void params.emitStreamChunk?.(
+              createContextStepStreamChunk({
+                at: mapped.at,
+                sequence: mapped.sequence,
+                chunkType: mapped.chunkType,
+                provider: mapped.provider,
+                providerChunkType: mapped.providerChunkType,
+                actionRef: mapped.actionRef,
+                data:
+                  mapped.data && typeof mapped.data === "object"
+                    ? (mapped.data as Record<string, unknown>)
+                    : undefined,
+                raw:
+                  mapped.raw && typeof mapped.raw === "object"
+                    ? (mapped.raw as Record<string, unknown>)
+                    : undefined,
+              }),
+            )
             controller.enqueue({
               type: "data-chunk.emitted",
               data: mapped,

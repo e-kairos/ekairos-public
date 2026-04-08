@@ -101,6 +101,7 @@ export function createAiSdkReactor<
       executionId: params.executionId,
       contextId: params.contextId,
       stepId: params.stepId,
+      emitStreamChunk: params.emitStreamChunk,
     })
 
     return {
