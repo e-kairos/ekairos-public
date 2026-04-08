@@ -108,8 +108,10 @@
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run -c vitest.config.mts",
+    "pretest:ai-sdk-reactor": "pnpm --filter @ekairos/domain build",
     "test:ai-sdk-reactor": "vitest run -c vitest.config.mts src/tests/context.ai-sdk-reactor.instant.test.ts",
     "test:ai-sdk-reactor:real": "vitest run -c vitest.config.mts src/tests/context.ai-sdk-reactor.real.instant.test.ts",
+    "pretest:scripted-reactor": "pnpm --filter @ekairos/domain build",
     "test:scripted-reactor": "vitest run -c vitest.config.mts src/tests/context.scripted-reactor.instant.test.ts"
   },
   "dependencies": {
