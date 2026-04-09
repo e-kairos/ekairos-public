@@ -197,12 +197,26 @@ test("story smoke runs context engine with AI SDK mocked model in durable workfl
   }
   expect(readString(reaction, "status")).toBe("completed");
 
-  const reactionContent = asRecord(reaction.content);
-  const reactionParts = Array.isArray(reactionContent?.parts) ? reactionContent.parts : [];
-  const hasToolOutput = reactionParts.some((part) => {
-    const row = asRecord(part);
-    if (!row) return false;
-    return row.type === "tool-echo" && row.state === "output-available";
+  const stepId = readString(stepRows[0], "id");
+  expect(stepId).toBeTruthy();
+  const partsQuery = await completed.adminDb.query({
+    event_parts: {
+      $: {
+        where: { stepId: stepId as any },
+        limit: 50,
+        order: { idx: "asc" as const },
+      },
+    },
+  });
+  const partRows = readRows(partsQuery, "event_parts");
+  const hasToolOutput = partRows.some((row) => {
+    const part = asRecord(row.part);
+    if (!part) return false;
+    return (
+      readString(part, "type") === "tool-result" &&
+      readString(part, "toolName") === "echo" &&
+      readString(part, "state") === "output-available"
+    );
   });
   expect(hasToolOutput).toBe(true);
 
@@ -278,12 +292,26 @@ test("story smoke persists tool errors through durable workflow mode", async ({ 
   }
   expect(readString(reaction, "status")).toBe("completed");
 
-  const reactionContent = asRecord(reaction.content);
-  const reactionParts = Array.isArray(reactionContent?.parts) ? reactionContent.parts : [];
-  const hasToolErrorOutput = reactionParts.some((part) => {
-    const row = asRecord(part);
-    if (!row) return false;
-    return row.type === "tool-echo" && row.state === "output-error";
+  const stepId = readString(stepRows[0], "id");
+  expect(stepId).toBeTruthy();
+  const partsQuery = await completed.adminDb.query({
+    event_parts: {
+      $: {
+        where: { stepId: stepId as any },
+        limit: 50,
+        order: { idx: "asc" as const },
+      },
+    },
+  });
+  const partRows = readRows(partsQuery, "event_parts");
+  const hasToolErrorOutput = partRows.some((row) => {
+    const part = asRecord(row.part);
+    if (!part) return false;
+    return (
+      readString(part, "type") === "tool-result" &&
+      readString(part, "toolName") === "echo" &&
+      readString(part, "state") === "output-error"
+    );
   });
   expect(hasToolErrorOutput).toBe(true);
 
