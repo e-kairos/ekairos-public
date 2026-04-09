@@ -237,26 +237,12 @@ function canonicalToolResultContentToOutput(content: ContextPartContent[]) {
       }
 
       if (block.type === "file") {
-        if (
-          block.mediaType.startsWith("image/") &&
-          typeof block.data === "string" &&
-          block.data.length > 0
-        ) {
-          return {
-            type: "image-data" as const,
-            data: stripDataUrlPrefix(block.data),
-            mediaType: block.mediaType,
-            filename: block.filename,
-          }
-        }
-
         return {
-          type: "file" as const,
+          type: "media" as const,
           mediaType: block.mediaType,
-          filename: block.filename,
           data:
             typeof block.data === "string" && block.data.length > 0
-              ? block.data
+              ? stripDataUrlPrefix(block.data)
               : typeof block.url === "string" && block.url.length > 0
                 ? block.url
                 : block.fileId,

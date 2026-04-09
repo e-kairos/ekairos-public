@@ -233,6 +233,6 @@ describeInstant("context output parts + Instant runtime", () => {
     expect(readString(toolResultOutput ?? undefined, "type")).toBe("content")
     const replayedOutputParts = Array.isArray(toolResultOutput?.value) ? toolResultOutput?.value : []
     expect(replayedOutputParts).toHaveLength(2)
-    expect(readString(asRecord(replayedOutputParts[1]) ?? undefined, "type")).toBe("image-data")
+    expect(readString(asRecord(replayedOutputParts[1]) ?? undefined, "type")).toBe("media")
   }, 5 * 60 * 1000)
 })
