@@ -293,19 +293,31 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
         event_items: {
           $: { where: { "context.id": result.context.id }, limit: 20 },
         },
+        event_steps: {
+          $: { where: { "execution.id": result.execution.id }, limit: 10 },
+        },
       }),
     )
     const itemRows = readRows(snapshot, "event_items")
+    const stepRows = readRows(snapshot, "event_steps")
     const reactionItem = itemRows.find((row) => readString(row, "id") === result.reaction.id)
     expect(reactionItem).toBeTruthy()
-    const reactionContent = asRecord(reactionItem?.content)
-    const reactionParts = Array.isArray(reactionContent?.parts)
-      ? reactionContent.parts
-      : []
-    const hasToolErrorOutput = reactionParts.some((part) => {
-      const row = asRecord(part)
-      if (!row) return false
-      return row.type === "tool-set_status" && row.state === "output-error"
+    const stepId = readString(stepRows[0], "id")
+    expect(stepId).toBeTruthy()
+    const partsSnapshot = await currentDb().query({
+      event_parts: {
+        $: {
+          where: { stepId: stepId as any },
+          limit: 50,
+          order: { idx: "asc" },
+        },
+      },
+    })
+    const partRows = readRows(partsSnapshot, "event_parts")
+    const hasToolErrorOutput = partRows.some((row) => {
+      const part = asRecord(row.part)
+      if (!part) return false
+      return part.type === "tool-result" && part.state === "output-error"
     })
     expect(hasToolErrorOutput).toBe(true)
 

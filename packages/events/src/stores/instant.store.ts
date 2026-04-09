@@ -3,7 +3,7 @@ import { id, lookup } from "@instantdb/admin"
 
 import { eventsDomain } from "../schema.js"
 import type { DomainSchemaResult } from "@ekairos/domain"
-import { convertItemsToModelMessages } from "../context.events.js"
+import { convertItemToModelMessages } from "../context.events.js"
 import {
   assertContextTransition,
   assertExecutionTransition,
@@ -26,6 +26,11 @@ export {
   coerceDocumentTextPages,
   expandEventsWithInstantDocuments,
 } from "./instant.documents.js"
+import {
+  mergeContextPartEnvelope,
+  normalizePartsForPersistence,
+  splitContextPartEnvelope,
+} from "../context.parts.js"
 
 export type InstantStoreDb = any
 
@@ -384,6 +389,107 @@ export class InstantStore implements ContextStore {
     return sortItems(((res.event_items as any) ?? []) as ContextItem[])
   }
 
+  private async getExecutionIdForItem(itemId: string): Promise<string | null> {
+    const directResult = await this.db.query({
+      event_items: {
+        $: { where: { id: itemId as any }, limit: 1 },
+        execution: {},
+      },
+    })
+
+    const directRow = (directResult?.event_items as any[])?.[0]
+    const directExecutionId = directRow?.execution?.id
+    if (
+      typeof directExecutionId === "string" &&
+      directExecutionId.trim().length > 0
+    ) {
+      return directExecutionId
+    }
+
+    const reverseResult = await this.db.query({
+      event_executions: {
+        $: { where: { "reaction.id": itemId as any }, limit: 1 },
+      },
+    })
+
+    const reverseRow = (reverseResult?.event_executions as any[])?.[0]
+    const reverseExecutionId = reverseRow?.id
+    return typeof reverseExecutionId === "string" && reverseExecutionId.trim().length > 0
+      ? reverseExecutionId
+      : null
+  }
+
+  private async getProjectedPartsForOutputItem(itemId: string): Promise<unknown[] | null> {
+    const executionId = await this.getExecutionIdForItem(itemId)
+    if (!executionId) {
+      return null
+    }
+
+    const stepResult = await this.db.query({
+      event_steps: {
+        $: {
+          where: { "execution.id": executionId as any },
+          limit: 200,
+        },
+      },
+    })
+
+    const steps = sortItems(((stepResult?.event_steps as any[]) ?? []) as Array<{
+      id?: string
+      iteration?: number
+      createdAt?: unknown
+      updatedAt?: unknown
+    }>).sort((a, b) => {
+      const ai = typeof a?.iteration === "number" ? a.iteration : 0
+      const bi = typeof b?.iteration === "number" ? b.iteration : 0
+      if (ai !== bi) return ai - bi
+      return String(a?.id ?? "").localeCompare(String(b?.id ?? ""))
+    })
+
+    if (steps.length === 0) {
+      return null
+    }
+
+    const projectedParts: unknown[] = []
+
+    for (const step of steps) {
+      const stepId = typeof step?.id === "string" ? step.id : ""
+      if (!stepId) continue
+
+      const partResult = await this.db.query({
+        event_parts: {
+          $: {
+            where: { stepId: stepId as any },
+            limit: 500,
+            order: { idx: "asc" },
+          },
+        },
+      })
+
+      const partRows = (((partResult?.event_parts as any[]) ?? []) as Array<{
+        idx?: number
+        part?: unknown
+        metadata?: unknown
+      }>).sort((a, b) => {
+        const ai = typeof a?.idx === "number" ? a.idx : 0
+        const bi = typeof b?.idx === "number" ? b.idx : 0
+        if (ai !== bi) return ai - bi
+        return 0
+      })
+
+      projectedParts.push(
+        ...partRows.map((row) =>
+          mergeContextPartEnvelope({
+            part: row?.part,
+            metadata: row?.metadata,
+          }),
+        ),
+      )
+    }
+
+    return projectedParts
+  }
+
   async createExecution(
     contextIdentifier: ContextIdentifier,
     triggerEventId: string,
@@ -548,17 +654,19 @@ export class InstantStore implements ContextStore {
   }
 
   async saveStepParts(params: { stepId: string; parts: any[] }): Promise<void> {
-    const parts = Array.isArray(params.parts) ? params.parts : []
+    const parts = normalizePartsForPersistence(Array.isArray(params.parts) ? params.parts : [])
     if (parts.length === 0) return
 
     const txs = parts.map((part, idx) => {
       const key = `${params.stepId}:${idx}`
+      const split = splitContextPartEnvelope(part)
       return this.db.tx.event_parts[lookup("key", key)]
         .update({
           stepId: params.stepId,
           idx,
-          type: typeof (part as any)?.type === "string" ? String((part as any).type) : undefined,
-          part,
+          type: typeof split.part?.type === "string" ? String(split.part.type) : undefined,
+          part: split.part,
+          metadata: split.metadata,
           updatedAt: new Date(),
         })
         .link({ step: params.stepId })
@@ -573,7 +681,28 @@ export class InstantStore implements ContextStore {
       events,
       derivedEventType: "output",
     })
-    return await convertItemsToModelMessages(expanded)
+
+    const messages: ModelMessage[][] = []
+    for (const event of expanded) {
+      const isOutputItem = event?.type === "output"
+      const projectedParts = isOutputItem
+        ? await this.getProjectedPartsForOutputItem(String(event?.id ?? ""))
+        : null
+      const projectedEvent =
+        projectedParts && projectedParts.length > 0
+          ? {
+              ...event,
+              content: {
+                ...(event?.content ?? {}),
+                parts: projectedParts,
+              },
+            }
+          : event
+
+      messages.push(await convertItemToModelMessages(projectedEvent as ContextItem))
+    }
+
+    return messages.flat()
   }
 }
 

@@ -54,6 +54,19 @@ export {
 export { eventsDomain } from "./schema.js"
 
 export { didToolExecute, extractToolCallsFromParts } from "./context.toolcalls.js"
+export {
+  contextPartSchema,
+  contextPartEnvelopeSchema,
+  contextPartContentSchema,
+  isContextPartEnvelope,
+  parseContextPartEnvelope,
+  normalizePartsForPersistence,
+} from "./context.parts.js"
+export type {
+  ContextPart,
+  ContextPartEnvelope,
+  ContextPartContent,
+} from "./context.parts.js"
 
 export {
   INPUT_ITEM_TYPE,
@@ -68,7 +81,11 @@ export {
   convertItemToModelMessages,
   convertItemsToModelMessages,
   convertModelMessageToItem,
+  isContextOutputPart,
+  normalizeContextOutputPart,
   type ResponseMessage,
+  type ContextOutputPart,
+  type ContextOutputContentPart,
 } from "./context.events.js"
 
 export {

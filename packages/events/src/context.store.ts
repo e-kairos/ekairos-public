@@ -30,6 +30,11 @@ export type ContextItem = {
   createdAt: string
   status?: ItemStatus
   content: {
+    /**
+     * Deprecated as the source of truth for output items.
+     * The engine maintains this field as a compatibility mirror, but
+     * step-level `event_parts` should be used for replay and inspection.
+     */
     parts?: unknown[]
     [key: string]: unknown
   }

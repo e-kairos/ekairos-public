@@ -53,8 +53,9 @@ export const eventsDomain: DomainSchemaResult = domain("events")
                 key: i.string().unique().indexed(), // `${stepId}:${idx}`
                 stepId: i.string().indexed(),
                 idx: i.number().indexed(),
-                type: i.string().optional().indexed(),
-                part: i.any().optional(),
+                type: i.string().optional().indexed(), // canonical part.type
+                part: i.json().optional(),
+                metadata: i.json().optional(), // provider/model/runtime metadata only
                 updatedAt: i.date().optional(),
             }),
             event_trace_events: i.entity({

@@ -14,6 +14,13 @@
  */
 
 import type { ContextItem } from "./context.store.js"
+import {
+  isContextPartEnvelope,
+  normalizePartsForPersistence,
+  normalizeToolResultContentToBlocks,
+  type ContextInlineContent,
+  type ContextPartEnvelope,
+} from "./context.parts.js"
 
 export type ToolCall = {
   toolCallId: string
@@ -34,6 +41,18 @@ export type ToolCall = {
 export function extractToolCallsFromParts(parts: any[] | undefined | null): ToolCall[] {
   const safeParts = parts ?? []
   return safeParts.reduce((acc: ToolCall[], p: any) => {
+    if (isContextPartEnvelope(p) && p.type === "tool-call") {
+      const firstContent = Array.isArray(p.content) ? p.content[0] : undefined
+      const args =
+        firstContent && firstContent.type === "json" ? firstContent.value : p.content
+      acc.push({
+        toolCallId: p.toolCallId,
+        toolName: p.toolName,
+        args,
+      })
+      return acc
+    }
+
     if (typeof p?.type === "string" && p.type.startsWith("tool-")) {
       const toolName = p.type.split("-").slice(1).join("-")
       acc.push({ toolCallId: p.toolCallId, toolName, args: p.input })
@@ -60,15 +79,53 @@ export function applyToolExecutionResultToParts(
   toolCall: Pick<ToolCall, "toolCallId" | "toolName">,
   execution: { success: boolean; result: any; message?: string },
 ): any[] {
-  return parts.map((p: any) => {
-    if (p?.type === `tool-${toolCall.toolName}` && p.toolCallId === toolCall.toolCallId) {
-      if (execution.success) {
-        return { ...p, state: "output-available", output: execution.result }
-      }
-      return { ...p, state: "output-error", errorText: String(execution.message || "Error") }
+  const normalized = normalizePartsForPersistence(parts)
+  const next: ContextPartEnvelope[] = []
+  let insertedResult = false
+  const resultContent: ContextInlineContent[] = execution.success
+    ? normalizeToolResultContentToBlocks(execution.result)
+    : [
+        {
+          type: "text" as const,
+          text: String(execution.message || "Error"),
+        },
+      ]
+
+  for (const part of normalized) {
+    next.push(part)
+    if (part.type !== "tool-call") {
+      continue
     }
-    return p
-  })
+
+    if (
+      part.toolCallId !== toolCall.toolCallId ||
+      part.toolName !== toolCall.toolName
+    ) {
+      continue
+    }
+
+    next.push({
+      type: "tool-result",
+      toolCallId: toolCall.toolCallId,
+      toolName: toolCall.toolName,
+      state: execution.success ? "output-available" : "output-error",
+      content: resultContent,
+    })
+
+    insertedResult = true
+  }
+
+  if (!insertedResult) {
+    next.push({
+      type: "tool-result",
+      toolCallId: toolCall.toolCallId,
+      toolName: toolCall.toolName,
+      state: execution.success ? "output-available" : "output-error",
+      content: resultContent,
+    })
+  }
+
+  return next
 }
 
 /**
@@ -82,16 +139,16 @@ export function applyToolExecutionResultToParts(
  * decide based on the persisted `reactionEvent` (not ephemeral in-memory arrays).
  */
 export function didToolExecute(event: Pick<ContextItem, "content">, toolName: string): boolean {
-  type ToolPart = {
-    type: string
-    state?: "output-available" | "output-error" | string
-  }
-
-  const parts = (event as any).content.parts as ToolPart[]
+  const parts = (((event as any).content.parts ?? []) as any[]).flatMap((part) =>
+    isContextPartEnvelope(part) ? [part] : normalizePartsForPersistence([part]),
+  )
   return parts.some(
     (p) =>
-      p.type === `tool-${toolName}` &&
-      (p.state === "output-available" || p.state === "output-error"),
+      (p.type === "tool-result" &&
+        p.toolName === toolName &&
+        (p.state === "output-available" || p.state === "output-error")) ||
+      ((p as any).type === `tool-${toolName}` &&
+        ((p as any).state === "output-available" || (p as any).state === "output-error")),
   )
 }
 

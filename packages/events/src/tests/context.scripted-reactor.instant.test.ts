@@ -185,6 +185,18 @@ describeInstant("context scripted reactor + Instant runtime", () => {
     const executionRow = readRows(snapshot, "event_executions")[0]
     const stepRow = readRows(snapshot, "event_steps")[0]
     const itemRows = readRows(snapshot, "event_items")
+    const stepId = readString(stepRow, "id")
+    expect(stepId).toBeTruthy()
+    const partsSnapshot = await currentDb().query({
+      event_parts: {
+        $: {
+          where: { stepId: stepId as any },
+          limit: 50,
+          order: { idx: "asc" },
+        },
+      },
+    })
+    const partRows = readRows(partsSnapshot, "event_parts")
 
     expect(readString(contextRow, "status")).toBe("closed")
     expect(readString(executionRow, "status")).toBe("completed")
@@ -194,14 +206,10 @@ describeInstant("context scripted reactor + Instant runtime", () => {
     const reactionItem = itemRows.find((row) => readString(row, "id") === result.reaction.id)
     expect(readString(reactionItem, "status")).toBe("completed")
 
-    const reactionContent = asRecord(reactionItem?.content)
-    const reactionParts = Array.isArray(reactionContent?.parts)
-      ? reactionContent.parts
-      : []
-    const hasToolOutput = reactionParts.some((part) => {
-      const row = asRecord(part)
-      if (!row) return false
-      return row.type === "tool-set_status" && row.state === "output-available"
+    const hasToolOutput = partRows.some((row) => {
+      const part = asRecord(row.part)
+      if (!part) return false
+      return part.type === "tool-result" && part.state === "output-available"
     })
     expect(hasToolOutput).toBe(true)
 

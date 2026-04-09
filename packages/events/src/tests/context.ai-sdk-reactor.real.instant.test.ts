@@ -24,7 +24,7 @@ type ContextTestEnv = {
   actorId: string
 }
 
-const REAL_MODEL = String(process.env.CONTEXT_AI_SDK_REAL_MODEL ?? "openai/gpt-5.2-codex").trim()
+const REAL_MODEL = String(process.env.CONTEXT_AI_SDK_REAL_MODEL ?? "openai/gpt-5.4-nano").trim()
 const hasAiGatewayApiKey = Boolean(String(process.env.AI_GATEWAY_API_KEY ?? "").trim())
 const hasRealModelTestEnv = hasInstantProvisionToken() && hasAiGatewayApiKey
 
@@ -192,12 +192,23 @@ describeRealInstant("context ai sdk reactor + real AI Gateway model", () => {
     expect(reactionItem).toBeTruthy()
     expect(readString(reactionItem, "status")).toBe("completed")
 
-    const reactionContent = asRecord(reactionItem?.content)
-    const reactionParts = Array.isArray(reactionContent?.parts) ? reactionContent.parts : []
-    const hasToolOutput = reactionParts.some((part) => {
-      const row = asRecord(part)
-      if (!row) return false
-      return row.type === "tool-set_status" && row.state === "output-available"
+    const stepId = readString(stepRows[0], "id")
+    expect(stepId).toBeTruthy()
+    const partsSnapshot = await currentDb().query({
+      event_parts: {
+        $: {
+          where: { stepId: stepId as any },
+          limit: 50,
+          order: { idx: "asc" },
+        },
+      },
+    })
+    const partRows = readRows(partsSnapshot, "event_parts")
+
+    const hasToolOutput = partRows.some((row) => {
+      const part = asRecord(row.part)
+      if (!part) return false
+      return part.type === "tool-result" && part.state === "output-available"
     })
     expect(hasToolOutput).toBe(true)
 

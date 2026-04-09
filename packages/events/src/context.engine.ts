@@ -10,6 +10,10 @@ import type {
 } from "./context.store.js"
 import { OUTPUT_ITEM_TYPE, WEB_CHANNEL } from "./context.events.js"
 import { applyToolExecutionResultToParts } from "./context.toolcalls.js"
+import {
+  isContextPartEnvelope,
+  normalizePartsForPersistence,
+} from "./context.parts.js"
 import type { ContextStreamEvent } from "./context.stream.js"
 
 import type { SerializableToolForModel } from "./tools-to-model-tools.js"
@@ -265,6 +269,22 @@ function summarizePartPreview(part: unknown): {
   partToolCallId?: string
 } {
   if (!part || typeof part !== "object") return {}
+  if (isContextPartEnvelope(part)) {
+    const preview =
+      part.content[0]?.type === "text"
+        ? part.content[0].text
+        : JSON.stringify(part.content[0] ?? part)
+    const state = "state" in part && typeof part.state === "string" ? part.state : undefined
+    const toolCallId =
+      "toolCallId" in part && typeof part.toolCallId === "string"
+        ? part.toolCallId
+        : undefined
+    return {
+      partPreview: preview ? clipPreview(preview) : undefined,
+      partState: state,
+      partToolCallId: toolCallId,
+    }
+  }
   const row = part as Record<string, unknown>
   const partType = typeof row.type === "string" ? row.type : ""
   const partState = typeof row.state === "string" ? row.state : undefined
@@ -1020,7 +1040,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           : []
         let persistedReactionPartsSignature = ""
         const persistReactionParts = async (nextParts: any[]) => {
-          const normalizedParts = Array.isArray(nextParts) ? nextParts : []
+          const normalizedParts = normalizePartsForPersistence(
+            Array.isArray(nextParts) ? nextParts : [],
+          )
           const nextSignature = JSON.stringify(normalizedParts)
           if (nextSignature === persistedReactionPartsSignature) return
           persistedReactionPartsSignature = nextSignature
@@ -1096,7 +1118,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         // We intentionally do NOT persist the per-step LLM assistant event as a `context_event`.
         // The story exposes a single visible `context_event` per turn (`reactionEventId`) so the UI
         // doesn't render duplicate assistant messages (LLM-step + aggregated reaction).
-        const stepParts = (((assistantEvent as any)?.content?.parts ?? []) as any[]) as any[]
+        const stepParts = normalizePartsForPersistence(
+          ((((assistantEvent as any)?.content?.parts ?? []) as any[]) as any[]),
+        )
         const assistantEventEffective: ContextItem = {
           ...assistantEvent,
           content: {
@@ -1403,12 +1427,10 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         )
 
         // Merge action results into persisted parts (so next LLM call can see them)
-        let parts = Array.isArray(reactionEvent.content?.parts)
-          ? [...reactionEvent.content.parts]
-          : []
+        let finalizedStepParts = Array.isArray(stepParts) ? [...stepParts] : []
         for (const r of actionResults as any[]) {
-          parts = applyToolExecutionResultToParts(
-            parts,
+          finalizedStepParts = applyToolExecutionResultToParts(
+            finalizedStepParts,
             {
               toolCallId: r.actionRequest.actionRef,
               toolName: r.actionRequest.actionName,
@@ -1421,11 +1443,26 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           )
         }
 
+        await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.saveFinalStepPartsMs`,
+          async () =>
+            await ops.saveContextPartsStep({
+              stepId: stepCreate.stepId,
+              parts: finalizedStepParts,
+              executionId,
+              contextId: String(currentContext.id),
+              iteration: iter,
+            }),
+        )
+
         reactionEvent = {
           ...reactionEvent,
           content: {
             ...reactionEvent.content,
-            parts,
+            // Deprecated mirror for compatibility. `event_parts` are the
+            // source of truth for replay and step inspection.
+            parts: [...reactionPartsBeforeStep, ...finalizedStepParts],
           },
           status: "pending",
         }
