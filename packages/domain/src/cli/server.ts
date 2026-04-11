@@ -15,6 +15,12 @@ type RefreshTokenUser = {
   isGuest?: boolean
 }
 
+type AuthActor = {
+  id?: string | null
+  email?: string | null
+  isGuest?: boolean
+} | null
+
 function json(data: unknown, init?: ResponseInit) {
   return Response.json(data, init)
 }
@@ -235,6 +241,69 @@ async function resolveAuth(req: Request, body: any, source: RuntimeDomainSource 
   return auth
 }
 
+function resolveImpersonatedDb(
+  db: any,
+  auth: {
+    bearerToken: string | null
+    bearerType: "static" | "oidc" | "refresh-token" | null
+  },
+  body: any,
+) {
+  if (typeof db?.asUser !== "function") {
+    return db
+  }
+
+  const asEmail = String(body?.asEmail ?? "").trim()
+  const asGuest = Boolean(body?.asGuest)
+
+  if (auth.bearerType === "refresh-token" && auth.bearerToken) {
+    return db.asUser({ token: auth.bearerToken })
+  }
+  if (asEmail) {
+    return db.asUser({ email: asEmail })
+  }
+  if (asGuest) {
+    return db.asUser({ guest: true })
+  }
+  return db
+}
+
+function resolveActor(
+  auth: {
+    bearerType: "static" | "oidc" | "refresh-token" | null
+    refreshUser: RefreshTokenUser | null
+  },
+  body: any,
+): AuthActor {
+  if (auth.refreshUser) {
+    return auth.refreshUser
+  }
+
+  const asEmail = String(body?.asEmail ?? "").trim()
+  if (asEmail) {
+    return { email: asEmail, id: null, isGuest: false }
+  }
+
+  if (Boolean(body?.asGuest)) {
+    return { id: null, email: null, isGuest: true }
+  }
+
+  return null
+}
+
+function resolveSourceType(
+  auth: {
+    bearerType: "static" | "oidc" | "refresh-token" | null
+  },
+  body: any,
+) {
+  if (auth.bearerType) return auth.bearerType
+  if (String(body?.asEmail ?? "").trim()) return "email" as const
+  if (Boolean(body?.asGuest)) return "guest" as const
+  if (Boolean(body?.admin)) return "admin" as const
+  return "admin" as const
+}
+
 function truncateQueryResult(result: Record<string, unknown>) {
   const MAX_QUERY_ROWS = 50
   const output: Record<string, unknown> = {}
@@ -379,12 +448,9 @@ export async function handleDomainCliPost(req: Request): Promise<Response> {
 
   const env = withActorEnv(asRecord(body?.env), auth)
   const resolved = await resolveRuntime(source, env)
-  const db =
-    auth.bearerType === "refresh-token" &&
-    auth.bearerToken &&
-    typeof (resolved.db as any)?.asUser === "function"
-      ? (resolved.db as any).asUser({ token: auth.bearerToken })
-      : resolved.db
+  const actor = resolveActor(auth, body)
+  const db = resolveImpersonatedDb(resolved.db, auth, body)
+  const sourceType = resolveSourceType(auth, body)
 
   if (op === "action") {
     const action = resolveActionByAlias(String(body?.action ?? ""))
@@ -409,14 +475,15 @@ export async function handleDomainCliPost(req: Request): Promise<Response> {
         ok: true,
         action: action.name,
         output,
-        actor: auth.refreshUser,
+        actor,
+        source: sourceType,
       })
     } catch (error) {
       return json(
         {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
-          actor: auth.refreshUser,
+          actor,
         },
         { status: 500 },
       )
@@ -432,7 +499,8 @@ export async function handleDomainCliPost(req: Request): Promise<Response> {
     const result = await db.query(query)
     return json({
       ok: true,
-      actor: auth.refreshUser,
+      actor,
+      source: sourceType,
       ...truncateQueryResult(asRecord(result)),
     })
   } catch (error) {
@@ -440,7 +508,7 @@ export async function handleDomainCliPost(req: Request): Promise<Response> {
       {
         ok: false,
         error: error instanceof Error ? error.message : String(error),
-        actor: auth.refreshUser,
+        actor,
       },
       { status: 500 },
     )

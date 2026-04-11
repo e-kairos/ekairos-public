@@ -29,6 +29,12 @@ export type DomainCliQueryResponse = {
   truncated?: Record<string, { returned: number; total: number }> | null
   error?: string
   status?: number
+  actor?: {
+    id?: string | null
+    email?: string | null
+    isGuest?: boolean
+  } | null
+  source?: "admin" | "guest" | "email" | "refresh-token" | "static" | "oidc" | null
 }
 
 export type DomainCliActionResponse = {

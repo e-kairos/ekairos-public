@@ -207,7 +207,7 @@ describeCliE2E("domain cli", () => {
     }
   }
 
-  it("logs in, inspects the domain, executes an action, and queries via the client runtime", async () => {
+  it("logs in, inspects the domain, executes JSON5 actions, and queries through client/server contexts", async () => {
     const loginIo = createIo()
     const loginCode = await runCli(
       ["login", baseUrl, `--refreshToken=${refreshToken}`, `--appId=${appId}`],
@@ -216,49 +216,69 @@ describeCliE2E("domain cli", () => {
     expect(loginCode, JSON.stringify(loginIo.read())).toBe(0)
     const loginPayload = JSON.parse(loginIo.read().stdout)
     expect(loginPayload.ok).toBe(true)
-    expect(loginPayload.baseUrl).toBe(baseUrl)
-    expect(loginPayload.appId).toBe(appId)
-    expect(loginPayload.actor.id).toBe(userId)
+    expect(loginPayload.data.baseUrl).toBe(baseUrl)
+    expect(loginPayload.data.appId).toBe(appId)
+    expect(loginPayload.data.actor.id).toBe(userId)
 
     const inspectIo = createIo()
     const inspectCode = await runCli(["inspect"], inspectIo.io as any)
     expect(inspectCode).toBe(0)
     const inspectPayload = JSON.parse(inspectIo.read().stdout)
-    expect(Array.isArray(inspectPayload.entities)).toBe(true)
-    expect(inspectPayload.entities).toContain("cli_tasks")
-    expect(Array.isArray(inspectPayload.actions)).toBe(true)
+    expect(Array.isArray(inspectPayload.data.entities)).toBe(true)
+    expect(inspectPayload.data.entities).toContain("cli_tasks")
+    expect(Array.isArray(inspectPayload.data.actions)).toBe(true)
     expect(
-      inspectPayload.actions.some((entry: any) => entry.key === "createTask" || entry.name === "cli.task.create"),
+      inspectPayload.data.actions.some(
+        (entry: any) => entry.key === "createTask" || entry.name === "cli.task.create",
+      ),
     ).toBe(true)
 
     const actionIo = createIo()
     const actionCode = await runCli(
-      ["createTask", '{"title":"Ship CLI adapter"}'],
+      ["createTask", "{ title: 'Ship CLI adapter' }"],
       actionIo.io as any,
     )
     expect(actionCode, JSON.stringify(actionIo.read())).toBe(0)
     const actionPayload = JSON.parse(actionIo.read().stdout)
     expect(actionPayload.ok, JSON.stringify(actionPayload)).toBe(true)
-    expect(actionPayload.action).toBe("cli.task.create")
-    expect(actionPayload.output.title).toBe("Ship CLI adapter")
-    expect(actionPayload.output.actorId).toBe(userId)
+    expect(actionPayload.data.action).toBe("cli.task.create")
+    expect(actionPayload.data.output.title).toBe("Ship CLI adapter")
+    expect(actionPayload.data.output.actorId).toBe(userId)
 
-    const queryIo = createIo()
-    const queryCode = await runCli(
+    const clientQueryIo = createIo()
+    const clientQueryCode = await runCli(
       [
         "query",
-        '{"cli_tasks":{"$":{"order":{"createdAt":"asc"},"limit":10},"creator":{}}}',
+        "{ cli_tasks: { $: { order: { createdAt: 'asc' }, limit: 10 }, creator: {} } }",
+        "--meta",
       ],
-      queryIo.io as any,
+      clientQueryIo.io as any,
     )
-    expect(queryCode, JSON.stringify(queryIo.read())).toBe(0)
-    const queryPayload = JSON.parse(queryIo.read().stdout)
-    expect(Array.isArray(queryPayload.cli_tasks)).toBe(true)
-    expect(queryPayload.cli_tasks).toHaveLength(1)
-    expect(queryPayload.cli_tasks[0].title).toBe("Ship CLI adapter")
-    const creator = Array.isArray(queryPayload.cli_tasks[0].creator)
-      ? queryPayload.cli_tasks[0].creator[0]
-      : queryPayload.cli_tasks[0].creator
+    expect(clientQueryCode, JSON.stringify(clientQueryIo.read())).toBe(0)
+    const clientQueryPayload = JSON.parse(clientQueryIo.read().stdout)
+    expect(clientQueryPayload.source).toBe("client")
+    expect(Array.isArray(clientQueryPayload.data.cli_tasks)).toBe(true)
+    expect(clientQueryPayload.data.cli_tasks).toHaveLength(1)
+    expect(clientQueryPayload.data.cli_tasks[0].title).toBe("Ship CLI adapter")
+    const creator = Array.isArray(clientQueryPayload.data.cli_tasks[0].creator)
+      ? clientQueryPayload.data.cli_tasks[0].creator[0]
+      : clientQueryPayload.data.cli_tasks[0].creator
     expect(String(creator?.id ?? "")).toBe(userId)
+
+    const serverQueryIo = createIo()
+    const serverQueryCode = await runCli(
+      [
+        "query",
+        "{ cli_tasks: { $: { order: { createdAt: 'asc' }, limit: 10 }, creator: {} } }",
+        "--admin",
+        "--meta",
+      ],
+      serverQueryIo.io as any,
+    )
+    expect(serverQueryCode, JSON.stringify(serverQueryIo.read())).toBe(0)
+    const serverQueryPayload = JSON.parse(serverQueryIo.read().stdout)
+    expect(serverQueryPayload.source).toBe("server")
+    expect(Array.isArray(serverQueryPayload.data.cli_tasks)).toBe(true)
+    expect(serverQueryPayload.data.cli_tasks[0].title).toBe("Ship CLI adapter")
   }, 5 * 60 * 1000)
 })

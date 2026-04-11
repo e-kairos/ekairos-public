@@ -6,6 +6,25 @@ Use `./skill.sh` to list, validate, bundle, and install skills.
 
 ## Core Skills
 
+### ekairos-domain-design
+
+- Path: `skills/ekairos-domain-design`
+- Purpose: Design or refactor Ekairos domains, runtimes, actions, and workflow entrypoints.
+- Adoption value: gives one repeatable contract for explicit runtimes, step-safe actions, and composed InstantDB graphs.
+- Related packages:
+  - `@ekairos/domain`
+  - `@ekairos/events`
+  - `@ekairos/structure`
+
+### ekairos-domain-cli
+
+- Path: `skills/ekairos-domain-cli`
+- Purpose: Scaffold and operate Ekairos apps through the `@ekairos/domain` CLI.
+- Adoption value: lowers time-to-first-app by standardizing `create-app`, `inspect`, `action`, and `query` flows.
+- Related packages:
+  - `@ekairos/domain`
+  - `@ekairos/ekairos`
+
 ### ekairos.domain.query
 
 - Path: `skills/ekairos.domain.query`

@@ -88,3 +88,5 @@ packages/reactors/openai-reactor/.tmp-audit-*.json
 tmp/ek-domain-cli-*.log
 tmp/ek-domain-cli-*.json
 tmp/ek-domain-cli-*.mts
+tmp/domain-cli-manual-server.*
+tmp/scaffold-smoke*/

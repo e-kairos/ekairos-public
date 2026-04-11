@@ -1,4 +1,5 @@
 export { ClientRuntime, type ClientRuntimeParams } from "./client-runtime.js"
+export { createDomainApp } from "./create-app.js"
 export { runCli } from "./bin.js"
 export {
   fetchDomainManifest,

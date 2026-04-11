@@ -59,6 +59,9 @@ export async function postDomainQuery(params: {
   refreshToken?: string
   query: Record<string, unknown>
   env?: Record<string, unknown>
+  admin?: boolean
+  asEmail?: string
+  asGuest?: boolean
 }): Promise<DomainCliQueryResponse> {
   const baseUrl = normalizeBaseUrl(params.baseUrl)
   const res = await fetch(`${baseUrl}/.well-known/ekairos/v1/domain`, {
@@ -72,6 +75,9 @@ export async function postDomainQuery(params: {
       ...(params.appId ? { appId: params.appId } : {}),
       query: params.query,
       ...(params.env ? { env: params.env } : {}),
+      ...(params.admin ? { admin: true } : {}),
+      ...(params.asEmail ? { asEmail: params.asEmail } : {}),
+      ...(params.asGuest ? { asGuest: true } : {}),
     }),
   })
 
@@ -91,6 +97,9 @@ export async function postDomainAction(params: {
   action: string
   input: unknown
   env?: Record<string, unknown>
+  admin?: boolean
+  asEmail?: string
+  asGuest?: boolean
 }): Promise<DomainCliActionResponse> {
   const baseUrl = normalizeBaseUrl(params.baseUrl)
   const res = await fetch(`${baseUrl}/.well-known/ekairos/v1/domain`, {
@@ -105,6 +114,9 @@ export async function postDomainAction(params: {
       action: params.action,
       input: params.input,
       ...(params.env ? { env: params.env } : {}),
+      ...(params.admin ? { admin: true } : {}),
+      ...(params.asEmail ? { asEmail: params.asEmail } : {}),
+      ...(params.asGuest ? { asGuest: true } : {}),
     }),
   })
 

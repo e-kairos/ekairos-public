@@ -1,112 +1,130 @@
 # @ekairos/domain
 
-Compose one application graph from many bounded contexts.
-Read it with InstantDB.
-Write through explicit domain actions.
+Build one app graph from many bounded contexts.
+Read it through InstantDB.
+Write through step-safe domain actions.
+Operate it through a CLI.
 
-## What this package does
+## What you get
 
-- define bounded contexts with `domain(...)`
-- compose subdomains with `.includes(...)`
-- attach write boundaries with `.actions(...)`
-- bind execution explicitly with `EkairosRuntime`
-- expose domain structure as AI-ready context
+- Composed domain graphs with `domain(...).schema(...)`
+- Explicit runtimes with `EkairosRuntime`
+- Step-safe write boundaries with `defineDomainAction(...)`
+- Workflow-ready action execution with `executeRuntimeAction(...)`
+- A built-in CLI for `create-app`, `inspect`, `action`, and `query`
 
-## Core model
+## Start Fast
 
-- reads come from the composed InstantDB schema
-- writes go through domain actions
-- runtime decides which real app/database is used
+Scaffold a Next app that already exposes the Ekairos domain endpoint:
 
-## Example
+```bash
+npx @ekairos/domain create-app my-app --next
+```
+
+If you already have an Instant platform token, provision the app and write `.env.local` in one pass:
+
+```bash
+npx @ekairos/domain create-app my-app --next --instantToken=$INSTANT_PERSONAL_ACCESS_TOKEN
+```
+
+Then run it and inspect it:
+
+```bash
+npx @ekairos/domain inspect --baseUrl=http://localhost:3000 --admin --pretty
+npx @ekairos/domain seedDemo --baseUrl=http://localhost:3000 --admin --pretty
+npx @ekairos/domain query "{ app_tasks: { comments: {} } }" --baseUrl=http://localhost:3000 --admin --pretty
+```
+
+## Core Pattern
 
 ```ts
-import { domain, defineDomainAction, EkairosRuntime } from "@ekairos/domain";
+import { defineDomainAction, domain, EkairosRuntime } from "@ekairos/domain";
+import { executeRuntimeAction } from "@ekairos/domain/runtime";
+import { init } from "@instantdb/admin";
 import { i } from "@instantdb/core";
 
-export const inventoryDomain = domain("inventory").schema({
+const baseDomain = domain("tasks").schema({
   entities: {
-    inventory_items: i.entity({
-      sku: i.string().indexed(),
-      name: i.string(),
+    tasks: i.entity({
+      title: i.string().indexed(),
+      status: i.string().indexed(),
     }),
   },
   links: {},
   rooms: {},
 });
 
-export const procurementDomain = domain("procurement")
-  .includes(inventoryDomain)
-  .schema({
-    entities: {
-      procurement_requests: i.entity({
-        title: i.string(),
-      }),
-    },
-    links: {},
-    rooms: {},
-  })
-  .actions({
-    normalizeTitle: defineDomainAction({
-      name: "procurement.request.normalizeTitle",
-      async execute({ input }) {
-        "use step";
-        return { title: String((input as any).title ?? "").trim() };
-      },
-    }),
-    createRequest: defineDomainAction({
-      name: "procurement.request.create",
-      async execute({ runtime, input }) {
-        "use step";
-        const domain = await runtime.use(procurementDomain);
-        return await domain.actions.normalizeTitle(input);
-      },
-    }),
+export const createTaskAction = defineDomainAction({
+  name: "tasks.create",
+  async execute({ runtime, input }) {
+    "use step";
+    const scoped = await runtime.use(appDomain);
+    // transact...
+    return { ok: true };
+  },
+});
+
+export const appDomain = baseDomain.actions({
+  createTask: createTaskAction,
+});
+
+export class AppRuntime extends EkairosRuntime<{
+  appId?: string;
+  adminToken?: string;
+}, typeof appDomain> {
+  protected getDomain() {
+    return appDomain;
+  }
+
+  protected async resolveDb(env: { appId?: string; adminToken?: string }) {
+    return init({
+      appId: env.appId!,
+      adminToken: env.adminToken!,
+      schema: appDomain.toInstantSchema(),
+      useDateObjects: true,
+    } as any);
+  }
+}
+
+export async function runWorkflow() {
+  "use workflow";
+  const runtime = new AppRuntime({
+    appId: process.env.NEXT_PUBLIC_INSTANT_APP_ID,
+    adminToken: process.env.INSTANT_ADMIN_TOKEN,
   });
-```
 
-## Runtime
-
-Use `runtime.db()` when you want the full graph.
-Use `runtime.use(subdomain)` when you want a domain-scoped handle.
-
-Domain actions are step-safe units.
-The recommended pattern is:
-
-```ts
-async execute({ runtime, input }) {
-  "use step";
-  const domain = await runtime.use(exportedDomain);
-  // action logic
+  return await executeRuntimeAction({
+    runtime,
+    action: createTaskAction,
+    input: { title: "Ship it" },
+  });
 }
 ```
 
-## Useful APIs
+## Rules Of Thumb
 
-- `domain(...)`
-- `composeDomain(...)`
-- `defineDomainAction(...)`
-- `EkairosRuntime`
-- `@ekairos/domain/cli`
-- `domain.context()`
-- `domain.contextString()`
+- Read directly from the composed schema when no invariant is involved.
+- Put every meaningful write behind an action.
+- Keep action bodies `"use step"`.
+- Keep workflow orchestration above actions.
+- Use `DOMAIN.md` plus `domain.contextString()` when an AI agent needs the model explained.
+
+## CLI Input Quality Of Life
+
+The CLI accepts JSON5, `@file`, and stdin:
+
+```bash
+npx @ekairos/domain query "{ tasks: { $: { limit: 5 } } }" --admin
+npx @ekairos/domain query @query.json5 --admin
+cat query.json5 | npx @ekairos/domain query - --admin
+```
+
+Add `--meta` when you need to know whether a query used the local client runtime path or the server route.
 
 ## Tests
 
 ```bash
 pnpm --filter @ekairos/domain test
-pnpm --filter @ekairos/domain test:workflow
-pnpm --filter @ekairos/domain test:e2e
 pnpm --filter @ekairos/domain test:cli
-```
-
-## CLI
-
-The package also ships a small domain CLI:
-
-```bash
-npx @ekairos/domain login http://localhost:3000 --refreshToken=<token> --appId=<app-id>
-npx @ekairos/domain inspect
-npx @ekairos/domain createTask '{"title":"Ship it"}'
-npx @ekairos/domain query '{"tasks":{}}'
+pnpm --filter @ekairos/domain test:workflow
 ```

@@ -1,26 +1,24 @@
 # Skill: ekairos-domain
 
-## Goal
-Provide consistent guidance for working with `@ekairos/domain` in agents and codegen.
+Use this package when editing `@ekairos/domain` itself or generating sample apps and snippets around it.
 
-## Minimum requirement
-- Prefer explicit runtimes via `new AppRuntime(env)` over hidden globals.
-- Read through the composed InstantDB schema when no write boundary is needed.
-- Put writes and invariants behind domain actions.
-- For new domain actions, use:
-  `async execute({ runtime, input }) { "use step"; const domain = await runtime.use(exportedDomain); ... }`
+## Core contract
 
-## Workflow
-1) Open the domain package `DOMAIN.md` when available.
-2) Identify the root domain and any included subdomains.
-3) For reads, prefer the typed InstantDB client bound to the composed root domain.
-4) For writes, call `runtime.use(domain).actions.<name>(input)` or `executeRuntimeAction(...)`.
-5) Treat domain actions as step-safe building blocks. Reconstruct a local scoped handle with `await runtime.use(exportedDomain)` inside `execute(...)`. Durable orchestration belongs in separate workflow functions that call those actions.
-6) Use `domain.context()` or `domain.contextString()` when AI/system context is needed.
+- Model reads in the composed InstantDB graph.
+- Put writes behind domain actions.
+- Keep actions step-safe:
+  `async execute({ runtime, input }) { "use step"; const scoped = await runtime.use(appDomain); ... }`
+- Use explicit runtime classes that extend `EkairosRuntime`.
+- Keep workflows above actions; call exported action definitions through `executeRuntimeAction(...)` inside `"use workflow"`.
 
-## Notes
-- A domain is a bounded-context contract, not a transport API.
-- `runtime.use(subdomain)` narrows to one domain-scoped handle while keeping the same real DB and env.
-- Actions should reconstruct a local scoped handle with `runtime.use(exportedDomain)` and then call `domain.actions.*`.
-- `"use workflow"` is not the action contract. For now, action bodies should be `"use step"` and workflows should orchestrate above them.
-- `domain.toInstantSchema()` returns the flattened InstantDB schema for the composed domain graph.
+## Internal workflow
+
+1. Open `DOMAIN.md` when available.
+2. Identify the root domain and included subdomains.
+3. Verify the public CLI path with `inspect`, `action`, and `query`.
+4. Prefer scaffold-first examples through `create-app --next`.
+
+## Related workspace skills
+
+- `skills/ekairos-domain-design`
+- `skills/ekairos-domain-cli`
