@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:reactor": "vitest run src/tests/codex.reactor.test.ts --reporter=verbose",
     "test:reactor:instant": "vitest run src/tests/codex.reactor.instant.test.ts --reporter=verbose",
-    "pretest:reactor:workflow": "pnpm --filter @ekairos/domain run build && pnpm --filter @ekairos/events run build",
+    "pretest:reactor:workflow": "pnpm --filter @ekairos/domain run build && pnpm --filter @ekairos/events run build && pnpm --filter @ekairos/sandbox run build",
     "test:reactor:workflow": "vitest run -c vitest.workflow.config.mts"
   },
   "peerDependencies": {

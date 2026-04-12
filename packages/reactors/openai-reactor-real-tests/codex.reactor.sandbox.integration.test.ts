@@ -5,7 +5,7 @@ import { init } from "@instantdb/admin"
 import { domain } from "@ekairos/domain"
 import { EkairosRuntime } from "@ekairos/domain/runtime"
 import { createContext, eventsDomain } from "@ekairos/events"
-import { sandboxDomain, SandboxService } from "@ekairos/sandbox"
+import { sandboxDomain, SandboxService } from "../../sandbox/src/index.ts"
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
@@ -13,11 +13,11 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
-import { createCodexReactor, type CodexConfig } from "../index.js"
+import { createCodexReactor, type CodexConfig } from "../openai-reactor/src/index.js"
 import {
   createTestApp,
   destroyTestApp,
-} from "../../../../ekairos-test/src/provision.ts"
+} from "../../ekairos-test/src/provision.ts"
 
 const execFileAsync = promisify(execFile)
 const TEST_TIMEOUT_MS = 20 * 60 * 1000
