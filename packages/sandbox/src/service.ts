@@ -1,8 +1,9 @@
 import { Sandbox as VercelSandbox, type NetworkPolicy } from "@vercel/sandbox"
 import { Daytona, Image, type DaytonaConfig, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
-import { id, type InstantAdminDatabase } from "@instantdb/admin"
+import { id, init, type InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain"
 import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtime"
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
 import { sandboxDomain } from "./schema.js"
 import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
@@ -36,6 +37,56 @@ export interface SandboxRecord {
 
 export type ServiceResult<T = any> = { ok: true; data: T } | { ok: false; error: string }
 
+export type SandboxProcessStatus =
+  | "starting"
+  | "running"
+  | "detached"
+  | "exited"
+  | "failed"
+  | "killed"
+  | "lost"
+
+export type SandboxProcessKind =
+  | "command"
+  | "service"
+  | "codex-app-server"
+  | "dev-server"
+  | "test-runner"
+  | "watcher"
+
+export type SandboxProcessMode = "foreground" | "background"
+
+export type SandboxProcessStreamChunk = {
+  version: 1
+  at: string
+  seq: number
+  type: "stdout" | "stderr" | "status" | "exit" | "error" | "heartbeat" | "metadata"
+  sandboxId: string
+  processId: string
+  data?: Record<string, unknown>
+}
+
+export type SandboxProcessRunResult = {
+  processId: string
+  streamId: string
+  streamClientId: string
+  result?: CommandResult
+}
+
+export type SandboxServiceDbConfig = {
+  appId: string
+  adminToken: string
+}
+
+export type SandboxCommandRunData = {
+  db: SandboxServiceDbConfig
+  sandboxId: string
+  processId: string
+  streamId: string
+  streamClientId: string
+  result?: CommandResult
+}
+
 type SpritesSandbox = {
   __provider: "sprites"
   name: string
@@ -47,6 +98,17 @@ type SpritesSandbox = {
 
 type ProviderSandbox = VercelSandbox | DaytonaSandbox | SpritesSandbox
 
+function isVercelSandbox(sandbox: ProviderSandbox | any): sandbox is VercelSandbox {
+  return Boolean(
+    sandbox &&
+      typeof sandbox === "object" &&
+      typeof sandbox.runCommand === "function" &&
+      typeof sandbox.currentSession === "function" &&
+      typeof sandbox.name === "string" &&
+      sandbox.__provider !== "sprites",
+  )
+}
+
 const EKAIROS_ROOT_DIR = "/vercel/sandbox/.ekairos"
 const EKAIROS_RUNTIME_MANIFEST_PATH = `${EKAIROS_ROOT_DIR}/runtime.json`
 const EKAIROS_HTTP_HELPER_PATH = `${EKAIROS_ROOT_DIR}/instant-http.mjs`
@@ -54,6 +116,8 @@ const EKAIROS_QUERY_SCRIPT_PATH = `${EKAIROS_ROOT_DIR}/query.mjs`
 const CODEX_HOME_DIR = "/vercel/sandbox/.codex"
 const CODEX_SKILLS_DIR = `${CODEX_HOME_DIR}/skills`
 const INSTANT_API_BASE_URL = "https://api.instantdb.com"
+const SANDBOX_PROCESS_STREAM_VERSION = 1 as const
+const SANDBOX_PROCESS_TERMINAL_STATUSES = new Set(["exited", "failed", "killed", "lost"])
 
 type SandboxEkairosManifest = {
   version: 1
@@ -124,11 +188,237 @@ function formatSandboxError(err: any): string {
   return `${base}: ${detail}`
 }
 
+function nowIso() {
+  return new Date().toISOString()
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function sanitizeInstantString(value: string): string {
+  return value.includes("\0") ? value.replace(/\0/g, "") : value
+}
+
+function sanitizeInstantValue<T>(value: T): T {
+  if (typeof value === "string") {
+    return sanitizeInstantString(value) as T
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeInstantValue(item)) as T
+  }
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    const sanitized: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[key] = sanitizeInstantValue(entry)
+    }
+    return sanitized as T
+  }
+  return value
+}
+
+function createSandboxProcessStreamClientId(processId: string): string {
+  const normalized = String(processId ?? "").trim()
+  if (!normalized) throw new Error("sandbox_process_id_required")
+  return `sandbox-process:${normalized}`
+}
+
+function encodeSandboxProcessStreamChunk(chunk: SandboxProcessStreamChunk): string {
+  return `${JSON.stringify(chunk)}\n`
+}
+
+function parseSandboxProcessStreamChunk(value: string | unknown): SandboxProcessStreamChunk {
+  const parsed = typeof value === "string" ? JSON.parse(value) : value
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("invalid_sandbox_process_stream_chunk")
+  }
+  const record = parsed as Record<string, unknown>
+  if (record.version !== SANDBOX_PROCESS_STREAM_VERSION) {
+    throw new Error(`invalid_sandbox_process_stream_version:${String(record.version)}`)
+  }
+  return record as SandboxProcessStreamChunk
+}
+
+function resolveDbConfig(db: any): SandboxServiceDbConfig {
+  const config = db?.config ?? {}
+  const appId = String(config.appId ?? "").trim()
+  const adminToken = String(config.adminToken ?? "").trim()
+  if (!appId || !adminToken) {
+    throw new Error("sandbox_service_db_config_required")
+  }
+  return { appId, adminToken }
+}
+
+function createAdminDbFromConfig(config: SandboxServiceDbConfig) {
+  return init({
+    appId: config.appId,
+    adminToken: config.adminToken,
+    schema: sandboxDomain.toInstantSchema(),
+    useDateObjects: true,
+  } as any) as InstantAdminDatabase<SandboxSchemaType>
+}
+
+function sandboxProcessFinishedHookToken(processId: string): string {
+  return `sandbox-process:${processId}:finished`
+}
+
+async function resumeSandboxProcessHook(processId: string, payload: unknown): Promise<void> {
+  try {
+    const { resumeHook } = await import("workflow/api")
+    await resumeHook(sandboxProcessFinishedHookToken(processId), payload)
+  } catch {
+    // No workflow may be listening; process metadata and streams remain the source of truth.
+  }
+}
+
+function commandResultFromProcessStream(params: {
+  processRow: any
+  chunks: SandboxProcessStreamChunk[]
+}): CommandResult {
+  const stdout = params.chunks
+    .filter((chunk) => chunk.type === "stdout")
+    .map((chunk) => String(chunk.data?.text ?? ""))
+    .join("")
+  const stderr = params.chunks
+    .filter((chunk) => chunk.type === "stderr" || chunk.type === "error")
+    .map((chunk) => String(chunk.data?.text ?? chunk.data?.message ?? ""))
+    .join("")
+  const exitChunk = [...params.chunks].reverse().find((chunk) => chunk.type === "exit")
+  const exitCode = Number(exitChunk?.data?.exitCode ?? params.processRow?.exitCode ?? 1)
+  const command = [
+    String(params.processRow?.command ?? ""),
+    ...(Array.isArray(params.processRow?.args) ? params.processRow.args : []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+
+  return {
+    success: exitCode === 0,
+    exitCode,
+    output: stdout,
+    error: stderr,
+    command,
+  }
+}
+
+export class SandboxCommandRun implements PromiseLike<CommandResult> {
+  private service: SandboxService | null = null
+  private readonly data: SandboxCommandRunData
+
+  constructor(data: SandboxCommandRunData, service?: SandboxService) {
+    this.data = data
+    this.service = service ?? null
+  }
+
+  static [WORKFLOW_SERIALIZE](instance: SandboxCommandRun) {
+    return instance.data
+  }
+
+  static [WORKFLOW_DESERIALIZE](data: SandboxCommandRunData) {
+    return new SandboxCommandRun(data)
+  }
+
+  get sandboxId() {
+    return this.data.sandboxId
+  }
+
+  get processId() {
+    return this.data.processId
+  }
+
+  get streamId() {
+    return this.data.streamId
+  }
+
+  get streamClientId() {
+    return this.data.streamClientId
+  }
+
+  private getService() {
+    if (!this.service) {
+      this.service = new SandboxService(createAdminDbFromConfig(this.data.db))
+    }
+    return this.service
+  }
+
+  async readStream(): Promise<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }> {
+    "use step"
+    const stream = await this.getService().readProcessStream(this.processId)
+    if (!stream.ok) throw new Error(stream.error)
+    return stream.data
+  }
+
+  async snapshot(): Promise<any> {
+    "use step"
+    const snapshot = await this.getService().getProcessSnapshot(this.processId)
+    if (!snapshot.ok) throw new Error(snapshot.error)
+    return snapshot.data
+  }
+
+  async wait(params?: { timeoutMs?: number; pollMs?: number }): Promise<CommandResult> {
+    if (this.data.result) return this.data.result
+
+    const initial = await this.snapshot()
+    if (SANDBOX_PROCESS_TERMINAL_STATUSES.has(String(initial.status ?? ""))) {
+      const stream = await this.readStream()
+      const result = commandResultFromProcessStream({ processRow: initial, chunks: stream.chunks })
+      this.data.result = result
+      return result
+    }
+
+    try {
+      const { createHook } = await import("workflow")
+      const hook = createHook<CommandResult>({
+        token: sandboxProcessFinishedHookToken(this.processId),
+      })
+      const result = await hook
+      this.data.result = result
+      return result
+    } catch {
+      // Outside workflow context, or if hooks are unavailable, poll the durable row.
+    }
+
+    const timeoutMs = Math.max(0, Number(params?.timeoutMs ?? 5 * 60 * 1000))
+    const pollMs = Math.max(50, Number(params?.pollMs ?? 500))
+    const deadline = Date.now() + timeoutMs
+
+    while (Date.now() <= deadline) {
+      const row = await this.snapshot()
+      if (SANDBOX_PROCESS_TERMINAL_STATUSES.has(String(row.status ?? ""))) {
+        const stream = await this.readStream()
+        const result = commandResultFromProcessStream({ processRow: row, chunks: stream.chunks })
+        this.data.result = result
+        return result
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
+    }
+
+    throw new Error(`sandbox_process_wait_timeout:${this.processId}`)
+  }
+
+  then<TResult1 = CommandResult, TResult2 = never>(
+    onfulfilled?: ((value: CommandResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+  ): PromiseLike<TResult1 | TResult2> {
+    return this.wait().then(onfulfilled, onrejected)
+  }
+}
+
 export class SandboxService {
   private adminDb: InstantAdminDatabase<SandboxSchemaType>
+  private readonly dbConfig: SandboxServiceDbConfig
 
   constructor(db: InstantAdminDatabase<SandboxSchemaType>) {
     this.adminDb = db
+    this.dbConfig = resolveDbConfig(db)
+  }
+
+  static [WORKFLOW_SERIALIZE](instance: SandboxService) {
+    return { db: instance.dbConfig }
+  }
+
+  static [WORKFLOW_DESERIALIZE](data: { db: SandboxServiceDbConfig }) {
+    return new SandboxService(createAdminDbFromConfig(data.db))
   }
 
   private static getVercelCredentials() {
@@ -811,8 +1101,8 @@ export class SandboxService {
 
     return {
       exitCode: Number.isFinite(exitCode) ? exitCode : 0,
-      stdout,
-      stderr,
+      stdout: sanitizeInstantString(stdout),
+      stderr: sanitizeInstantString(stderr),
     }
   }
 
@@ -1019,6 +1309,7 @@ export class SandboxService {
   }
 
   async createSandbox(config: SandboxConfig): Promise<ServiceResult<{ sandboxId: string }>> {
+    "use step"
     const sandboxId = id()
     const now = Date.now()
     const provider = SandboxService.resolveProvider(config)
@@ -1173,7 +1464,7 @@ export class SandboxService {
           ? (sandbox as DaytonaSandbox).id
           : provider === "sprites"
             ? String((sandbox as SpritesSandbox).name)
-            : (sandbox as VercelSandbox).sandboxId
+            : (sandbox as VercelSandbox).name
 
       const sandboxUrl = provider === "sprites" ? (sandbox as SpritesSandbox).url : undefined
 
@@ -1359,7 +1650,7 @@ export class SandboxService {
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           const sandbox = await VercelSandbox.get({
-            sandboxId: String(record.externalSandboxId),
+            name: String(record.externalSandboxId),
             teamId: creds.teamId,
             projectId: creds.projectId,
             token: creds.token,
@@ -1399,7 +1690,106 @@ export class SandboxService {
     return recordResult?.sandbox_sandboxes?.[0] ?? null
   }
 
+  async getProcessSnapshot(processId: string): Promise<ServiceResult<any>> {
+    "use step"
+    try {
+      const processResult: any = await this.adminDb.query({
+        sandbox_processes: {
+          $: { where: { id: processId } as any, limit: 1 },
+          sandbox: {},
+        },
+      })
+      const processRow = processResult?.sandbox_processes?.[0]
+      if (!processRow) return { ok: false, error: "sandbox_process_not_found" }
+      return { ok: true, data: processRow }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
+  private async markOpenProcessesLost(sandboxId: string, reason: string): Promise<void> {
+    try {
+      const processResult: any = await this.adminDb.query({
+        sandbox_processes: {
+          $: {
+            where: { "sandbox.id": sandboxId } as any,
+            limit: 500,
+          },
+        },
+      })
+      const rows = Array.isArray(processResult?.sandbox_processes)
+        ? processResult.sandbox_processes
+        : []
+      const now = Date.now()
+      const txs = rows
+        .filter((row: any) => !SANDBOX_PROCESS_TERMINAL_STATUSES.has(String(row?.status ?? "")))
+        .map((row: any) =>
+          this.adminDb.tx.sandbox_processes[String(row.id)].update({
+            status: "lost",
+            streamFinishedAt: row.streamFinishedAt ?? now,
+            streamAbortReason: reason,
+            exitedAt: now,
+            updatedAt: now,
+            metadata: {
+              ...(row.metadata ?? {}),
+              lostReason: reason,
+            },
+          }),
+        )
+      if (txs.length > 0) {
+        await this.adminDb.transact(txs)
+      }
+    } catch {
+      // Best-effort cleanup; stopping the sandbox should not fail because process metadata could not be marked.
+    }
+  }
+
+  private async createProcessStream(params: {
+    sandboxId: string
+    processId: string
+    streamClientId?: string
+  }): Promise<{
+    stream: WritableStream<string>
+    streamId: string
+    streamClientId: string
+  }> {
+    const streams = (this.adminDb as any)?.streams
+    if (!streams?.createWriteStream) {
+      throw new Error("sandbox_process_streams_unavailable")
+    }
+
+    const streamClientId = params.streamClientId || createSandboxProcessStreamClientId(params.processId)
+    const stream = streams.createWriteStream({ clientId: streamClientId }) as WritableStream<string> & {
+      streamId?: () => Promise<string>
+    }
+    const streamId = typeof stream.streamId === "function" ? await stream.streamId() : streamClientId
+
+    return { stream, streamId, streamClientId }
+  }
+
+  private async writeProcessChunk(params: {
+    writer: WritableStreamDefaultWriter<string>
+    sandboxId: string
+    processId: string
+    seq: number
+    type: SandboxProcessStreamChunk["type"]
+    data?: Record<string, unknown>
+  }) {
+    await params.writer.write(
+      encodeSandboxProcessStreamChunk({
+        version: SANDBOX_PROCESS_STREAM_VERSION,
+        at: nowIso(),
+        seq: params.seq,
+        type: params.type,
+        sandboxId: params.sandboxId,
+        processId: params.processId,
+        ...(params.data ? { data: sanitizeInstantValue(params.data) } : {}),
+      }),
+    )
+  }
+
   async stopSandbox(sandboxId: string): Promise<ServiceResult<void>> {
+    "use step"
     try {
       const result = await this.reconnectToSandbox(sandboxId)
       const recordResult: any = await this.adminDb.query({
@@ -1415,7 +1805,7 @@ export class SandboxService {
       if (result.ok) {
         try {
           const sandbox: any = result.data.sandbox as any
-          if (sandbox?.sandboxId) {
+          if (isVercelSandbox(sandbox)) {
             await (sandbox as VercelSandbox).stop()
           } else if (sandbox?.__provider === "sprites") {
             // Sprites does not have a reliable "stop" semantic; deleting is the durable cleanup primitive.
@@ -1449,6 +1839,7 @@ export class SandboxService {
           updatedAt: Date.now(),
         }),
       )
+      await this.markOpenProcessesLost(sandboxId, "sandbox_stopped")
 
       return { ok: true, data: undefined }
     } catch (e) {
@@ -1498,12 +1889,13 @@ export class SandboxService {
   }
 
   async runCommand(sandboxId: string, command: string, args: string[] = []): Promise<ServiceResult<CommandResult>> {
+    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
 
       const sandbox = sandboxResult.data.sandbox
-      if ((sandbox as any).sandboxId) {
+      if (isVercelSandbox(sandbox)) {
         const result = await runCommandInSandbox(sandbox as VercelSandbox, command, args)
         return { ok: true, data: result }
       }
@@ -1547,16 +1939,314 @@ export class SandboxService {
     }
   }
 
+  async runCommandProcess(
+    sandboxId: string,
+    command: string,
+    args: string[] = [],
+    opts?: {
+      cwd?: string
+      env?: Record<string, unknown>
+      kind?: SandboxProcessKind
+      mode?: SandboxProcessMode
+      metadata?: Record<string, unknown>
+    },
+  ): Promise<ServiceResult<SandboxCommandRun>> {
+    "use step"
+    const processId = id()
+    const now = Date.now()
+    let writer: WritableStreamDefaultWriter<string> | null = null
+    let stream: WritableStream<string> | null = null
+    let seq = 0
+
+    try {
+      const record = await this.getSandboxRecord(sandboxId)
+      if (!record) return { ok: false, error: "Valid sandbox record not found" }
+      if (record.status !== "active") return { ok: false, error: `sandbox_not_active:${record.status}` }
+
+      const streamSession = await this.createProcessStream({ sandboxId, processId })
+      stream = streamSession.stream
+      writer = stream.getWriter()
+
+      await this.adminDb.transact([
+        this.adminDb.tx.sandbox_processes[processId]
+          .update({
+            kind: opts?.kind ?? "command",
+            mode: opts?.mode ?? "foreground",
+            status: "running",
+            provider: String(record.provider ?? "unknown"),
+            command: sanitizeInstantString(command),
+            args: sanitizeInstantValue(Array.isArray(args) ? args : []),
+            cwd: asOptionalString(opts?.cwd),
+            env: sanitizeInstantValue(opts?.env),
+            streamId: streamSession.streamId,
+            streamClientId: streamSession.streamClientId,
+            streamStartedAt: now,
+            startedAt: now,
+            updatedAt: now,
+            metadata: sanitizeInstantValue(opts?.metadata),
+          })
+          .link({ sandbox: sandboxId, stream: streamSession.streamId }),
+      ] as any)
+
+      seq += 1
+      await this.writeProcessChunk({
+        writer,
+        sandboxId,
+        processId,
+        seq,
+        type: "status",
+        data: {
+          status: "running",
+          command,
+          args: Array.isArray(args) ? args : [],
+          cwd: opts?.cwd ?? null,
+        },
+      })
+
+      const result = await this.runCommand(sandboxId, command, args)
+      const finishedAt = Date.now()
+      let finalResult: CommandResult
+      let status: SandboxProcessStatus
+      let exitCode: number
+      let errorText: string | undefined
+
+      if (result.ok) {
+        finalResult = result.data
+        exitCode = Number(result.data.exitCode ?? (result.data.success === false ? 1 : 0))
+        status = exitCode === 0 ? "exited" : "failed"
+        const stdout = String((result.data as any).stdout ?? result.data.output ?? "")
+        const stderr = String((result.data as any).stderr ?? result.data.error ?? "")
+        if (stdout) {
+          seq += 1
+          await this.writeProcessChunk({
+            writer,
+            sandboxId,
+            processId,
+            seq,
+            type: "stdout",
+            data: { text: stdout },
+          })
+        }
+        if (stderr) {
+          seq += 1
+          await this.writeProcessChunk({
+            writer,
+            sandboxId,
+            processId,
+            seq,
+            type: "stderr",
+            data: { text: stderr },
+          })
+        }
+      } else {
+        exitCode = 1
+        status = "failed"
+        errorText = result.error
+        finalResult = {
+          success: false,
+          exitCode,
+          output: "",
+          error: result.error,
+          command: [command, ...(Array.isArray(args) ? args : [])].join(" "),
+        }
+        seq += 1
+        await this.writeProcessChunk({
+          writer,
+          sandboxId,
+          processId,
+          seq,
+          type: "error",
+          data: { message: result.error },
+        })
+      }
+
+      seq += 1
+      await this.writeProcessChunk({
+        writer,
+        sandboxId,
+        processId,
+        seq,
+        type: "exit",
+        data: { exitCode, status },
+      })
+
+      await writer.close()
+      writer = null
+
+      await this.adminDb.transact([
+        this.adminDb.tx.sandbox_processes[processId].update({
+          status,
+          exitCode,
+          streamFinishedAt: finishedAt,
+          streamAbortReason: null,
+          exitedAt: finishedAt,
+          updatedAt: finishedAt,
+          metadata: sanitizeInstantValue({
+            ...(opts?.metadata ?? {}),
+            ...(errorText ? { error: errorText } : {}),
+            chunkCount: seq,
+            result: finalResult,
+          }),
+        }),
+      ] as any)
+
+      await resumeSandboxProcessHook(processId, finalResult)
+
+      return {
+        ok: true,
+        data: new SandboxCommandRun(
+          {
+            db: this.dbConfig,
+            sandboxId,
+            processId,
+            streamId: streamSession.streamId,
+            streamClientId: streamSession.streamClientId,
+            result: finalResult,
+          },
+          this,
+        ),
+      }
+    } catch (e) {
+      const message = formatInstantSchemaError(e)
+      const failedAt = Date.now()
+      try {
+        if (writer) {
+          seq += 1
+          await this.writeProcessChunk({
+            writer,
+            sandboxId,
+            processId,
+            seq,
+            type: "error",
+            data: { message },
+          })
+          await writer.abort(message)
+          writer = null
+        } else if (stream) {
+          await stream.abort(message)
+        }
+      } catch {
+        // ignore stream cleanup errors
+      }
+      try {
+        const finalResult: CommandResult = {
+          success: false,
+          exitCode: 1,
+          output: "",
+          error: message,
+          command: [command, ...(Array.isArray(args) ? args : [])].join(" "),
+        }
+        await this.adminDb.transact([
+          this.adminDb.tx.sandbox_processes[processId].update({
+            status: "failed",
+            streamFinishedAt: failedAt,
+            streamAbortReason: message,
+            exitedAt: failedAt,
+            updatedAt: failedAt,
+            metadata: sanitizeInstantValue({
+              ...(opts?.metadata ?? {}),
+              error: message,
+              result: finalResult,
+            }),
+          }),
+        ] as any)
+        await resumeSandboxProcessHook(processId, finalResult)
+      } catch {
+        // ignore partial metadata failures
+      }
+      return { ok: false, error: message }
+    } finally {
+      try {
+        writer?.releaseLock()
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async runCommandWithProcessStream(
+    sandboxId: string,
+    command: string,
+    args: string[] = [],
+    opts?: {
+      cwd?: string
+      env?: Record<string, unknown>
+      kind?: SandboxProcessKind
+      mode?: SandboxProcessMode
+      metadata?: Record<string, unknown>
+    },
+  ): Promise<ServiceResult<SandboxProcessRunResult>> {
+    const run = await this.runCommandProcess(sandboxId, command, args, opts)
+    if (!run.ok) return run
+    const result = await run.data
+    return {
+      ok: true,
+      data: {
+        processId: run.data.processId,
+        streamId: run.data.streamId,
+        streamClientId: run.data.streamClientId,
+        result,
+      },
+    }
+  }
+
+  async readProcessStream(processId: string): Promise<ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>> {
+    "use step"
+    try {
+      const processResult: any = await this.adminDb.query({
+        sandbox_processes: {
+          $: { where: { id: processId } as any, limit: 1 },
+        },
+      })
+      const processRow = processResult?.sandbox_processes?.[0]
+      if (!processRow) return { ok: false, error: "sandbox_process_not_found" }
+
+      const streams = (this.adminDb as any)?.streams
+      if (!streams?.createReadStream) return { ok: false, error: "sandbox_process_streams_unavailable" }
+
+      const clientId = String(processRow.streamClientId ?? "").trim() || undefined
+      const streamId = String(processRow.streamId ?? "").trim() || undefined
+      if (!clientId && !streamId) return { ok: false, error: "sandbox_process_stream_missing" }
+
+      const stream = streams.createReadStream({ clientId, streamId })
+      const chunks: SandboxProcessStreamChunk[] = []
+      let byteOffset = 0
+      let buffer = ""
+
+      for await (const raw of stream as any) {
+        const encoded = typeof raw === "string" ? raw : String(raw ?? "")
+        if (!encoded) continue
+        byteOffset += new TextEncoder().encode(encoded).length
+        buffer += encoded
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          chunks.push(parseSandboxProcessStreamChunk(trimmed))
+        }
+      }
+
+      const trailing = buffer.trim()
+      if (trailing) chunks.push(parseSandboxProcessStreamChunk(trailing))
+
+      return { ok: true, data: { chunks, byteOffset } }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
   async writeFiles(
     sandboxId: string,
     files: Array<{ path: string; contentBase64: string }>,
   ): Promise<ServiceResult<void>> {
+    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
 
       const sandbox = sandboxResult.data.sandbox
-      if ((sandbox as any).sandboxId) {
+      if (isVercelSandbox(sandbox)) {
         await (sandbox as VercelSandbox).writeFiles(
           files.map((f) => ({
             path: f.path,
@@ -1596,12 +2286,13 @@ export class SandboxService {
   }
 
   async readFile(sandboxId: string, path: string): Promise<ServiceResult<{ contentBase64: string }>> {
+    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
 
       const sandbox = sandboxResult.data.sandbox
-      if ((sandbox as any).sandboxId) {
+      if (isVercelSandbox(sandbox)) {
         const stream = await (sandbox as VercelSandbox).readFile({ path })
         if (!stream) {
           return { ok: true, data: { contentBase64: "" } }

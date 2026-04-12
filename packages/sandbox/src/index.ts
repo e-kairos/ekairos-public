@@ -8,6 +8,16 @@ export type {
 export { sandboxDomain } from "./schema.js"
 export { SandboxService } from "./service.js"
 export type { CommandResult } from "./commands.js"
+export type {
+  SandboxCommandRunData,
+  SandboxProcessKind,
+  SandboxProcessMode,
+  SandboxProcessRunResult,
+  SandboxProcessStatus,
+  SandboxProcessStreamChunk,
+  SandboxServiceDbConfig,
+} from "./service.js"
+export { SandboxCommandRun } from "./service.js"
 export { runCommandInSandbox } from "./commands.js"
 
 export { createApp, createOrUpdateApp } from "./app.js"

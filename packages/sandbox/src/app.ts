@@ -213,7 +213,7 @@ export async function createOrUpdateApp(args: CreateOrUpdateAppArgs): Promise<Cr
   }
 
   let sandbox: Sandbox = args.sandbox ?? (await createTemporarySandbox({ timeoutMs: args.sandboxTimeoutMs ?? 20 * 60 * 1000 }))
-  const sandboxId = String(sandbox.sandboxId)
+  const sandboxId = String(sandbox.name)
 
   const logs: CreateOrUpdateAppResult["logs"] = {}
 
