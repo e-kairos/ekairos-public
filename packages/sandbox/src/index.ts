@@ -15,7 +15,6 @@ export type {
   SandboxProcessRunResult,
   SandboxProcessStatus,
   SandboxProcessStreamChunk,
-  SandboxServiceDbConfig,
 } from "./service.js"
 export { SandboxCommandRun } from "./service.js"
 export { runCommandInSandbox } from "./commands.js"

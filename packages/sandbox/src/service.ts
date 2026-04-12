@@ -3,7 +3,6 @@ import { Daytona, Image, type DaytonaConfig, type Sandbox as DaytonaSandbox } fr
 import { id, init, type InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain"
 import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtime"
-import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
 import { sandboxDomain } from "./schema.js"
 import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
@@ -73,13 +72,7 @@ export type SandboxProcessRunResult = {
   result?: CommandResult
 }
 
-export type SandboxServiceDbConfig = {
-  appId: string
-  adminToken: string
-}
-
 export type SandboxCommandRunData = {
-  db: SandboxServiceDbConfig
   sandboxId: string
   processId: string
   streamId: string
@@ -239,25 +232,6 @@ function parseSandboxProcessStreamChunk(value: string | unknown): SandboxProcess
   return record as SandboxProcessStreamChunk
 }
 
-function resolveDbConfig(db: any): SandboxServiceDbConfig {
-  const config = db?.config ?? {}
-  const appId = String(config.appId ?? "").trim()
-  const adminToken = String(config.adminToken ?? "").trim()
-  if (!appId || !adminToken) {
-    throw new Error("sandbox_service_db_config_required")
-  }
-  return { appId, adminToken }
-}
-
-function createAdminDbFromConfig(config: SandboxServiceDbConfig) {
-  return init({
-    appId: config.appId,
-    adminToken: config.adminToken,
-    schema: sandboxDomain.toInstantSchema(),
-    useDateObjects: true,
-  } as any) as InstantAdminDatabase<SandboxSchemaType>
-}
-
 function sandboxProcessFinishedHookToken(processId: string): string {
   return `sandbox-process:${processId}:finished`
 }
@@ -310,14 +284,6 @@ export class SandboxCommandRun implements PromiseLike<CommandResult> {
     this.service = service ?? null
   }
 
-  static [WORKFLOW_SERIALIZE](instance: SandboxCommandRun) {
-    return instance.data
-  }
-
-  static [WORKFLOW_DESERIALIZE](data: SandboxCommandRunData) {
-    return new SandboxCommandRun(data)
-  }
-
   get sandboxId() {
     return this.data.sandboxId
   }
@@ -336,20 +302,18 @@ export class SandboxCommandRun implements PromiseLike<CommandResult> {
 
   private getService() {
     if (!this.service) {
-      this.service = new SandboxService(createAdminDbFromConfig(this.data.db))
+      throw new Error("sandbox_command_run_service_required")
     }
     return this.service
   }
 
   async readStream(): Promise<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }> {
-    "use step"
     const stream = await this.getService().readProcessStream(this.processId)
     if (!stream.ok) throw new Error(stream.error)
     return stream.data
   }
 
   async snapshot(): Promise<any> {
-    "use step"
     const snapshot = await this.getService().getProcessSnapshot(this.processId)
     if (!snapshot.ok) throw new Error(snapshot.error)
     return snapshot.data
@@ -406,19 +370,9 @@ export class SandboxCommandRun implements PromiseLike<CommandResult> {
 
 export class SandboxService {
   private adminDb: InstantAdminDatabase<SandboxSchemaType>
-  private readonly dbConfig: SandboxServiceDbConfig
 
   constructor(db: InstantAdminDatabase<SandboxSchemaType>) {
     this.adminDb = db
-    this.dbConfig = resolveDbConfig(db)
-  }
-
-  static [WORKFLOW_SERIALIZE](instance: SandboxService) {
-    return { db: instance.dbConfig }
-  }
-
-  static [WORKFLOW_DESERIALIZE](data: { db: SandboxServiceDbConfig }) {
-    return new SandboxService(createAdminDbFromConfig(data.db))
   }
 
   private static getVercelCredentials() {
@@ -1309,7 +1263,6 @@ export class SandboxService {
   }
 
   async createSandbox(config: SandboxConfig): Promise<ServiceResult<{ sandboxId: string }>> {
-    "use step"
     const sandboxId = id()
     const now = Date.now()
     const provider = SandboxService.resolveProvider(config)
@@ -1691,7 +1644,6 @@ export class SandboxService {
   }
 
   async getProcessSnapshot(processId: string): Promise<ServiceResult<any>> {
-    "use step"
     try {
       const processResult: any = await this.adminDb.query({
         sandbox_processes: {
@@ -1789,7 +1741,6 @@ export class SandboxService {
   }
 
   async stopSandbox(sandboxId: string): Promise<ServiceResult<void>> {
-    "use step"
     try {
       const result = await this.reconnectToSandbox(sandboxId)
       const recordResult: any = await this.adminDb.query({
@@ -1889,7 +1840,6 @@ export class SandboxService {
   }
 
   async runCommand(sandboxId: string, command: string, args: string[] = []): Promise<ServiceResult<CommandResult>> {
-    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
@@ -1951,7 +1901,6 @@ export class SandboxService {
       metadata?: Record<string, unknown>
     },
   ): Promise<ServiceResult<SandboxCommandRun>> {
-    "use step"
     const processId = id()
     const now = Date.now()
     let writer: WritableStreamDefaultWriter<string> | null = null
@@ -2096,7 +2045,6 @@ export class SandboxService {
         ok: true,
         data: new SandboxCommandRun(
           {
-            db: this.dbConfig,
             sandboxId,
             processId,
             streamId: streamSession.streamId,
@@ -2191,7 +2139,6 @@ export class SandboxService {
   }
 
   async readProcessStream(processId: string): Promise<ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>> {
-    "use step"
     try {
       const processResult: any = await this.adminDb.query({
         sandbox_processes: {
@@ -2240,7 +2187,6 @@ export class SandboxService {
     sandboxId: string,
     files: Array<{ path: string; contentBase64: string }>,
   ): Promise<ServiceResult<void>> {
-    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
@@ -2286,7 +2232,6 @@ export class SandboxService {
   }
 
   async readFile(sandboxId: string, path: string): Promise<ServiceResult<{ contentBase64: string }>> {
-    "use step"
     try {
       const sandboxResult = await this.reconnectToSandbox(sandboxId)
       if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }

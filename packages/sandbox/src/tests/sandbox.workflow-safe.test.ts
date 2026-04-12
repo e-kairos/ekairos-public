@@ -3,55 +3,31 @@
 import { describe, expect, it } from "vitest"
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 
-import { SandboxCommandRun, SandboxService, type SandboxServiceDbConfig } from "../service"
-import type { CommandResult } from "../commands"
+import { SandboxCommandRun, SandboxService } from "../service"
+import { SandboxWorkflowTestRuntime } from "./sandbox.workflow-fixtures"
 
-describe("sandbox workflow-safe handles", () => {
-  const db: SandboxServiceDbConfig = {
+describe("sandbox workflow-safe boundary", () => {
+  const env = {
     appId: "00000000-0000-0000-0000-000000000000",
     adminToken: "test-admin-token",
+    marker: "unit",
   }
 
-  it("serializes and deserializes SandboxService from durable db config", () => {
-    const service = new SandboxService({ config: db } as any)
-    const serialized = (SandboxService as any)[WORKFLOW_SERIALIZE](service)
+  it("serializes the domain runtime instead of SandboxService", () => {
+    const runtime = new SandboxWorkflowTestRuntime(env)
+    const serialized = (SandboxWorkflowTestRuntime as any)[WORKFLOW_SERIALIZE](runtime)
 
-    expect(serialized).toEqual({ db })
+    expect(serialized).toEqual({ env })
 
-    const restored = (SandboxService as any)[WORKFLOW_DESERIALIZE](serialized)
-    expect(restored).toBeInstanceOf(SandboxService)
+    const restored = (SandboxWorkflowTestRuntime as any)[WORKFLOW_DESERIALIZE](serialized)
+    expect(restored).toBeInstanceOf(SandboxWorkflowTestRuntime)
+    expect(restored.env).toEqual(env)
   })
 
-  it("serializes command runs and keeps await semantics after deserialization", async () => {
-    const result: CommandResult = {
-      success: true,
-      exitCode: 0,
-      output: "ok",
-      error: "",
-      command: "echo ok",
-    }
-    const commandRun = new SandboxCommandRun({
-      db,
-      sandboxId: "sandbox-1",
-      processId: "process-1",
-      streamId: "stream-1",
-      streamClientId: "sandbox-process:process-1",
-      result,
-    })
-
-    const serialized = (SandboxCommandRun as any)[WORKFLOW_SERIALIZE](commandRun)
-    expect(serialized).toMatchObject({
-      db,
-      sandboxId: "sandbox-1",
-      processId: "process-1",
-      streamId: "stream-1",
-      streamClientId: "sandbox-process:process-1",
-      result,
-    })
-
-    const restored = (SandboxCommandRun as any)[WORKFLOW_DESERIALIZE](serialized)
-    expect(restored).toBeInstanceOf(SandboxCommandRun)
-    expect(restored.processId).toBe("process-1")
-    await expect(restored).resolves.toEqual(result)
+  it("keeps node-backed service classes out of workflow serde", () => {
+    expect((SandboxService as any)[WORKFLOW_SERIALIZE]).toBeUndefined()
+    expect((SandboxService as any)[WORKFLOW_DESERIALIZE]).toBeUndefined()
+    expect((SandboxCommandRun as any)[WORKFLOW_SERIALIZE]).toBeUndefined()
+    expect((SandboxCommandRun as any)[WORKFLOW_DESERIALIZE]).toBeUndefined()
   })
 })

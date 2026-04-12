@@ -1,8 +1,10 @@
 import { i } from "@instantdb/core"
-import { domain, type DomainSchemaResult } from "@ekairos/domain"
+import { defineDomainAction, domain, type DomainSchemaResult } from "@ekairos/domain"
+import type { CommandResult } from "./commands.js"
+import type { SandboxConfig } from "./types.js"
 
 // Port de `ekairos-core/src/lib/domain/sandbox/schema.ts`
-export const sandboxDomain: DomainSchemaResult = domain("sandbox").schema({
+const sandboxSchemaDomain: DomainSchemaResult = domain("sandbox").schema({
   entities: {
     sandbox_sandboxes: i.entity({
       externalSandboxId: i.string().optional().indexed(),
@@ -82,5 +84,135 @@ export const sandboxDomain: DomainSchemaResult = domain("sandbox").schema({
     },
   },
   rooms: {},
+})
+
+type ServiceResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string }
+type SandboxRuntime = { use: (domain: unknown) => Promise<{ db: unknown }> }
+type SandboxRunCommandInput = { sandboxId: string; command: string; args?: string[] }
+type SandboxRunCommandProcessInput = SandboxRunCommandInput & {
+  cwd?: string
+  env?: Record<string, unknown>
+  kind?: "command" | "service" | "codex-app-server" | "dev-server" | "test-runner" | "watcher"
+  mode?: "foreground" | "background"
+  metadata?: Record<string, unknown>
+}
+type SandboxProcessStreamChunk = {
+  type: "stdout" | "stderr" | "status" | "exit" | "error" | "heartbeat" | "metadata"
+  data?: Record<string, unknown>
+}
+type SandboxProcessRunResult = {
+  processId: string
+  streamId: string
+  streamClientId: string
+  result?: CommandResult
+}
+
+export async function createSandboxExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxConfig
+}): Promise<ServiceResult<{ sandboxId: string }>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).createSandbox(input)
+}
+
+export async function stopSandboxExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: { sandboxId: string }
+}): Promise<ServiceResult<void>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).stopSandbox(input.sandboxId)
+}
+
+export async function runCommandExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxRunCommandInput
+}): Promise<ServiceResult<CommandResult>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).runCommand(input.sandboxId, input.command, input.args ?? [])
+}
+
+export async function runCommandProcessExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxRunCommandProcessInput
+}): Promise<ServiceResult<SandboxProcessRunResult>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).runCommandWithProcessStream(
+    input.sandboxId,
+    input.command,
+    input.args ?? [],
+    {
+      cwd: input.cwd,
+      env: input.env,
+      kind: input.kind,
+      mode: input.mode,
+      metadata: input.metadata,
+    },
+  )
+}
+
+export async function readProcessStreamExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: { processId: string }
+}): Promise<ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).readProcessStream(input.processId)
+}
+
+export const sandboxDomain: DomainSchemaResult = sandboxSchemaDomain.actions({
+  createSandbox: defineDomainAction<Record<string, unknown>, SandboxConfig, ServiceResult<{ sandboxId: string }>, SandboxRuntime>({
+    name: "sandbox.createSandbox",
+    execute: createSandboxExecute,
+  }),
+  stopSandbox: defineDomainAction<Record<string, unknown>, { sandboxId: string }, ServiceResult<void>, SandboxRuntime>({
+    name: "sandbox.stopSandbox",
+    execute: stopSandboxExecute,
+  }),
+  runCommand: defineDomainAction<Record<string, unknown>, SandboxRunCommandInput, ServiceResult<CommandResult>, SandboxRuntime>({
+    name: "sandbox.runCommand",
+    execute: runCommandExecute,
+  }),
+  runCommandProcess: defineDomainAction<
+    Record<string, unknown>,
+    SandboxRunCommandProcessInput,
+    ServiceResult<SandboxProcessRunResult>,
+    SandboxRuntime
+  >({
+    name: "sandbox.runCommandProcess",
+    execute: runCommandProcessExecute,
+  }),
+  readProcessStream: defineDomainAction<
+    Record<string, unknown>,
+    { processId: string },
+    ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>,
+    SandboxRuntime
+  >({
+    name: "sandbox.readProcessStream",
+    execute: readProcessStreamExecute,
+  }),
 })
 

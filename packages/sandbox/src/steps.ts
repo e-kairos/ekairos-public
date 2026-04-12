@@ -1,5 +1,5 @@
 // NOTE:
-// `@ekairos/sandbox` must not contain workflow steps ("use step").
-// Steps live in `@ekairos/dataset/src/sandbox/*` and call `SandboxService`.
+// Sandbox is a domain primitive. Workflow-safe entrypoints are domain actions
+// attached to `sandboxDomain`; `SandboxService` remains the Node/provider layer.
 export {}
 
