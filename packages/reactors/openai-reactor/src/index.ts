@@ -5,6 +5,7 @@ export {
   mapCodexAppServerNotification,
   mapCodexChunkType,
   type CodexConfig,
+  type CodexSandboxConfig,
   type CodexTurnResult,
   type CodexExecuteTurnArgs,
   type CodexAppServerTurnStepArgs,

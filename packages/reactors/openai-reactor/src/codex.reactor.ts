@@ -21,6 +21,26 @@ export type CodexConfig = {
   model?: string
   approvalPolicy?: string
   sandboxPolicy?: Record<string, unknown>
+  sandbox?: CodexSandboxConfig
+}
+
+export type CodexSandboxConfig = {
+  sandboxId?: string
+  provider?: "sprites"
+  runtime?: string
+  purpose?: string
+  spriteName?: string
+  codexHome?: string
+  authJsonPath?: string
+  credentialsJsonPath?: string
+  configTomlPath?: string
+  bridgePort?: number
+  appPort?: number
+  createApp?: boolean
+  installApp?: boolean
+  startApp?: boolean
+  checkpoint?: boolean
+  debugExposeBridge?: boolean
 }
 
 export type CodexTurnResult = {
@@ -40,6 +60,7 @@ export type CodexExecuteTurnArgs<
   Env extends ContextEnvironment = ContextEnvironment,
 > = {
   env: Env
+  runtime?: unknown
   context: AnyRecord
   triggerEvent: ContextItem
   contextId: string
@@ -60,6 +81,8 @@ export type CodexAppServerTurnStepArgs<
   Config extends CodexConfig = CodexConfig,
 > = {
   config: Config
+  env?: ContextEnvironment
+  runtime?: unknown
   instruction: string
   contextId: string
   eventId: string
@@ -466,6 +489,497 @@ function parseSseDataBlock(block: string): string | null {
   return dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n")
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${String(value).replace(/'/g, `'\"'\"'`)}'`
+}
+
+function stripProviderControlChars(value: string): string {
+  return String(value ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+}
+
+function parseSandboxJsonl(stdout: string): { events: AnyRecord[]; result: AnyRecord } {
+  const events: AnyRecord[] = []
+  let result: AnyRecord = {}
+  for (const rawLine of stripProviderControlChars(stdout).split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line.startsWith("EKAIROS_CODEX_")) continue
+    const tab = line.indexOf("\t")
+    if (tab === -1) continue
+    const prefix = line.slice(0, tab)
+    const payload = asRecord(JSON.parse(line.slice(tab + 1)))
+    if (prefix === "EKAIROS_CODEX_EVENT") events.push(payload)
+    if (prefix === "EKAIROS_CODEX_RESULT") result = payload
+  }
+  return { events, result }
+}
+
+function codexSandboxBridgeScript(): string {
+  return String.raw`
+import http from "node:http";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
+
+const PORT = Number(process.env.CODEX_BRIDGE_PORT || "4500");
+function asRecord(value) { return value && typeof value === "object" ? value : {}; }
+function asString(value) { return typeof value === "string" ? value : value == null ? "" : String(value); }
+const child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "inherit"], env: process.env });
+const rl = createInterface({ input: child.stdout });
+const pending = new Map();
+const subscribers = new Set();
+let initialized = false;
+
+function notifyAll(payload) {
+  const data = "data: " + JSON.stringify(payload) + "\n\n";
+  for (const res of subscribers) {
+    try { res.write(data); } catch { subscribers.delete(res); }
+  }
+}
+rl.on("line", (line) => {
+  let msg;
+  try { msg = JSON.parse(line); } catch { return; }
+  if (msg && msg.id && pending.has(msg.id)) {
+    const p = pending.get(msg.id);
+    pending.delete(msg.id);
+    clearTimeout(p.timer);
+    if (msg.error) {
+      const err = asRecord(msg.error);
+      p.reject(new Error(asString(err.message) || asString(msg.error) || "rpc_error"));
+    } else {
+      p.resolve(msg);
+    }
+    return;
+  }
+  notifyAll(msg);
+});
+function sendRpc(payload, timeoutMs = 60000) {
+  const id = payload.id || randomUUID();
+  const msg = { ...payload, id };
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error("rpc_timeout:" + asString(payload.method)));
+    }, timeoutMs);
+    pending.set(id, { resolve, reject, timer });
+    child.stdin.write(JSON.stringify(msg) + "\n");
+  });
+}
+async function ensureInitialized() {
+  if (initialized) return;
+  await sendRpc({ method: "initialize", params: { clientInfo: { name: "ekairos-sandbox", version: "1.0.0" }, capabilities: {} } });
+  child.stdin.write(JSON.stringify({ method: "initialized", params: {} }) + "\n");
+  initialized = true;
+}
+const server = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/health") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, initialized }));
+    return;
+  }
+  if (req.method === "GET" && req.url === "/events") {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+    res.write("data: " + JSON.stringify({ type: "ready" }) + "\n\n");
+    subscribers.add(res);
+    req.on("close", () => subscribers.delete(res));
+    return;
+  }
+  if (req.method === "POST" && req.url === "/rpc") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        await ensureInitialized();
+        const payload = body ? JSON.parse(body) : {};
+        const out = await sendRpc(payload);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(out));
+      } catch (error) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: asString(error?.message || error) }));
+      }
+    });
+    return;
+  }
+  res.writeHead(404, { "content-type": "application/json" });
+  res.end(JSON.stringify({ error: "not_found" }));
+});
+child.on("exit", () => process.exit(1));
+server.listen(PORT, "127.0.0.1", async () => {
+  try { await ensureInitialized(); } catch {}
+  console.log("[codex-bridge] listening http://127.0.0.1:" + PORT);
+});
+`
+}
+
+function codexSandboxTurnRunnerScript(): string {
+  return String.raw`
+import { readFileSync } from "node:fs";
+const baseUrl = (process.env.CODEX_BRIDGE_URL || "http://127.0.0.1:4500").replace(/\/+$/, "");
+const instruction = process.env.CODEX_INSTRUCTION_FILE
+  ? readFileSync(process.env.CODEX_INSTRUCTION_FILE, "utf8")
+  : process.env.CODEX_INSTRUCTION || "";
+const repoPath = process.env.CODEX_REPO_PATH || process.cwd();
+const providerContextId = process.env.CODEX_PROVIDER_CONTEXT_ID || "";
+const model = process.env.CODEX_MODEL || "";
+function asRecord(value) { return value && typeof value === "object" ? value : {}; }
+function asString(value) { return typeof value === "string" ? value : value == null ? "" : String(value); }
+function emit(prefix, payload) { process.stdout.write(prefix + "\t" + JSON.stringify(payload) + "\n"); }
+async function rpc(method, params) {
+  const res = await fetch(baseUrl + "/rpc", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ method, params }) });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json.error) throw new Error(asString(json.error) || "rpc_failed:" + method);
+  return json;
+}
+function parseSse(block) {
+  const lines = block.split("\n").map((line) => line.trimEnd()).filter((line) => line.startsWith("data:"));
+  if (!lines.length) return null;
+  return lines.map((line) => line.replace(/^data:\s*/, "")).join("\n");
+}
+let threadId = providerContextId;
+let turnId = "";
+let assistantText = "";
+let reasoningText = "";
+let diff = "";
+let usage = {};
+let completedTurn = {};
+const eventsResponse = await fetch(baseUrl + "/events", { headers: { accept: "text/event-stream" } });
+if (!eventsResponse.ok || !eventsResponse.body) throw new Error("events_unavailable:" + eventsResponse.status);
+if (threadId) {
+  await rpc("thread/resume", { threadId });
+} else {
+  const params = { cwd: repoPath, approvalPolicy: "never", sandboxPolicy: { type: "externalSandbox", networkAccess: "enabled" } };
+  if (model) params.model = model;
+  const started = await rpc("thread/start", params);
+  threadId = asString(asRecord(asRecord(started.result).thread).id) || asString(asRecord(started.result).id) || asString(started.threadId);
+}
+if (!threadId) throw new Error("thread_id_missing");
+const reader = eventsResponse.body.getReader();
+const decoder = new TextDecoder();
+let buffer = "";
+const turnParams = { threadId, input: [{ type: "text", text: instruction }], cwd: repoPath, approvalPolicy: "never", sandboxPolicy: { type: "externalSandbox", networkAccess: "enabled" } };
+if (model) turnParams.model = model;
+const turnStart = await rpc("turn/start", turnParams);
+turnId = asString(asRecord(asRecord(turnStart.result).turn).id) || asString(asRecord(turnStart.result).id) || asString(turnStart.turnId);
+let done = false;
+while (!done) {
+  const read = await reader.read();
+  if (read.done) break;
+  buffer += decoder.decode(read.value, { stream: true });
+  const blocks = buffer.split("\n\n");
+  buffer = blocks.pop() || "";
+  for (const block of blocks) {
+    const data = parseSse(block);
+    if (!data || data === "[DONE]") continue;
+    const evt = JSON.parse(data);
+    const method = asString(evt.method);
+    if (!method || method.startsWith("codex/event/")) continue;
+    const params = asRecord(evt.params);
+    const evtTurnId = asString(params.turnId) || asString(asRecord(params.turn).id);
+    const evtThreadId = asString(params.threadId) || asString(asRecord(params.turn).threadId);
+    const scoped = (evtTurnId && turnId && evtTurnId === turnId) || (evtThreadId && evtThreadId === threadId) || method.startsWith("thread/") || method.startsWith("context/");
+    if (!scoped) continue;
+    emit("EKAIROS_CODEX_EVENT", evt);
+    if (method === "turn/started" && !turnId) turnId = evtTurnId || asString(asRecord(params.turn).id);
+    if (method === "item/agentMessage/delta") assistantText += asString(params.delta);
+    if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") reasoningText += asString(params.delta);
+    if (method === "turn/diff/updated") diff = asString(params.diff);
+    if (method === "thread/tokenUsage/updated" || method === "context/tokenUsage/updated") usage = asRecord(params.tokenUsage);
+    if (method === "item/completed") {
+      const item = asRecord(params.item);
+      if (asString(item.type) === "agentMessage" && asString(item.text).trim()) assistantText = asString(item.text);
+      if (asString(item.type) === "reasoning" && asString(item.summary).trim()) reasoningText = asString(item.summary);
+    }
+    if (method === "turn/completed") {
+      completedTurn = asRecord(params.turn);
+      done = true;
+      break;
+    }
+    if (method === "turn/failed") throw new Error("turn_failed:" + (evtTurnId || turnId || "unknown"));
+  }
+}
+await reader.cancel().catch(() => {});
+emit("EKAIROS_CODEX_RESULT", { providerContextId: threadId, turnId: asString(completedTurn.id) || turnId, assistantText, reasoningText, diff, usage, completedTurn });
+`
+}
+
+function ensureOk<T>(result: { ok: true; data: T } | { ok: false; error: string }, label: string): T {
+  if (!result.ok) throw new Error(`${label}: ${result.error}`)
+  return result.data
+}
+
+function previewUrlForPort(sandboxUrl: string, port: number): string {
+  const base = String(sandboxUrl ?? "").trim()
+  if (!base) return ""
+  if (port === 8080) return base.replace(/\/+$/, "")
+  try {
+    const url = new URL(base)
+    url.port = String(port)
+    return url.toString().replace(/\/+$/, "")
+  } catch {
+    return base.replace(/\/+$/, "") + ":" + String(port)
+  }
+}
+
+async function executeCodexSandboxTurn(
+  args: CodexAppServerTurnStepArgs<CodexConfig>,
+  helpers: {
+    emitProviderChunk: (providerChunk: unknown) => Promise<void>
+    streamTrace: () => CodexStreamTrace
+  },
+): Promise<CodexTurnResult> {
+  const sandboxConfig = args.config.sandbox ?? {}
+  const runtime = args.runtime as any
+  if (!runtime || typeof runtime.use !== "function") {
+    throw new Error("codex_sandbox_runtime_required")
+  }
+
+  const { sandboxDomain } = await import("@ekairos/sandbox")
+  const scoped = await runtime.use(sandboxDomain)
+  const actions = (scoped as any).actions
+  if (!actions) throw new Error("codex_sandbox_actions_required")
+
+  const codexHome = String(sandboxConfig.codexHome ?? "/home/sprite/.codex").trim() || "/home/sprite/.codex"
+  const bridgePort = Math.max(1, Number(sandboxConfig.bridgePort ?? 4500))
+  const appPort = Math.max(1, Number(sandboxConfig.appPort ?? 8080))
+  const repoPath = String(args.config.repoPath || "/workspace/ekairos-app").trim() || "/workspace/ekairos-app"
+  const workRoot = "/workspace/.ekairos/codex"
+  const bridgePath = `${workRoot}/codex-bridge.mjs`
+  const turnRunnerPath = `${workRoot}/codex-turn-runner.mjs`
+  const instructionPath = `${workRoot}/instruction-${args.executionId}-${args.stepId}.txt`
+  const checkpoints: Array<{ label: string; checkpointId: string }> = []
+
+  let sandboxId = String(sandboxConfig.sandboxId ?? "").trim()
+  if (!sandboxId) {
+    const created = ensureOk(
+      await actions.createSandbox({
+        provider: sandboxConfig.provider ?? "sprites",
+        runtime: sandboxConfig.runtime ?? "node22",
+        purpose: sandboxConfig.purpose ?? "codex-reactor-sandbox",
+        sprites: {
+          name: sandboxConfig.spriteName,
+          waitForCapacity: true,
+          urlSettings: { auth: "public" },
+          deleteOnStop: true,
+        },
+      }),
+      "codex_sandbox_create",
+    )
+    sandboxId = String((created as any).sandboxId)
+  }
+  if (!sandboxId) throw new Error("codex_sandbox_id_missing")
+
+  ensureOk(
+    await actions.installCodexAuth({
+      sandboxId,
+      codexHome,
+      authJsonPath: sandboxConfig.authJsonPath,
+      credentialsJsonPath: sandboxConfig.credentialsJsonPath,
+      configTomlPath: sandboxConfig.configTomlPath,
+    }),
+    "codex_sandbox_auth",
+  )
+
+  ensureOk(
+    await actions.writeFiles({
+      sandboxId,
+      files: [
+        {
+          path: bridgePath,
+          contentBase64: Buffer.from(codexSandboxBridgeScript(), "utf8").toString("base64"),
+        },
+        {
+          path: turnRunnerPath,
+          contentBase64: Buffer.from(codexSandboxTurnRunnerScript(), "utf8").toString("base64"),
+        },
+        {
+          path: instructionPath,
+          contentBase64: Buffer.from(args.instruction, "utf8").toString("base64"),
+        },
+      ],
+    }),
+    "codex_sandbox_write_files",
+  )
+
+  const runProcess = async (
+    label: string,
+    script: string,
+    kind: "command" | "codex-app-server" | "dev-server" = "command",
+    requiredText?: string,
+  ) => {
+    const result = ensureOk(
+      await actions.runCommandProcess({
+        sandboxId,
+        command: "sh",
+        args: ["-lc", script],
+        kind,
+        mode: "foreground",
+        metadata: { source: "codex-reactor", label },
+      }),
+      label,
+    )
+    if (requiredText) {
+      const output = stripProviderControlChars(
+        `${asString(asRecord((result as any).result).output)}\n${asString(asRecord((result as any).result).error)}`,
+      )
+      if (!output.includes(requiredText)) {
+        throw new Error(`${label}: missing_sentinel:${requiredText}:${output.slice(-1000)}`)
+      }
+    }
+    return result
+  }
+
+  await runProcess(
+    "codex_sandbox_prepare_codex",
+    [
+      "set -euo pipefail",
+      `mkdir -p ${shellSingleQuote(codexHome)} ${shellSingleQuote(workRoot)}`,
+      `chmod 700 ${shellSingleQuote(codexHome)} || true`,
+      `chmod 600 ${shellSingleQuote(`${codexHome}/auth.json`)} 2>/dev/null || true`,
+      "if ! command -v codex >/dev/null 2>&1; then npm i -g @openai/codex@latest; fi",
+      `HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} codex login status`,
+      "echo codex_sandbox_prepare_codex_ok",
+    ].join("\n"),
+    "command",
+    "codex_sandbox_prepare_codex_ok",
+  )
+
+  if (sandboxConfig.checkpoint !== false) {
+    const checkpoint = await actions.createCheckpoint({
+      sandboxId,
+      comment: "codex auth and cli ready",
+    })
+    if (checkpoint.ok) {
+      checkpoints.push({ label: "codex-ready", checkpointId: String(checkpoint.data.checkpointId) })
+    }
+  }
+
+  await runProcess(
+    "codex_sandbox_start_bridge",
+    [
+      "set -euo pipefail",
+      `if ! curl -fsS http://127.0.0.1:${bridgePort}/health >/dev/null 2>&1; then`,
+      `  HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_PORT=${bridgePort} nohup node ${shellSingleQuote(bridgePath)} > /tmp/ekairos-codex-bridge-${bridgePort}.log 2>&1 &`,
+      `  echo $! > /tmp/ekairos-codex-bridge-${bridgePort}.pid`,
+      "fi",
+      `for i in $(seq 1 90); do curl -fsS http://127.0.0.1:${bridgePort}/health >/dev/null 2>&1 && echo codex_sandbox_bridge_ok && exit 0; sleep 1; done`,
+      `cat /tmp/ekairos-codex-bridge-${bridgePort}.log || true`,
+      "exit 1",
+    ].join("\n"),
+    "codex-app-server",
+    "codex_sandbox_bridge_ok",
+  )
+
+  if (sandboxConfig.createApp) {
+    const createdApp = ensureOk(
+      await actions.createEkairosApp({
+        sandboxId,
+        appDir: repoPath,
+        packageManager: "pnpm",
+        instantTokenEnvName: "INSTANT_PERSONAL_ACCESS_TOKEN",
+      }),
+      "codex_sandbox_create_app",
+    )
+    const createdAppOutput = stripProviderControlChars(asString(asRecord((createdApp as any).result).output))
+    if (!createdAppOutput.includes("sandbox_create_ekairos_app_ok")) {
+      throw new Error(`codex_sandbox_create_app: missing_sentinel:${createdAppOutput.slice(-1000)}`)
+    }
+  }
+
+  if (sandboxConfig.installApp) {
+    await runProcess(
+      "codex_sandbox_install_app",
+      [
+        "set -euo pipefail",
+        `cd ${shellSingleQuote(repoPath)}`,
+        "for i in 1 2 3; do npx -y pnpm@10.15.1 install && break; echo pnpm_install_retry_$i; sleep 20; done",
+        "test -x node_modules/.bin/next",
+        "echo codex_sandbox_install_app_ok",
+      ].join("\n"),
+      "command",
+      "codex_sandbox_install_app_ok",
+    )
+  }
+
+  let appBaseUrl = ""
+  if (sandboxConfig.startApp) {
+    await runProcess(
+      "codex_sandbox_start_app",
+      [
+        "set -euo pipefail",
+        `cd ${shellSingleQuote(repoPath)}`,
+        `if ! curl -fsS http://127.0.0.1:${appPort}/api/ekairos/domain >/dev/null 2>&1; then`,
+        `  nohup npx -y pnpm@10.15.1 dev --hostname 0.0.0.0 --port ${appPort} > /tmp/ekairos-app-${appPort}.log 2>&1 &`,
+        `  echo $! > /tmp/ekairos-app-${appPort}.pid`,
+        "fi",
+        `for i in $(seq 1 180); do curl -fsS http://127.0.0.1:${appPort}/api/ekairos/domain >/dev/null 2>&1 && echo codex_sandbox_start_app_ok && exit 0; sleep 1; done`,
+        `cat /tmp/ekairos-app-${appPort}.log || true`,
+        "exit 1",
+      ].join("\n"),
+      "dev-server",
+      "codex_sandbox_start_app_ok",
+    )
+    const sandboxRecord = ensureOk(await actions.getSandbox({ sandboxId }), "codex_sandbox_get")
+    appBaseUrl = previewUrlForPort(String((sandboxRecord as any).sandboxUrl ?? ""), appPort)
+    if (appBaseUrl) {
+      const response = await fetch(`${appBaseUrl}/api/ekairos/domain`)
+      if (!response.ok) throw new Error(`codex_sandbox_app_url_unavailable_${response.status}`)
+    }
+  }
+
+  if (sandboxConfig.checkpoint !== false && (sandboxConfig.createApp || sandboxConfig.installApp || sandboxConfig.startApp)) {
+    const checkpoint = await actions.createCheckpoint({
+      sandboxId,
+      comment: "codex reactor app ready",
+    })
+    if (checkpoint.ok) {
+      checkpoints.push({ label: "app-ready", checkpointId: String(checkpoint.data.checkpointId) })
+    }
+  }
+
+  const turnRun = await runProcess(
+    "codex_sandbox_turn",
+    [
+      "set -euo pipefail",
+      `timeout 300s env HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_URL=http://127.0.0.1:${bridgePort} CODEX_REPO_PATH=${shellSingleQuote(repoPath)} CODEX_INSTRUCTION_FILE=${shellSingleQuote(instructionPath)} CODEX_PROVIDER_CONTEXT_ID=${shellSingleQuote(args.config.providerContextId ?? "")} CODEX_MODEL=${shellSingleQuote(args.config.model ?? "")} node ${shellSingleQuote(turnRunnerPath)}`,
+    ].join("\n"),
+    "codex-app-server",
+  )
+
+  const result = asRecord((turnRun as any).result)
+  const stdout = asString(result.output)
+  const parsed = parseSandboxJsonl(stdout)
+  for (const evt of parsed.events) {
+    await helpers.emitProviderChunk(evt)
+  }
+  const finalResult = parsed.result
+
+  return {
+    providerContextId: asString(finalResult.providerContextId) || asString(args.config.providerContextId),
+    turnId: asString(finalResult.turnId),
+    assistantText: asString(finalResult.assistantText),
+    reasoningText: asString(finalResult.reasoningText),
+    diff: asString(finalResult.diff),
+    toolParts: asUnknownArray(asRecord(finalResult.completedTurn).toolParts),
+    usage: asRecord(finalResult.usage),
+    metadata: {
+      provider: "codex-sandbox",
+      sandbox: {
+        sandboxId,
+        repoPath,
+        appBaseUrl,
+        bridgePort,
+        appPort,
+        processId: asString((turnRun as any).processId),
+        streamId: asString((turnRun as any).streamId),
+        streamClientId: asString((turnRun as any).streamClientId),
+        checkpoints,
+      },
+      providerResponse: finalResult,
+      streamTrace: helpers.streamTrace(),
+    },
+  }
+}
+
 async function readJsonResponse(response: Response): Promise<AnyRecord> {
   const text = await response.text().catch(() => "")
   if (!text.trim()) return {}
@@ -573,6 +1087,13 @@ export async function executeCodexAppServerTurnStep<
   })
 
   try {
+    if (args.config.mode === "sandbox" || args.config.sandbox) {
+      return await executeCodexSandboxTurn(args as CodexAppServerTurnStepArgs<CodexConfig>, {
+        emitProviderChunk,
+        streamTrace,
+      })
+    }
+
     if (String(args.config.appServerUrl || "").trim().replace(/\/+$/, "").endsWith("/turn")) {
       const response = await fetch(args.config.appServerUrl, {
         method: "POST",
@@ -996,6 +1517,7 @@ export function createCodexReactor<
     const turn = options.executeTurn
       ? await options.executeTurn({
         env: params.env,
+        runtime: params.runtime,
         context,
         triggerEvent: params.triggerEvent,
         contextId: params.contextId,
@@ -1013,6 +1535,8 @@ export function createCodexReactor<
       })
       : await executeCodexAppServerTurnStep({
           config,
+          env: params.env,
+          runtime: params.runtime,
           instruction,
           contextId: params.contextId,
           eventId: params.eventId,

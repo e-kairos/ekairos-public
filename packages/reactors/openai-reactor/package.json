@@ -32,8 +32,8 @@
   "devDependencies": {
     "@ekairos/domain": "workspace:*",
     "@ekairos/events": "workspace:*",
-    "@instantdb/admin": "0.22.158",
     "@ekairos/tsconfig": "workspace:*",
+    "@instantdb/admin": "0.22.158",
     "@types/node": "^24.5.0",
     "@workflow/serde": "5.0.0-beta.0",
     "@workflow/vitest": "5.0.0-beta.1",
@@ -49,5 +49,8 @@
   "homepage": "https://github.com/e-kairos/ekairos#readme",
   "bugs": {
     "url": "https://github.com/e-kairos/ekairos/issues"
+  },
+  "dependencies": {
+    "@ekairos/sandbox": "workspace:*"
   }
 }

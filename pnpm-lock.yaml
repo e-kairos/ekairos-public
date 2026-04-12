@@ -598,6 +598,10 @@ importers:
         version: 5.9.3
 
   packages/reactors/openai-reactor:
+    dependencies:
+      '@ekairos/sandbox':
+        specifier: workspace:*
+        version: link:../../sandbox
     devDependencies:
       '@ekairos/domain':
         specifier: workspace:*
