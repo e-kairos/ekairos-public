@@ -56,7 +56,7 @@ When required, use direct admin runtime for bulk operations.
 
 Supported extraction modes:
 
-1. **Domain endpoint**: `/.well-known/ekairos/v1/domain` + domain query API.
+1. **Domain endpoint**: `/api/ekairos/domain` + domain query API.
 2. **Direct InstantDB admin**: admin queries for large/batch operations.
 3. **Instant Platform schema planner**: `planSchemaPush` for dry-run schema impact steps.
 

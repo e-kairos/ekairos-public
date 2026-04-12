@@ -70,6 +70,11 @@
       "types": "./dist/cli/server.d.ts",
       "import": "./dist/cli/server.js",
       "default": "./dist/cli/server.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
     }
   },
   "scripts": {

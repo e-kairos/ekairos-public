@@ -45,7 +45,7 @@ describe("create-app progress", () => {
     const packageJson = await readFile(join(targetDir, "package.json"), "utf8")
     const runtimeFile = await readFile(join(targetDir, "src", "runtime.ts"), "utf8")
     const routeFile = await readFile(
-      join(targetDir, "src", "app", ".well-known", "ekairos", "v1", "domain", "route.ts"),
+      join(targetDir, "src", "app", "api", "ekairos", "domain", "route.ts"),
       "utf8",
     )
 
@@ -54,8 +54,9 @@ describe("create-app progress", () => {
     expect(packageJson).not.toContain("@workflow/world-local")
     expect(runtimeFile).toContain("export class AppRuntime")
     expect(runtimeFile).toContain("@ekairos/domain/runtime-handle")
-    expect(routeFile).toContain('from "../../../../../runtime"')
+    expect(routeFile).toContain("createRuntimeRouteHandler")
+    expect(routeFile).toContain('from "@/runtime"')
     expect(routeFile).not.toContain("@ekairos/thread")
-    expect(routeFile).not.toContain("../../../../../runtime.ts")
+    expect(routeFile).not.toContain(".well-known")
   })
 })

@@ -15,7 +15,7 @@ bridge skill that lets an agent with a sandbox access domain data without direct
 credentials.
 
 ## What it does
-- Sends a POST request to `/.well-known/ekairos/v1/domain`.
+- Sends a POST request to `/api/ekairos/domain`.
 - Passes `org_id` + InstaQL query.
 - Returns the JSON response (includes `data` + `truncated` when applicable).
 
@@ -49,5 +49,6 @@ credentials.
 
 ## Notes
 - This skill assumes the app exposes the standard Ekairos domain endpoint.
+- New apps use `/api/ekairos/domain`; legacy apps may still expose `/.well-known/ekairos/v1/domain`.
 - If auth is required, provide a valid OIDC token or static domain token.
 - The endpoint performs query truncation to keep responses small.

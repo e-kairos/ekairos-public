@@ -28,7 +28,7 @@ Use `./skill.sh` to list, validate, bundle, and install skills.
 ### ekairos.domain.query
 
 - Path: `skills/ekairos.domain.query`
-- Purpose: Query domain data through `/.well-known/ekairos/v1/domain`.
+- Purpose: Query domain data through `/api/ekairos/domain` (with legacy `.well-known` fallback).
 - Adoption value: fast diagnostics and scoped reads without direct DB embedding in each consumer.
 - Related packages:
   - `@ekairos/domain`

@@ -53,7 +53,6 @@ def main(args: dict):
     if query is None:
         return {"ok": False, "error": "Missing query"}
 
-    endpoint = f"{base_url}/.well-known/ekairos/v1/domain"
     payload = json.dumps({"orgId": org_id, "query": query}).encode("utf-8")
 
     headers = {
@@ -62,23 +61,34 @@ def main(args: dict):
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as res:
-            body = res.read().decode("utf-8")
-            try:
-                return json.loads(body)
-            except json.JSONDecodeError:
-                return {"ok": False, "error": "Invalid JSON response", "raw": body}
-    except urllib.error.HTTPError as exc:
+    endpoints = [
+        f"{base_url}/api/ekairos/domain",
+        f"{base_url}/.well-known/ekairos/v1/domain",
+    ]
+
+    last_error = None
+    for endpoint in endpoints:
+        req = urllib.request.Request(endpoint, data=payload, headers=headers, method="POST")
         try:
-            body = exc.read().decode("utf-8")
-        except Exception:
-            body = ""
-        return {
-            "ok": False,
-            "status": exc.code,
-            "error": body or exc.reason or "HTTP error",
-        }
-    except Exception as exc:
-        return {"ok": False, "error": str(exc)}
+            with urllib.request.urlopen(req, timeout=30) as res:
+                body = res.read().decode("utf-8")
+                try:
+                    return json.loads(body)
+                except json.JSONDecodeError:
+                    return {"ok": False, "error": "Invalid JSON response", "raw": body}
+        except urllib.error.HTTPError as exc:
+            try:
+                body = exc.read().decode("utf-8")
+            except Exception:
+                body = ""
+            last_error = {
+                "ok": False,
+                "status": exc.code,
+                "error": body or exc.reason or "HTTP error",
+            }
+            if exc.code != 404:
+                return last_error
+        except Exception as exc:
+            last_error = {"ok": False, "error": str(exc)}
+
+    return last_error or {"ok": False, "error": "domain endpoint not found"}

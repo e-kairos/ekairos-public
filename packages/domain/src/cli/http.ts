@@ -31,26 +31,41 @@ function authHeaders(refreshToken?: string) {
     : {}
 }
 
+const DEFAULT_DOMAIN_ENDPOINT = "/api/ekairos/domain"
+const LEGACY_DOMAIN_ENDPOINT = "/.well-known/ekairos/v1/domain"
+
+function domainEndpointCandidates(baseUrl: string) {
+  return [
+    `${baseUrl}${DEFAULT_DOMAIN_ENDPOINT}`,
+    `${baseUrl}${LEGACY_DOMAIN_ENDPOINT}`,
+  ]
+}
+
 export async function fetchDomainManifest(params: {
   baseUrl: string
   refreshToken?: string
 }): Promise<DomainCliManifest> {
   const baseUrl = normalizeBaseUrl(params.baseUrl)
-  const res = await fetch(`${baseUrl}/.well-known/ekairos/v1/domain`, {
-    method: "GET",
-    headers: {
-      ...authHeaders(params.refreshToken),
-    },
-  })
 
-  const data = await parseJsonResponse<DomainCliManifest>(res)
-  if (!res.ok || !data || data.ok !== true) {
-    throw new Error(
-      `Failed to fetch domain manifest (${res.status}): ${res.statusText || "request_failed"}`,
-    )
+  let lastStatus = 0
+  let lastStatusText = "request_failed"
+  for (const endpoint of domainEndpointCandidates(baseUrl)) {
+    const res = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        ...authHeaders(params.refreshToken),
+      },
+    })
+
+    lastStatus = res.status
+    lastStatusText = res.statusText || "request_failed"
+    const data = await parseJsonResponse<DomainCliManifest>(res)
+    if (res.ok && data && data.ok === true) return data
   }
 
-  return data
+  throw new Error(
+    `Failed to fetch domain manifest (${lastStatus}): ${lastStatusText}`,
+  )
 }
 
 export async function postDomainQuery(params: {
@@ -64,29 +79,35 @@ export async function postDomainQuery(params: {
   asGuest?: boolean
 }): Promise<DomainCliQueryResponse> {
   const baseUrl = normalizeBaseUrl(params.baseUrl)
-  const res = await fetch(`${baseUrl}/.well-known/ekairos/v1/domain`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders(params.refreshToken),
-    },
-    body: JSON.stringify({
-      op: "query",
-      ...(params.appId ? { appId: params.appId } : {}),
-      query: params.query,
-      ...(params.env ? { env: params.env } : {}),
-      ...(params.admin ? { admin: true } : {}),
-      ...(params.asEmail ? { asEmail: params.asEmail } : {}),
-      ...(params.asGuest ? { asGuest: true } : {}),
-    }),
-  })
+  let lastResponse: Response | null = null
+  for (const endpoint of domainEndpointCandidates(baseUrl)) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...authHeaders(params.refreshToken),
+      },
+      body: JSON.stringify({
+        op: "query",
+        ...(params.appId ? { appId: params.appId } : {}),
+        query: params.query,
+        ...(params.env ? { env: params.env } : {}),
+        ...(params.admin ? { admin: true } : {}),
+        ...(params.asEmail ? { asEmail: params.asEmail } : {}),
+        ...(params.asGuest ? { asGuest: true } : {}),
+      }),
+    })
 
-  const data = await parseJsonResponse<DomainCliQueryResponse>(res)
-  if (data) return data
+    lastResponse = res
+    const data = await parseJsonResponse<DomainCliQueryResponse>(res)
+    if (data && (res.ok || data.ok !== false || res.status !== 404)) return data
+  }
+
+  const res = lastResponse
   return {
     ok: false,
-    status: res.status,
-    error: await res.text().catch(() => "domain_query_failed"),
+    status: res?.status ?? 0,
+    error: res ? await res.text().catch(() => "domain_query_failed") : "domain_query_failed",
   }
 }
 
@@ -102,29 +123,35 @@ export async function postDomainAction(params: {
   asGuest?: boolean
 }): Promise<DomainCliActionResponse> {
   const baseUrl = normalizeBaseUrl(params.baseUrl)
-  const res = await fetch(`${baseUrl}/.well-known/ekairos/v1/domain`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders(params.refreshToken),
-    },
-    body: JSON.stringify({
-      op: "action",
-      ...(params.appId ? { appId: params.appId } : {}),
-      action: params.action,
-      input: params.input,
-      ...(params.env ? { env: params.env } : {}),
-      ...(params.admin ? { admin: true } : {}),
-      ...(params.asEmail ? { asEmail: params.asEmail } : {}),
-      ...(params.asGuest ? { asGuest: true } : {}),
-    }),
-  })
+  let lastResponse: Response | null = null
+  for (const endpoint of domainEndpointCandidates(baseUrl)) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...authHeaders(params.refreshToken),
+      },
+      body: JSON.stringify({
+        op: "action",
+        ...(params.appId ? { appId: params.appId } : {}),
+        action: params.action,
+        input: params.input,
+        ...(params.env ? { env: params.env } : {}),
+        ...(params.admin ? { admin: true } : {}),
+        ...(params.asEmail ? { asEmail: params.asEmail } : {}),
+        ...(params.asGuest ? { asGuest: true } : {}),
+      }),
+    })
 
-  const data = await parseJsonResponse<DomainCliActionResponse>(res)
-  if (data) return data
+    lastResponse = res
+    const data = await parseJsonResponse<DomainCliActionResponse>(res)
+    if (data && (res.ok || data.ok !== false || res.status !== 404)) return data
+  }
+
+  const res = lastResponse
   return {
     ok: false,
-    status: res.status,
-    error: await res.text().catch(() => "domain_action_failed"),
+    status: res?.status ?? 0,
+    error: res ? await res.text().catch(() => "domain_action_failed") : "domain_action_failed",
   }
 }
