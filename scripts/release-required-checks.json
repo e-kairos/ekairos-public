@@ -11,9 +11,9 @@
       "args": ["--filter", "@ekairos/events", "run", "test:ai-sdk-reactor"]
     },
     {
-      "name": "@ekairos/events workflow e2e",
+      "name": "@ekairos/openai-reactor workflow vitest",
       "command": "pnpm",
-      "args": ["--dir", "packages/events/tests/playwright/server", "run", "test:e2e:context-engine"]
+      "args": ["--filter", "@ekairos/openai-reactor", "run", "test:reactor:workflow"]
     }
   ]
 }

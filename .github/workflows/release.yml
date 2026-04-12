@@ -89,10 +89,10 @@ jobs:
       - name: Run @ekairos/events scripted reactor unit tests
         run: pnpm --filter @ekairos/events run test:scripted-reactor
 
-  check-context-e2e:
-    name: Check - context workflow e2e
+  check-codex-reactor-workflow:
+    name: Check - codex reactor workflow vitest
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     env:
       INSTANT_PERSONAL_ACCESS_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
       INSTANT_CLI_AUTH_TOKEN: ${{ secrets.INSTANT_PERSONAL_ACCESS_TOKEN }}
@@ -119,18 +119,15 @@ jobs:
         shell: bash
         run: |
           if [ -z "${INSTANT_PERSONAL_ACCESS_TOKEN}" ]; then
-            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for context e2e checks."
+            echo "Missing INSTANT_PERSONAL_ACCESS_TOKEN secret for codex reactor workflow checks."
             exit 1
           fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright browser (chromium)
-        run: pnpm --dir packages/events/tests/playwright/server exec playwright install --with-deps chromium
-
-      - name: Run @ekairos/events workflow smoke e2e
-        run: pnpm --dir packages/events/tests/playwright/server run test:e2e:context-engine
+      - name: Run @ekairos/openai-reactor workflow vitest
+        run: pnpm --filter @ekairos/openai-reactor run test:reactor:workflow
 
   publish:
     runs-on: ubuntu-latest
@@ -138,12 +135,12 @@ jobs:
     needs:
       - check-domain-unit
       - check-context-unit
-      - check-context-e2e
+      - check-codex-reactor-workflow
     if: >
       github.event_name == 'push' &&
       needs.check-domain-unit.result == 'success' &&
       needs.check-context-unit.result == 'success' &&
-      needs.check-context-e2e.result == 'success'
+      needs.check-codex-reactor-workflow.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
