@@ -2284,6 +2284,38 @@ export class SandboxService {
     }
   }
 
+  async getPortUrl(sandboxId: string, port: number): Promise<ServiceResult<{ url: string }>> {
+    try {
+      const sandboxResult = await this.reconnectToSandbox(sandboxId)
+      if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
+
+      const sandbox = sandboxResult.data.sandbox
+      const normalizedPort = Math.max(1, Math.floor(Number(port)))
+
+      if (isVercelSandbox(sandbox)) {
+        const url = (sandbox as VercelSandbox).domain(normalizedPort)
+        return { ok: true, data: { url: String(url ?? "").replace(/\/+$/, "") } }
+      }
+
+      if ((sandbox as any).__provider === "sprites") {
+        const base = String((sandbox as any).url ?? "").trim().replace(/\/+$/, "")
+        if (!base) return { ok: false, error: "sprites_url_missing" }
+        if (normalizedPort === 8080) return { ok: true, data: { url: base } }
+        try {
+          const u = new URL(base)
+          u.port = String(normalizedPort)
+          return { ok: true, data: { url: u.toString().replace(/\/+$/, "") } }
+        } catch {
+          return { ok: true, data: { url: `${base}:${normalizedPort}` } }
+        }
+      }
+
+      return { ok: false, error: "sandbox_port_url_not_supported" }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
   private static parseSpritesCheckpointIdFromNdjson(text: string): string | null {
     const lines = String(text ?? "")
       .split("\n")

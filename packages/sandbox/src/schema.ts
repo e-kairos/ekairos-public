@@ -311,6 +311,19 @@ export async function createCheckpointExecute({
   })
 }
 
+export async function getPortUrlExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: { sandboxId: string; port: number }
+}): Promise<ServiceResult<{ url: string }>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).getPortUrl(input.sandboxId, input.port)
+}
+
 export async function createEkairosAppExecute({
   runtime,
   input,
@@ -427,6 +440,15 @@ export const sandboxDomain: DomainSchemaResult = sandboxSchemaDomain.actions({
   >({
     name: "sandbox.createCheckpoint",
     execute: createCheckpointExecute,
+  }),
+  getPortUrl: defineDomainAction<
+    Record<string, unknown>,
+    { sandboxId: string; port: number },
+    ServiceResult<{ url: string }>,
+    SandboxRuntime
+  >({
+    name: "sandbox.getPortUrl",
+    execute: getPortUrlExecute,
   }),
   createEkairosApp: defineDomainAction<
     Record<string, unknown>,

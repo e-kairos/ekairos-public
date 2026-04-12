@@ -26,10 +26,12 @@ export type CodexConfig = {
 
 export type CodexSandboxConfig = {
   sandboxId?: string
-  provider?: "sprites"
+  provider?: "sprites" | "vercel"
   runtime?: string
   purpose?: string
   spriteName?: string
+  ports?: number[]
+  vercel?: Record<string, unknown>
   codexHome?: string
   authJsonPath?: string
   credentialsJsonPath?: string
@@ -707,19 +709,6 @@ function ensureOk<T>(result: { ok: true; data: T } | { ok: false; error: string 
   return result.data
 }
 
-function previewUrlForPort(sandboxUrl: string, port: number): string {
-  const base = String(sandboxUrl ?? "").trim()
-  if (!base) return ""
-  if (port === 8080) return base.replace(/\/+$/, "")
-  try {
-    const url = new URL(base)
-    url.port = String(port)
-    return url.toString().replace(/\/+$/, "")
-  } catch {
-    return base.replace(/\/+$/, "") + ":" + String(port)
-  }
-}
-
 async function executeCodexSandboxTurn(
   args: CodexAppServerTurnStepArgs<CodexConfig>,
   helpers: {
@@ -738,11 +727,16 @@ async function executeCodexSandboxTurn(
   const actions = (scoped as any).actions
   if (!actions) throw new Error("codex_sandbox_actions_required")
 
-  const codexHome = String(sandboxConfig.codexHome ?? "/home/sprite/.codex").trim() || "/home/sprite/.codex"
+  const provider = sandboxConfig.provider ?? "sprites"
+  const homeDir = provider === "vercel" ? "/vercel/sandbox" : "/home/sprite"
+  const codexHome = String(sandboxConfig.codexHome ?? `${homeDir}/.codex`).trim() || `${homeDir}/.codex`
   const bridgePort = Math.max(1, Number(sandboxConfig.bridgePort ?? 4500))
-  const appPort = Math.max(1, Number(sandboxConfig.appPort ?? 8080))
-  const repoPath = String(args.config.repoPath || "/workspace/ekairos-app").trim() || "/workspace/ekairos-app"
-  const workRoot = "/workspace/.ekairos/codex"
+  const appPort = Math.max(1, Number(sandboxConfig.appPort ?? (provider === "vercel" ? 3000 : 8080)))
+  const defaultWorkspaceRoot = provider === "vercel" ? "/vercel/sandbox" : "/workspace"
+  const repoPath =
+    String(args.config.repoPath || `${defaultWorkspaceRoot}/ekairos-app`).trim() ||
+    `${defaultWorkspaceRoot}/ekairos-app`
+  const workRoot = `${defaultWorkspaceRoot}/.ekairos/codex`
   const bridgePath = `${workRoot}/codex-bridge.mjs`
   const turnRunnerPath = `${workRoot}/codex-turn-runner.mjs`
   const instructionPath = `${workRoot}/instruction-${args.executionId}-${args.stepId}.txt`
@@ -755,12 +749,18 @@ async function executeCodexSandboxTurn(
         provider: sandboxConfig.provider ?? "sprites",
         runtime: sandboxConfig.runtime ?? "node22",
         purpose: sandboxConfig.purpose ?? "codex-reactor-sandbox",
-        sprites: {
-          name: sandboxConfig.spriteName,
-          waitForCapacity: true,
-          urlSettings: { auth: "public" },
-          deleteOnStop: true,
-        },
+        ports: Array.from(new Set([appPort, ...(Array.isArray(sandboxConfig.ports) ? sandboxConfig.ports : [])])),
+        ...(provider === "sprites"
+          ? {
+              sprites: {
+                name: sandboxConfig.spriteName,
+                waitForCapacity: true,
+                urlSettings: { auth: "public" },
+                deleteOnStop: true,
+              },
+            }
+          : {}),
+        ...(provider === "vercel" ? { vercel: sandboxConfig.vercel ?? {} } : {}),
       }),
       "codex_sandbox_create",
     )
@@ -836,7 +836,7 @@ async function executeCodexSandboxTurn(
       `chmod 700 ${shellSingleQuote(codexHome)} || true`,
       `chmod 600 ${shellSingleQuote(`${codexHome}/auth.json`)} 2>/dev/null || true`,
       "if ! command -v codex >/dev/null 2>&1; then npm i -g @openai/codex@latest; fi",
-      `HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} codex login status`,
+      `HOME=${shellSingleQuote(homeDir)} CODEX_HOME=${shellSingleQuote(codexHome)} codex login status`,
       "echo codex_sandbox_prepare_codex_ok",
     ].join("\n"),
     "command",
@@ -858,7 +858,7 @@ async function executeCodexSandboxTurn(
     [
       "set -euo pipefail",
       `if ! curl -fsS http://127.0.0.1:${bridgePort}/health >/dev/null 2>&1; then`,
-      `  HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_PORT=${bridgePort} nohup node ${shellSingleQuote(bridgePath)} > /tmp/ekairos-codex-bridge-${bridgePort}.log 2>&1 &`,
+      `  HOME=${shellSingleQuote(homeDir)} CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_PORT=${bridgePort} nohup node ${shellSingleQuote(bridgePath)} > /tmp/ekairos-codex-bridge-${bridgePort}.log 2>&1 &`,
       `  echo $! > /tmp/ekairos-codex-bridge-${bridgePort}.pid`,
       "fi",
       `for i in $(seq 1 90); do curl -fsS http://127.0.0.1:${bridgePort}/health >/dev/null 2>&1 && echo codex_sandbox_bridge_ok && exit 0; sleep 1; done`,
@@ -918,8 +918,8 @@ async function executeCodexSandboxTurn(
       "dev-server",
       "codex_sandbox_start_app_ok",
     )
-    const sandboxRecord = ensureOk(await actions.getSandbox({ sandboxId }), "codex_sandbox_get")
-    appBaseUrl = previewUrlForPort(String((sandboxRecord as any).sandboxUrl ?? ""), appPort)
+    const portUrl = ensureOk(await actions.getPortUrl({ sandboxId, port: appPort }), "codex_sandbox_port_url")
+    appBaseUrl = String((portUrl as any).url ?? "").replace(/\/+$/, "")
     if (appBaseUrl) {
       const response = await fetch(`${appBaseUrl}/api/ekairos/domain`)
       if (!response.ok) throw new Error(`codex_sandbox_app_url_unavailable_${response.status}`)
@@ -940,7 +940,7 @@ async function executeCodexSandboxTurn(
     "codex_sandbox_turn",
     [
       "set -euo pipefail",
-      `timeout 300s env HOME=/home/sprite CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_URL=http://127.0.0.1:${bridgePort} CODEX_REPO_PATH=${shellSingleQuote(repoPath)} CODEX_INSTRUCTION_FILE=${shellSingleQuote(instructionPath)} CODEX_PROVIDER_CONTEXT_ID=${shellSingleQuote(args.config.providerContextId ?? "")} CODEX_MODEL=${shellSingleQuote(args.config.model ?? "")} node ${shellSingleQuote(turnRunnerPath)}`,
+      `timeout 300s env HOME=${shellSingleQuote(homeDir)} CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_URL=http://127.0.0.1:${bridgePort} CODEX_REPO_PATH=${shellSingleQuote(repoPath)} CODEX_INSTRUCTION_FILE=${shellSingleQuote(instructionPath)} CODEX_PROVIDER_CONTEXT_ID=${shellSingleQuote(args.config.providerContextId ?? "")} CODEX_MODEL=${shellSingleQuote(args.config.model ?? "")} node ${shellSingleQuote(turnRunnerPath)}`,
     ].join("\n"),
     "codex-app-server",
   )
