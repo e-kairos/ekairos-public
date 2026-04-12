@@ -728,7 +728,7 @@ async function executeCodexSandboxTurn(
   },
 ): Promise<CodexTurnResult> {
   const sandboxConfig = args.config.sandbox ?? {}
-  const runtime = args.runtime as any
+  const runtime = (args.runtime || (args.env as any)?.runtime) as any
   if (!runtime || typeof runtime.use !== "function") {
     throw new Error("codex_sandbox_runtime_required")
   }

@@ -3,7 +3,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { init } from "@instantdb/admin"
 import { domain } from "@ekairos/domain"
-import { EkairosRuntime } from "@ekairos/domain/runtime"
+import { EkairosRuntime } from "../../domain/src/runtime-handle.ts"
+import { configureRuntime } from "../../domain/src/runtime.ts"
 import { createContext, eventsDomain } from "@ekairos/events"
 import { sandboxDomain, SandboxService } from "../../sandbox/src/index.ts"
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
@@ -150,6 +151,10 @@ describeReal("codex reactor on remote sandbox", () => {
       authJsonPath: getCodexAuthPath(),
       configTomlPath: getCodexConfigPath(),
     })
+    configureRuntime({
+      domain: { domain: appDomain },
+      runtime: async () => ({ db: await runtime!.db() }),
+    })
   }, 5 * 60 * 1000)
 
   afterAll(async () => {
@@ -227,6 +232,7 @@ describeReal("codex reactor on remote sandbox", () => {
     } as any
 
     const result = await codexContext.react(triggerEvent, {
+      env: { ...runtime.env, runtime } as any,
       runtime,
       context: { key: contextKey },
       durable: false,
@@ -271,6 +277,7 @@ describeReal("codex reactor on remote sandbox", () => {
         "{ app_tasks: { comments: {} } }",
         `--baseUrl=${appBaseUrl}`,
         "--admin",
+        "--meta",
         "--pretty",
       ])).stdout,
     )
