@@ -4,10 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { init } from "@instantdb/admin"
 import http from "node:http"
 import { eventsDomain } from "@ekairos/events"
-import {
-  configureContextDurableWorkflow,
-  readPersistedContextStepStream,
-} from "@ekairos/events/runtime"
+import { configureContextDurableWorkflow } from "@ekairos/events/runtime"
 
 import {
   ASSISTANT_TEXT,
@@ -19,6 +16,7 @@ import {
   codexReactorDurableWorkflow,
   codexWorkflowContext,
 } from "./codex.reactor.workflow-fixtures.js"
+import { verifyEventDomainRun } from "../../../../events/src/tests/context.reactor-contract.js"
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return {}
@@ -29,20 +27,6 @@ function asString(value: unknown): string {
   if (typeof value === "string") return value
   if (typeof value === "number") return String(value)
   return ""
-}
-
-function readRows(queryResult: unknown, key: string): Record<string, unknown>[] {
-  const root = asRecord(queryResult)
-  const value = root[key]
-  return Array.isArray(value) ? (value as Record<string, unknown>[]) : []
-}
-
-function readString(row: Record<string, unknown> | undefined, key: string): string | null {
-  if (!row) return null
-  const value = row[key]
-  if (typeof value === "string") return value
-  if (typeof value === "number") return String(value)
-  return null
 }
 
 function getInstantProvisionToken() {
@@ -204,47 +188,17 @@ describeWorkflowInstant("codex reactor + durable context engine workflow", () =>
     expect(finalResult.execution.status).toBe("completed")
     expect(finalResult.reaction.status).toBe("completed")
 
-    const snapshot = await currentDb().query({
-      event_executions: {
-        $: { where: { id: shell.execution.id as any }, limit: 1 },
-      },
-      event_steps: {
-        $: { where: { "execution.id": shell.execution.id }, limit: 20 },
-      },
-      event_items: {
-        $: {
-          where: { "context.id": shell.context.id as any },
-          order: { createdAt: "asc" },
-          limit: 20,
-        },
-      },
+    const eventDomain = await verifyEventDomainRun({
+      db: currentDb(),
+      contextId: shell.context.id,
+      executionId: shell.execution.id,
+      triggerEventId: shell.trigger.id,
+      reactionEventId: finalResult.reaction.id,
+      durable: true,
+      requireStepStream: true,
     })
 
-    const executionRow = readRows(snapshot, "event_executions")[0]
-    const stepRows = readRows(snapshot, "event_steps")
-    const itemRows = readRows(snapshot, "event_items")
-    const reactionRow = itemRows.find((row) => readString(row, "id") === finalResult.reaction.id)
-
-    expect(readString(executionRow, "status")).toBe("completed")
-    expect(readString(executionRow, "workflowRunId")).toMatch(/^wrun_/)
-    expect(stepRows.length).toBeGreaterThan(0)
-    expect(readString(reactionRow, "status")).toBe("completed")
-
-    const stepRow = stepRows[0]
-    const stepId = readString(stepRow, "id")
-    expect(stepId).toBeTruthy()
-
-    const partsSnapshot = await currentDb().query({
-      event_parts: {
-        $: {
-          where: { stepId: stepId as any },
-          order: { idx: "asc" },
-          limit: 50,
-        },
-      },
-    })
-    const partRows = readRows(partsSnapshot, "event_parts")
-    const parts = partRows.map((row) => asRecord(row.part))
+    const parts = eventDomain.parts.map((part) => asRecord(part))
     const partTypes = parts.map((part) => asString(part.type))
 
     expect(partTypes).toContain("content")
@@ -293,16 +247,7 @@ describeWorkflowInstant("codex reactor + durable context engine workflow", () =>
     expect(asString(metadataOutput.turnId)).toBe(TURN_ID)
     expect(asRecord(metadataOutput.tokenUsage).totalTokens).toBe(53)
 
-    const streamClientId = readString(stepRow, "streamClientId")
-    const streamId = readString(stepRow, "streamId")
-    expect(streamClientId || streamId).toBeTruthy()
-
-    const persistedStream = await readPersistedContextStepStream({
-      db: currentDb(),
-      clientId: streamClientId ?? undefined,
-      streamId: streamId ?? undefined,
-    })
-    const streamChunkTypes = persistedStream.chunks.map((chunk) => chunk.chunkType)
+    const streamChunkTypes = eventDomain.streamChunks.map((chunk) => chunk.chunkType)
     expect(streamChunkTypes).toContain("chunk.start")
     expect(streamChunkTypes).toContain("chunk.text_delta")
     expect(streamChunkTypes).toContain("chunk.text_end")
