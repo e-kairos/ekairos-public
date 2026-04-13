@@ -18,6 +18,8 @@ export type {
 } from "./service.js"
 export { SandboxCommandRun } from "./service.js"
 export { runCommandInSandbox } from "./commands.js"
+export { resolveVercelSandboxConfig, safeVercelConfigForRecord } from "./vercel-options.js"
+export type { ResolvedVercelSandboxConfig, VercelSandboxProfile } from "./vercel-options.js"
 
 export { createApp, createOrUpdateApp } from "./app.js"
 export type { CreateOrUpdateAppArgs, CreateOrUpdateAppResult, GitSource } from "./app.js"

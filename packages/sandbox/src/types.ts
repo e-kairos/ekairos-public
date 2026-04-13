@@ -43,6 +43,39 @@ export type SandboxConfig = {
    */
   vercel?: {
     /**
+     * Cost profile for Vercel Sandbox defaults.
+     * - "ephemeral": smallest useful sandbox, short timeout, no persistence.
+     * - "coding-agent": persistent named workspace with a longer timeout.
+     */
+    profile?: "ephemeral" | "coding-agent"
+    /**
+     * Deterministic Vercel sandbox name. Required for cross-run reuse.
+     */
+    name?: string
+    /**
+     * Reuse and resume an existing named sandbox before creating a new one.
+     * Defaults to true when a persistent named sandbox is configured.
+     */
+    reuse?: boolean
+    /**
+     * Enable filesystem persistence across sessions.
+     */
+    persistent?: boolean
+    /**
+     * Delete the Vercel sandbox when stopSandbox is called.
+     * Defaults to true for ephemeral sandboxes and false for persistent coding-agent sandboxes.
+     */
+    deleteOnStop?: boolean
+    /**
+     * Default expiration for snapshots/checkpoints in milliseconds.
+     * Use 0 for no expiration.
+     */
+    snapshotExpirationMs?: number
+    /**
+     * Vercel sandbox tags. Maximum 5 tags after Ekairos defaults are applied.
+     */
+    tags?: Record<string, string>
+    /**
      * Linked project name or id. Optional when cwd already contains `.vercel/project.json`.
      */
     project?: string

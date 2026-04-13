@@ -1,7 +1,7 @@
 import type { ModelMessage, UIMessage, UIMessageChunk } from "ai"
 import type { ContextItem } from "../context.store.js"
 import { OUTPUT_ITEM_TYPE } from "../context.events.js"
-import type { SerializableToolForModel } from "../tools-to-model-tools.js"
+import type { SerializableActionSpec } from "../tools-to-model-tools.js"
 import type { ContextModelInit } from "../context.engine.js"
 
 /**
@@ -15,7 +15,7 @@ export async function doContextStreamStep(params: {
   model: ContextModelInit
   system: string
   messages: ModelMessage[]
-  tools: Record<string, SerializableToolForModel>
+  tools: Record<string, SerializableActionSpec>
   eventId: string
   maxSteps: number
   /**

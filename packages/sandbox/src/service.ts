@@ -1,4 +1,4 @@
-import { Sandbox as VercelSandbox, type NetworkPolicy } from "@vercel/sandbox"
+import { Sandbox as VercelSandbox, Snapshot as VercelSnapshot, type NetworkPolicy } from "@vercel/sandbox"
 import { Daytona, Image, type DaytonaConfig, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { id, init, type InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain"
@@ -6,6 +6,11 @@ import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtim
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
 import { sandboxDomain } from "./schema.js"
 import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
+import {
+  resolveVercelSandboxConfig,
+  safeVercelConfigForRecord,
+  type ResolvedVercelSandboxConfig,
+} from "./vercel-options.js"
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { existsSync, promises as fs } from "node:fs"
@@ -824,20 +829,49 @@ export class SandboxService {
 
   private static async provisionVercelSandbox(
     config: SandboxConfig,
-    extra?: { networkPolicy?: NetworkPolicy; env?: Record<string, string> },
+    extra?: {
+      networkPolicy?: NetworkPolicy
+      env?: Record<string, string>
+      resolved?: ResolvedVercelSandboxConfig
+    },
   ): Promise<VercelSandbox> {
     const creds = await SandboxService.resolveVercelCredentials(config)
+    const resolved = extra?.resolved ?? resolveVercelSandboxConfig(config)
+
+    if (resolved.reuse && resolved.name) {
+      try {
+        return await VercelSandbox.get({
+          name: resolved.name,
+          teamId: creds.teamId,
+          projectId: creds.projectId,
+          token: creds.token,
+          resume: true,
+        } as any)
+      } catch (error: any) {
+        const status = Number(error?.response?.status ?? 0)
+        const message = formatSandboxError(error).toLowerCase()
+        if (status !== 404 && !message.includes("not found")) {
+          throw error
+        }
+      }
+    }
 
     return await VercelSandbox.create({
       teamId: creds.teamId,
       projectId: creds.projectId,
       token: creds.token,
-      timeout: config.timeoutMs ?? 30 * 60 * 1000,
-      ports: Array.isArray(config.ports) ? config.ports : [],
+      ...(resolved.name ? { name: resolved.name } : {}),
+      timeout: resolved.timeoutMs,
+      ports: resolved.ports,
       // IMPORTANT: pass runtime as-is (e.g. "python3.13") to match provider expectations.
       // Don't normalize to "python3"/"node22" as that can cause provider-side 400s.
-      runtime: (config.runtime ?? "node22") as any,
-      resources: { vcpus: config.resources?.vcpus ?? 2 },
+      runtime: resolved.runtime as any,
+      resources: { vcpus: resolved.vcpus },
+      persistent: resolved.persistent,
+      ...(resolved.snapshotExpirationMs !== undefined
+        ? { snapshotExpiration: resolved.snapshotExpirationMs }
+        : {}),
+      ...(resolved.tags ? { tags: resolved.tags } : {}),
       networkPolicy: extra?.networkPolicy,
       env: extra?.env,
     } as any)
@@ -1266,6 +1300,8 @@ export class SandboxService {
     const sandboxId = id()
     const now = Date.now()
     const provider = SandboxService.resolveProvider(config)
+    const resolvedVercel =
+      provider === "vercel" ? resolveVercelSandboxConfig(config, { sandboxId }) : undefined
     let daytonaEphemeral: boolean | undefined = undefined
     let installedSkills: Array<{ name: string; rootDir: string; fileCount: number }> = []
 
@@ -1279,13 +1315,14 @@ export class SandboxService {
           status: "creating",
           ...(ekairos ? { sandboxUserId: ekairos.sandboxUserId } : {}),
           provider,
-          timeout: config.timeoutMs,
-          runtime: config.runtime,
-          vcpus: config.resources?.vcpus,
-          ports: config.ports as any,
+          timeout: resolvedVercel?.timeoutMs ?? config.timeoutMs,
+          runtime: resolvedVercel?.runtime ?? config.runtime,
+          vcpus: resolvedVercel?.vcpus ?? config.resources?.vcpus,
+          ports: (resolvedVercel?.ports ?? config.ports) as any,
           purpose: config.purpose,
           params: {
             ...baseParams,
+            ...(resolvedVercel ? { vercel: safeVercelConfigForRecord(config, resolvedVercel) } : {}),
             ...(ekairos
               ? {
                   ekairos: {
@@ -1385,6 +1422,7 @@ export class SandboxService {
           sandbox = await SandboxService.provisionVercelSandbox(config, {
             networkPolicy: ekairos?.networkPolicy,
             env: Object.keys(vercelEnv).length > 0 ? vercelEnv : undefined,
+            resolved: resolvedVercel,
           })
           if (ekairos) {
             await SandboxService.bootstrapEkairosFiles(sandbox as VercelSandbox, ekairos.manifest)
@@ -1397,7 +1435,10 @@ export class SandboxService {
         const msg = formatSandboxError(e)
         if (sandbox && provider === "vercel") {
           try {
-            await (sandbox as VercelSandbox).stop()
+            await (sandbox as VercelSandbox).stop({ blocking: true })
+            if (resolvedVercel?.deleteOnStop) {
+              await (sandbox as VercelSandbox).delete()
+            }
           } catch {
             // ignore cleanup errors during failed bootstrap
           }
@@ -1451,10 +1492,7 @@ export class SandboxService {
               : {}),
             ...(provider === "vercel"
               ? {
-                  vercel: {
-                    ...(baseParams as any)?.vercel,
-                    ...(config.vercel ?? {}),
-                  },
+                  vercel: resolvedVercel ? safeVercelConfigForRecord(config, resolvedVercel) : {},
                 }
               : {}),
             ...(provider === "daytona"
@@ -1740,6 +1778,210 @@ export class SandboxService {
     )
   }
 
+  private async readProcessRow(processId: string): Promise<any | null> {
+    const result: any = await this.adminDb.query({
+      sandbox_processes: {
+        $: { where: { id: processId } as any, limit: 1 },
+        sandbox: {},
+      },
+    })
+    return result?.sandbox_processes?.[0] ?? null
+  }
+
+  private async writeProcessChunkByProcessId(
+    processId: string,
+    type: SandboxProcessStreamChunk["type"],
+    data?: Record<string, unknown>,
+    opts?: { close?: boolean },
+  ): Promise<void> {
+    const row = await this.readProcessRow(processId)
+    if (!row) throw new Error("sandbox_process_not_found")
+    const linkedSandbox = Array.isArray(row?.sandbox) ? row.sandbox[0] : row?.sandbox
+    const sandboxId = String(linkedSandbox?.id ?? row?.sandboxId ?? "").trim()
+    if (!sandboxId) throw new Error("sandbox_process_sandbox_missing")
+    const streamClientId = String(row.streamClientId ?? "").trim() || createSandboxProcessStreamClientId(processId)
+    const streams = (this.adminDb as any)?.streams
+    if (!streams?.createWriteStream) throw new Error("sandbox_process_streams_unavailable")
+    const stream = streams.createWriteStream({ clientId: streamClientId }) as WritableStream<string>
+    const writer = stream.getWriter()
+    try {
+      const seq = Number(row.metadata?.lastSeq ?? row.metadata?.chunkCount ?? 0) + 1
+      await this.writeProcessChunk({
+        writer,
+        sandboxId,
+        processId,
+        seq,
+        type,
+        data,
+      })
+      if (opts?.close) {
+        await writer.close()
+      }
+      await this.adminDb.transact([
+        this.adminDb.tx.sandbox_processes[processId].update({
+          updatedAt: Date.now(),
+          metadata: sanitizeInstantValue({
+            ...(row.metadata ?? {}),
+            lastSeq: seq,
+            chunkCount: seq,
+          }),
+        }),
+      ] as any)
+    } finally {
+      try {
+        writer.releaseLock()
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  async startObservedProcess(
+    sandboxId: string,
+    opts: {
+      command: string
+      args?: string[]
+      cwd?: string
+      env?: Record<string, unknown>
+      kind?: SandboxProcessKind
+      mode?: SandboxProcessMode
+      externalProcessId?: string
+      metadata?: Record<string, unknown>
+    },
+  ): Promise<ServiceResult<SandboxProcessRunResult>> {
+    const processId = id()
+    const now = Date.now()
+    try {
+      const record = await this.getSandboxRecord(sandboxId)
+      if (!record) return { ok: false, error: "Valid sandbox record not found" }
+      if (record.status !== "active") return { ok: false, error: `sandbox_not_active:${record.status}` }
+
+      const streamSession = await this.createProcessStream({ sandboxId, processId })
+      const stream = streamSession.stream
+      const writer = stream.getWriter()
+      try {
+        await this.adminDb.transact([
+          this.adminDb.tx.sandbox_processes[processId]
+            .update({
+              kind: opts.kind ?? "command",
+              mode: opts.mode ?? "foreground",
+              status: "running",
+              provider: String(record.provider ?? "unknown"),
+              command: sanitizeInstantString(opts.command),
+              args: sanitizeInstantValue(Array.isArray(opts.args) ? opts.args : []),
+              cwd: asOptionalString(opts.cwd),
+              env: sanitizeInstantValue(opts.env),
+              externalProcessId: asOptionalString(opts.externalProcessId),
+              streamId: streamSession.streamId,
+              streamClientId: streamSession.streamClientId,
+              streamStartedAt: now,
+              startedAt: now,
+              updatedAt: now,
+              metadata: sanitizeInstantValue({
+                ...(opts.metadata ?? {}),
+                observed: true,
+                lastSeq: 1,
+                chunkCount: 1,
+              }),
+            })
+            .link({ sandbox: sandboxId, stream: streamSession.streamId }),
+        ] as any)
+
+        await this.writeProcessChunk({
+          writer,
+          sandboxId,
+          processId,
+          seq: 1,
+          type: "status",
+          data: {
+            status: "running",
+            command: opts.command,
+            args: Array.isArray(opts.args) ? opts.args : [],
+            cwd: opts.cwd ?? null,
+            externalProcessId: opts.externalProcessId ?? null,
+          },
+        })
+        // Keep observed-process streams open across calls; finishObservedProcess closes them.
+      } finally {
+        try {
+          writer.releaseLock()
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        ok: true,
+        data: {
+          processId,
+          streamId: streamSession.streamId,
+          streamClientId: streamSession.streamClientId,
+        },
+      }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
+  async appendObservedProcessChunk(
+    processId: string,
+    type: SandboxProcessStreamChunk["type"],
+    data?: Record<string, unknown>,
+  ): Promise<ServiceResult<void>> {
+    try {
+      await this.writeProcessChunkByProcessId(processId, type, data)
+      return { ok: true, data: undefined }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
+  async finishObservedProcess(
+    processId: string,
+    opts?: {
+      status?: "exited" | "failed" | "killed" | "lost"
+      exitCode?: number
+      errorText?: string
+      metadata?: Record<string, unknown>
+    },
+  ): Promise<ServiceResult<void>> {
+    try {
+      const row = await this.readProcessRow(processId)
+      if (!row) return { ok: false, error: "sandbox_process_not_found" }
+      const exitCode = Number.isFinite(Number(opts?.exitCode)) ? Number(opts?.exitCode) : undefined
+      const status = opts?.status ?? (exitCode === undefined || exitCode === 0 ? "exited" : "failed")
+      await this.writeProcessChunkByProcessId(
+        processId,
+        status === "failed" ? "error" : "exit",
+        {
+          exitCode: exitCode ?? null,
+          status,
+          ...(opts?.errorText ? { message: opts.errorText } : {}),
+        },
+        { close: true },
+      )
+      const finishedAt = Date.now()
+      await this.adminDb.transact([
+        this.adminDb.tx.sandbox_processes[processId].update({
+          status,
+          ...(exitCode !== undefined ? { exitCode } : {}),
+          streamFinishedAt: finishedAt,
+          streamAbortReason: opts?.errorText ?? null,
+          exitedAt: finishedAt,
+          updatedAt: finishedAt,
+          metadata: sanitizeInstantValue({
+            ...(row.metadata ?? {}),
+            ...(opts?.metadata ?? {}),
+            ...(opts?.errorText ? { error: opts.errorText } : {}),
+          }),
+        }),
+      ] as any)
+      return { ok: true, data: undefined }
+    } catch (e) {
+      return { ok: false, error: formatInstantSchemaError(e) }
+    }
+  }
+
   async stopSandbox(sandboxId: string): Promise<ServiceResult<void>> {
     try {
       const result = await this.reconnectToSandbox(sandboxId)
@@ -1751,13 +1993,19 @@ export class SandboxService {
         record?.provider === "sprites"
           ? SandboxService.parseOptionalBoolean(process.env.SANDBOX_SPRITES_DELETE_ON_STOP) ??
             Boolean(record?.params?.sprites?.deleteOnStop ?? true)
-          : SandboxService.parseOptionalBoolean(process.env.SANDBOX_DAYTONA_DELETE_ON_STOP) ??
-            Boolean(record?.params?.daytona?.ephemeral)
+          : record?.provider === "vercel"
+            ? SandboxService.parseOptionalBoolean(process.env.SANDBOX_VERCEL_DELETE_ON_STOP) ??
+              Boolean(record?.params?.vercel?.deleteOnStop ?? !record?.params?.vercel?.persistent)
+            : SandboxService.parseOptionalBoolean(process.env.SANDBOX_DAYTONA_DELETE_ON_STOP) ??
+              Boolean(record?.params?.daytona?.ephemeral)
       if (result.ok) {
         try {
           const sandbox: any = result.data.sandbox as any
           if (isVercelSandbox(sandbox)) {
-            await (sandbox as VercelSandbox).stop()
+            await (sandbox as VercelSandbox).stop({ blocking: true })
+            if (deleteOnStop) {
+              await (sandbox as VercelSandbox).delete()
+            }
           } else if (sandbox?.__provider === "sprites") {
             // Sprites does not have a reliable "stop" semantic; deleting is the durable cleanup primitive.
             try {
@@ -2351,6 +2599,36 @@ export class SandboxService {
         sandbox_sandboxes: { $: { where: { id: sandboxId } as any, limit: 1 } },
       })
       const record = recordResult?.sandbox_sandboxes?.[0]
+      if (record?.externalSandboxId && record.provider === "vercel") {
+        const sandboxResult = await this.reconnectToSandbox(sandboxId)
+        if (!sandboxResult.ok) return { ok: false, error: sandboxResult.error }
+        const sandbox = sandboxResult.data.sandbox
+        if (!isVercelSandbox(sandbox)) return { ok: false, error: "checkpoint_not_supported" }
+
+        const expiration = Number(record?.params?.vercel?.snapshotExpirationMs)
+        const snapshot = await (sandbox as VercelSandbox).snapshot({
+          ...(Number.isFinite(expiration) ? { expiration } : {}),
+        })
+        const checkpointId = String((snapshot as any)?.snapshotId ?? "").trim()
+        if (!checkpointId) return { ok: false, error: "vercel_snapshot_id_missing" }
+
+        await this.adminDb.transact(
+          this.adminDb.tx.sandbox_sandboxes[sandboxId].update({
+            updatedAt: Date.now(),
+            params: {
+              ...(record.params ?? {}),
+              vercel: {
+                ...(record.params?.vercel ?? {}),
+                lastCheckpointId: checkpointId,
+                lastCheckpointComment: String(params?.comment ?? "").trim() || undefined,
+              },
+            },
+          }),
+        )
+
+        return { ok: true, data: { checkpointId } }
+      }
+
       if (!record?.externalSandboxId || record.provider !== "sprites") {
         return { ok: false, error: "checkpoint_not_supported" }
       }
@@ -2400,6 +2678,22 @@ export class SandboxService {
         sandbox_sandboxes: { $: { where: { id: sandboxId } as any, limit: 1 } },
       })
       const record = recordResult?.sandbox_sandboxes?.[0]
+      if (record?.externalSandboxId && record.provider === "vercel") {
+        const creds = await SandboxService.resolveVercelCredentials(record?.params ?? {})
+        const listed = await VercelSnapshot.list({
+          teamId: creds.teamId,
+          projectId: creds.projectId,
+          token: creds.token,
+          name: String(record.externalSandboxId),
+          limit: 50,
+          sortOrder: "desc",
+        } as any)
+        const checkpointIds = (listed.snapshots ?? [])
+          .map((snapshot: any) => String(snapshot?.id ?? "").trim())
+          .filter(Boolean)
+        return { ok: true, data: { checkpointIds } }
+      }
+
       if (!record?.externalSandboxId || record.provider !== "sprites") {
         return { ok: false, error: "checkpoint_not_supported" }
       }

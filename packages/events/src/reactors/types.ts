@@ -5,7 +5,7 @@ import type { ContextRuntime } from "../context.runtime.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextIdentifier, StoredContext, ContextItem } from "../context.store.js"
 import type { ContextSkillPackage } from "../context.skill.js"
-import type { SerializableToolForModel } from "../tools-to-model-tools.js"
+import type { SerializableActionSpec } from "../tools-to-model-tools.js"
 
 export type ContextActionRequest = {
   actionRef: string
@@ -31,6 +31,10 @@ export type ContextReactionResult = {
   actionRequests: ContextActionRequest[]
   messagesForModel: ModelMessage[]
   llm?: ContextReactionLLM
+  reactor?: {
+    kind: string
+    state?: Record<string, unknown> | null
+  }
 }
 
 export type ContextReactorParams<
@@ -45,7 +49,7 @@ export type ContextReactorParams<
   model: ContextModelInit
   systemPrompt: string
   actions: Record<string, unknown>
-  toolsForModel: Record<string, SerializableToolForModel>
+  actionSpecs: Record<string, SerializableActionSpec>
   skills: ContextSkillPackage[]
   eventId: string
   executionId: string

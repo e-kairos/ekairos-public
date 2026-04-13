@@ -99,7 +99,7 @@ export function createAiSdkReactor<
       contextIdentifier: params.contextIdentifier,
       model,
       system: params.systemPrompt,
-      tools: params.toolsForModel,
+      tools: params.actionSpecs,
       eventId: params.eventId,
       iteration: params.iteration,
       maxSteps,

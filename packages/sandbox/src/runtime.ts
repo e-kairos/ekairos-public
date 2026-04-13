@@ -36,16 +36,26 @@ export async function createVercelSandbox(opts: {
   timeoutMs: number
   runtime?: string
   vcpus?: number
+  name?: string
+  persistent?: boolean
+  snapshotExpirationMs?: number
+  tags?: Record<string, string>
 }): Promise<Sandbox> {
   const { creds, timeoutMs } = opts
   return await Sandbox.create({
     teamId: creds.teamId,
     projectId: creds.projectId,
     token: creds.token,
+    ...(opts.name ? { name: opts.name } : {}),
     runtime: (opts.runtime ?? "node22") as any,
     timeout: timeoutMs,
     ports: [],
-    resources: { vcpus: opts.vcpus ?? 2 },
+    resources: { vcpus: opts.vcpus ?? 1 },
+    ...(opts.persistent !== undefined ? { persistent: opts.persistent } : {}),
+    ...(opts.snapshotExpirationMs !== undefined
+      ? { snapshotExpiration: Math.max(0, Math.floor(opts.snapshotExpirationMs)) }
+      : {}),
+    ...(opts.tags ? { tags: opts.tags } : {}),
   } as any)
 }
 

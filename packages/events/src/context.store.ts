@@ -21,6 +21,7 @@ export type StoredContext<Context> = {
   createdAt: Date
   updatedAt?: Date
   content: Context | null
+  reactor?: { kind: string; state?: Record<string, unknown> | null } | null
 }
 
 export type ContextItem = {
@@ -66,6 +67,10 @@ export interface ContextStore {
   getOrCreateContext<C>(contextIdentifier: ContextIdentifier | null): Promise<StoredContext<C>>
   getContext<C>(contextIdentifier: ContextIdentifier): Promise<StoredContext<C> | null>
   updateContextContent<C>(contextIdentifier: ContextIdentifier, content: C): Promise<StoredContext<C>>
+  updateContextReactor<C>(
+    contextIdentifier: ContextIdentifier,
+    reactor: { kind: string; state?: Record<string, unknown> | null },
+  ): Promise<StoredContext<C>>
   updateContextStatus(contextIdentifier: ContextIdentifier, status: ContextStatus): Promise<void>
 
   saveItem(contextIdentifier: ContextIdentifier, item: ContextItem): Promise<ContextItem>

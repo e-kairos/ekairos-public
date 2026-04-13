@@ -164,6 +164,10 @@ export class InstantStore implements ContextStore {
             ? new Date(row.updatedAt)
             : undefined,
       content: (row?.content as C) ?? null,
+      reactor:
+        row?.reactor && typeof row.reactor === "object"
+          ? (row.reactor as { kind: string; state?: Record<string, unknown> | null })
+          : null,
     }
   }
 
@@ -199,6 +203,7 @@ export class InstantStore implements ContextStore {
         key,
         status: "open_idle",
         content: {},
+        reactor: undefined,
       }),
     ])
 
@@ -269,6 +274,25 @@ export class InstantStore implements ContextStore {
 
     const updated = await this.getContext<C>({ id: context.id })
     if (!updated) throw new Error("InstantStore: context not found after update")
+    return updated
+  }
+
+  async updateContextReactor<C>(
+    contextIdentifier: ContextIdentifier,
+    reactor: { kind: string; state?: Record<string, unknown> | null },
+  ): Promise<StoredContext<C>> {
+    const context = await this.getContext<C>(contextIdentifier)
+    if (!context?.id) throw new Error("InstantStore: context not found")
+
+    await this.db.transact([
+      this.db.tx.event_contexts[context.id].update({
+        reactor: reactor as any,
+        updatedAt: new Date(),
+      }),
+    ])
+
+    const updated = await this.getContext<C>({ id: context.id })
+    if (!updated) throw new Error("InstantStore: context not found after reactor update")
     return updated
   }
 

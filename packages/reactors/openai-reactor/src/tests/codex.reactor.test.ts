@@ -111,7 +111,7 @@ function createParams(params: {
     model: "openai/gpt-5.2-codex",
     systemPrompt: "You are Codex running as an Ekairos Context.",
     actions: {},
-    toolsForModel: {},
+    actionSpecs: {},
     skills: [],
     eventId: params.eventId ?? "evt-001",
     executionId: params.executionId ?? "exe-001",

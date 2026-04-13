@@ -10,7 +10,7 @@ import {
   encodeContextStepStreamChunk,
 } from "../context.step-stream.js"
 import { mapAiSdkChunkToContextEvent } from "./ai-sdk.chunk-map.js"
-import type { SerializableToolForModel } from "../tools-to-model-tools.js"
+import type { SerializableActionSpec } from "../tools-to-model-tools.js"
 import { writeContextTraceEvents } from "../steps/trace.steps.js"
 
 type WorkflowMeta = {
@@ -104,7 +104,7 @@ export async function executeAiSdkReaction(params: {
   contextIdentifier: ContextIdentifier
   model: ContextModelInit
   system: string
-  tools: Record<string, SerializableToolForModel>
+  tools: Record<string, SerializableActionSpec>
   eventId: string
   iteration?: number
   maxSteps: number

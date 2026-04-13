@@ -210,11 +210,47 @@ export function buildCodexParts(params: {
       at?: string
     }
   >()
+  const dynamicTools = new Map<
+    string,
+    {
+      input?: AnyRecord
+      output?: AnyRecord
+      sequence?: number
+      at?: string
+    }
+  >()
 
   for (const chunk of capturedChunks) {
     const data = asRecord(chunk.data)
     const method = asString(data.method)
     const paramsRecord = asRecord(data.params)
+    if (method === "item/tool/call") {
+      const toolCallId = asString(paramsRecord.callId)
+      if (toolCallId) {
+        dynamicTools.set(toolCallId, {
+          ...(dynamicTools.get(toolCallId) ?? {}),
+          input: paramsRecord,
+          sequence:
+            typeof chunk.sequence === "number" ? chunk.sequence : undefined,
+          at: asString(chunk.at),
+        })
+      }
+      continue
+    }
+    if (method === "item/tool/result") {
+      const toolCallId = asString(paramsRecord.callId)
+      if (toolCallId) {
+        const current = dynamicTools.get(toolCallId) ?? {}
+        current.output = paramsRecord
+        current.sequence =
+          typeof chunk.sequence === "number"
+            ? Math.max(current.sequence ?? 0, chunk.sequence)
+            : current.sequence
+        current.at = asString(chunk.at) || current.at
+        dynamicTools.set(toolCallId, current)
+      }
+      continue
+    }
     if (method === "item/started") {
       const item = asRecord(paramsRecord.item)
       if (asString(item.type) === "commandExecution") {
@@ -337,6 +373,71 @@ export function buildCodexParts(params: {
         },
       },
     })
+  }
+
+  for (const [toolCallId, toolCall] of dynamicTools.entries()) {
+    const input = asRecord(toolCall.input)
+    const output = asRecord(toolCall.output)
+    const result = asRecord(output.result)
+    const toolName = asString(input.tool).trim() || "dynamicTool"
+    const success = result.success !== false && !asString(output.errorText)
+    const callSequence = toolCall.sequence ?? 0
+
+    parts.push({
+      sequence: callSequence,
+      part: {
+        type: "tool-call",
+        toolName,
+        toolCallId,
+        state: "input-available",
+        content: [
+          {
+            type: "json",
+            value: {
+              arguments: input.arguments ?? {},
+              provider: "codex",
+              providerToolType: "dynamicTool",
+            },
+          },
+        ],
+        metadata: {
+          source: "codex.dynamic_tool",
+          sequence: callSequence,
+          at: toolCall.at ?? "",
+          providerThreadId: asString(input.threadId),
+          providerTurnId: asString(input.turnId),
+        },
+      },
+    })
+    if (toolCall.output) {
+      parts.push({
+        sequence: callSequence + 0.1,
+        part: {
+          type: "tool-result",
+          toolName,
+          toolCallId,
+          state: success ? "output-available" : "output-error",
+          content: [
+            {
+              type: "json",
+              value: {
+                success,
+                output: output.output,
+                response: output.result,
+                error: output.errorText,
+              },
+            },
+          ],
+          metadata: {
+            source: "codex.dynamic_tool",
+            sequence: callSequence,
+            at: toolCall.at ?? "",
+            providerThreadId: asString(input.threadId),
+            providerTurnId: asString(input.turnId),
+          },
+        },
+      })
+    }
   }
 
   const tokenUsageChunk = [...semanticChunks]

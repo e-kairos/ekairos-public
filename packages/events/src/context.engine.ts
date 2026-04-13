@@ -17,9 +17,9 @@ import {
 } from "./context.parts.js"
 import type { ContextStreamEvent } from "./context.stream.js"
 
-import type { SerializableToolForModel } from "./tools-to-model-tools.js"
+import type { SerializableActionSpec } from "./tools-to-model-tools.js"
 import type { ContextSkillPackage } from "./context.skill.js"
-import { toolsToModelTools } from "./tools-to-model-tools.js"
+import { actionsToActionSpecs } from "./tools-to-model-tools.js"
 import {
   createAiSdkReactor,
   type ContextReactor,
@@ -37,6 +37,7 @@ import {
   saveTriggerAndCreateExecution,
   saveContextPartsStep,
   updateContextContent,
+  updateContextReactor,
   updateContextStatus,
   updateItem,
   updateContextStep,
@@ -386,6 +387,10 @@ type ContextEngineOps<Context> = {
     contextIdentifier: ContextIdentifier,
     content: Context,
   ) => Promise<StoredContext<Context>>
+  updateContextReactor: (
+    contextIdentifier: ContextIdentifier,
+    reactor: { kind: string; state?: Record<string, unknown> | null },
+  ) => Promise<StoredContext<Context>>
   updateContextStatus: (
     contextIdentifier: ContextIdentifier,
     status: "open_idle" | "open_streaming" | "closed",
@@ -504,6 +509,8 @@ async function createRuntimeOps<Context>(
     },
     updateContextContent: async (contextIdentifier, content) =>
       await store.updateContextContent(contextIdentifier, content),
+    updateContextReactor: async (contextIdentifier, reactor) =>
+      await store.updateContextReactor(contextIdentifier, reactor),
     updateContextStatus: async (contextIdentifier, status) =>
       await instrumentedDb.transact([
         instrumentedDb.tx.event_contexts[requireContextId(contextIdentifier)].update({
@@ -626,6 +633,8 @@ async function createWorkflowOps<Context>(
       await initializeContext<Context>({ runtime, contextIdentifier, opts }),
     updateContextContent: async (contextIdentifier, content) =>
       await updateContextContent<Context>({ runtime, contextIdentifier, content }),
+    updateContextReactor: async (contextIdentifier, reactor) =>
+      await updateContextReactor<Context>({ runtime, contextIdentifier, reactor }),
     updateContextStatus: async (contextIdentifier, status) =>
       await updateContextStatus({ runtime, contextIdentifier, status }),
     saveTriggerAndCreateExecution: async ({ contextIdentifier, triggerEvent }) =>
@@ -1069,7 +1078,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
 
         // IMPORTANT: step args must be serializable.
         // Match DurableAgent behavior: convert tool input schemas to plain JSON Schema in workflow context.
-        const toolsForModel: Record<string, SerializableToolForModel> = toolsToModelTools(
+        const actionSpecs: Record<string, SerializableActionSpec> = actionsToActionSpecs(
           toolsAll as any,
         )
         // Execute model reaction for this iteration using the stable reaction event id.
@@ -1113,7 +1122,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             { executionId, contextId: String(currentContext.id) },
           )
         }
-        const { assistantEvent, actionRequests, messagesForModel } = await measureBenchmark(
+        const reactionResult = await measureBenchmark(
           params.__benchmark,
           `${stagePrefix}.reactorMs`,
           async () =>
@@ -1126,7 +1135,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               model: story.getModel(updatedContext, env),
               systemPrompt,
               actions: toolsAll as Record<string, unknown>,
-              toolsForModel,
+              actionSpecs,
               skills: skillsAll,
               eventId: reactionEventId,
               executionId,
@@ -1142,6 +1151,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               persistReactionParts,
             }),
         )
+        const { assistantEvent, actionRequests, messagesForModel } = reactionResult
 
         const reviewRequests =
           actionRequests.length > 0
@@ -1225,6 +1235,20 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               { executionId, contextId: String(currentContext.id) },
             ),
         )
+        if (reactionResult.reactor?.kind) {
+          updatedContext = await measureBenchmark(
+            params.__benchmark,
+            `${stagePrefix}.persistReactorStateMs`,
+            async () =>
+              await ops.updateContextReactor(activeContextSelector, {
+                kind: reactionResult.reactor!.kind,
+                state: {
+                  ...(reactionResult.reactor!.state ?? {}),
+                  updatedAt: nowIso(),
+                },
+              }),
+          )
+        }
         if (currentStepStream) {
           await closePersistedContextStepStream({
             runtime: params.runtime,

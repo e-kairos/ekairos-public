@@ -11,6 +11,7 @@ export const eventsDomain: DomainSchemaResult = domain("events")
                 name: i.string().optional(),
                 status: i.string().optional().indexed(), // open_idle | open_streaming | closed
                 content: i.any().optional(),
+                reactor: i.json().optional(),
             }),
             event_items: i.entity({
                 channel: i.string().indexed(),

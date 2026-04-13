@@ -202,6 +202,17 @@ export async function updateContextContent<C>(
   return await runtime.store.updateContextContent<C>(params.contextIdentifier, params.content)
 }
 
+export async function updateContextReactor<C>(
+  params: RuntimeParams & {
+    contextIdentifier: ContextIdentifier
+    reactor: { kind: string; state?: Record<string, unknown> | null }
+  },
+): Promise<StoredContext<C>> {
+  "use step"
+  const { runtime } = await getRuntimeAndEnv(params)
+  return await runtime.store.updateContextReactor<C>(params.contextIdentifier, params.reactor)
+}
+
 export async function updateContextStatus(
   params: RuntimeParams & {
     contextIdentifier: ContextIdentifier

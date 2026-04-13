@@ -97,6 +97,29 @@ type SandboxRunCommandProcessInput = SandboxRunCommandInput & {
   mode?: "foreground" | "background"
   metadata?: Record<string, unknown>
 }
+type SandboxObservedProcessStartInput = {
+  sandboxId: string
+  command: string
+  args?: string[]
+  cwd?: string
+  env?: Record<string, unknown>
+  kind?: "command" | "service" | "codex-app-server" | "dev-server" | "test-runner" | "watcher"
+  mode?: "foreground" | "background"
+  externalProcessId?: string
+  metadata?: Record<string, unknown>
+}
+type SandboxObservedProcessAppendInput = {
+  processId: string
+  type: "stdout" | "stderr" | "status" | "exit" | "error" | "heartbeat" | "metadata"
+  data?: Record<string, unknown>
+}
+type SandboxObservedProcessFinishInput = {
+  processId: string
+  status?: "exited" | "failed" | "killed" | "lost"
+  exitCode?: number
+  errorText?: string
+  metadata?: Record<string, unknown>
+}
 type SandboxProcessStreamChunk = {
   type: "stdout" | "stderr" | "status" | "exit" | "error" | "heartbeat" | "metadata"
   data?: Record<string, unknown>
@@ -199,6 +222,50 @@ export async function readProcessStreamExecute({
   const scoped = await runtime.use(sandboxDomain)
   const { SandboxService } = await import("./service.js")
   return await new SandboxService(scoped.db as any).readProcessStream(input.processId)
+}
+
+export async function startObservedProcessExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxObservedProcessStartInput
+}): Promise<ServiceResult<SandboxProcessRunResult>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).startObservedProcess(input.sandboxId, input)
+}
+
+export async function appendObservedProcessChunkExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxObservedProcessAppendInput
+}): Promise<ServiceResult<void>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).appendObservedProcessChunk(input.processId, input.type, input.data)
+}
+
+export async function finishObservedProcessExecute({
+  runtime,
+  input,
+}: {
+  runtime: SandboxRuntime
+  input: SandboxObservedProcessFinishInput
+}): Promise<ServiceResult<void>> {
+  "use step"
+  const scoped = await runtime.use(sandboxDomain)
+  const { SandboxService } = await import("./service.js")
+  return await new SandboxService(scoped.db as any).finishObservedProcess(input.processId, {
+    status: input.status,
+    exitCode: input.exitCode,
+    errorText: input.errorText,
+    metadata: input.metadata,
+  })
 }
 
 export async function writeFilesExecute({
@@ -395,6 +462,33 @@ export const sandboxDomain: DomainSchemaResult = sandboxSchemaDomain.actions({
   >({
     name: "sandbox.readProcessStream",
     execute: readProcessStreamExecute,
+  }),
+  startObservedProcess: defineDomainAction<
+    Record<string, unknown>,
+    SandboxObservedProcessStartInput,
+    ServiceResult<SandboxProcessRunResult>,
+    SandboxRuntime
+  >({
+    name: "sandbox.startObservedProcess",
+    execute: startObservedProcessExecute,
+  }),
+  appendObservedProcessChunk: defineDomainAction<
+    Record<string, unknown>,
+    SandboxObservedProcessAppendInput,
+    ServiceResult<void>,
+    SandboxRuntime
+  >({
+    name: "sandbox.appendObservedProcessChunk",
+    execute: appendObservedProcessChunkExecute,
+  }),
+  finishObservedProcess: defineDomainAction<
+    Record<string, unknown>,
+    SandboxObservedProcessFinishInput,
+    ServiceResult<void>,
+    SandboxRuntime
+  >({
+    name: "sandbox.finishObservedProcess",
+    execute: finishObservedProcessExecute,
   }),
   writeFiles: defineDomainAction<
     Record<string, unknown>,

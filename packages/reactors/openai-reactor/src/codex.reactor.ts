@@ -10,6 +10,7 @@ import {
   type ContextStreamChunkType,
 } from "@ekairos/events"
 import type { ContextEnvironment } from "@ekairos/events/runtime"
+import { randomUUID } from "node:crypto"
 
 import { asRecord, asString, buildCodexParts, defaultInstructionFromTrigger, type AnyRecord } from "./shared.js"
 
@@ -22,6 +23,11 @@ export type CodexConfig = {
   approvalPolicy?: string
   sandboxPolicy?: Record<string, unknown>
   sandbox?: CodexSandboxConfig
+}
+
+type CodexActionSpec = {
+  description?: string
+  inputSchema?: unknown
 }
 
 export type CodexSandboxConfig = {
@@ -71,8 +77,13 @@ export type CodexExecuteTurnArgs<
   stepId: string
   iteration: number
   instruction: string
+  systemPrompt?: string
   config: Config
+  actions: Record<string, unknown>
+  actionSpecs: Record<string, CodexActionSpec>
   skills: ContextSkillPackage[]
+  storedContext?: unknown
+  contextIdentifier?: unknown
   contextStepStream?: WritableStream<string>
   writable?: WritableStream<unknown>
   silent: boolean
@@ -86,10 +97,17 @@ export type CodexAppServerTurnStepArgs<
   env?: ContextEnvironment
   runtime?: unknown
   instruction: string
+  systemPrompt?: string
   contextId: string
   eventId: string
   executionId: string
   stepId: string
+  iteration?: number
+  context?: AnyRecord
+  actions?: Record<string, unknown>
+  actionSpecs?: Record<string, CodexActionSpec>
+  storedContext?: unknown
+  contextIdentifier?: unknown
   contextStepStream?: WritableStream<string>
   writable?: WritableStream<unknown>
   silent: boolean
@@ -252,6 +270,7 @@ function resolveActionRef(params: AnyRecord, item: AnyRecord): string | undefine
   const fromParams =
     asString(params.itemId) ||
     asString(params.toolCallId) ||
+    asString(params.callId) ||
     asString(params.id)
   if (fromParams) return fromParams
   const fromItem = asString(item.id) || asString(item.toolCallId)
@@ -336,6 +355,13 @@ export function mapCodexAppServerNotification(
     case "item/commandExecution/outputDelta":
     case "item/fileChange/outputDelta":
     case "item/mcpToolCall/progress":
+      return map("chunk.action_output_available")
+    case "item/tool/call":
+      return map("chunk.action_input_available")
+    case "item/tool/result":
+      if (asRecord(params.result).success === false || asString(params.error)) {
+        return map("chunk.action_output_error")
+      }
       return map("chunk.action_output_available")
     case "item/started": {
       if (itemType === "agentmessage") return map("chunk.text_start")
@@ -515,6 +541,109 @@ function parseSandboxJsonl(stdout: string): { events: AnyRecord[]; result: AnyRe
   return { events, result }
 }
 
+function buildCodexDynamicTools(actionSpecs?: Record<string, CodexActionSpec>): AnyRecord[] {
+  const specs = actionSpecs && typeof actionSpecs === "object" ? actionSpecs : {}
+  return Object.entries(specs)
+    .map(([name, spec]) => {
+      const toolName = asString(name).trim()
+      if (!toolName) return null
+      return {
+        name: toolName,
+        description: asString(spec?.description).trim() || `Run ${toolName}.`,
+        inputSchema:
+          spec && "inputSchema" in spec && spec.inputSchema !== undefined
+            ? spec.inputSchema
+            : { type: "object", additionalProperties: true },
+      }
+    })
+    .filter(Boolean) as AnyRecord[]
+}
+
+function formatCodexToolOutput(value: unknown): string {
+  if (typeof value === "string") return value
+  try {
+    return JSON.stringify(toJsonSafe(value) ?? value)
+  } catch {
+    return String(value)
+  }
+}
+
+async function executeCodexDynamicToolCall(
+  args: CodexAppServerTurnStepArgs<CodexConfig>,
+  params: AnyRecord,
+): Promise<{
+  success: boolean
+  output: unknown
+  errorText?: string
+  response: AnyRecord
+}> {
+  const toolName = asString(params.tool).trim()
+  const callId = asString(params.callId).trim()
+  const action = toolName ? (args.actions ?? {})[toolName] as any : undefined
+  const input = "arguments" in params ? params.arguments : {}
+
+  if (!toolName || !action || typeof action.execute !== "function") {
+    const errorText = `codex_dynamic_tool_not_found:${toolName || "unknown"}`
+    return {
+      success: false,
+      output: { error: errorText },
+      errorText,
+      response: {
+        success: false,
+        contentItems: [{ type: "inputText", text: errorText }],
+      },
+    }
+  }
+
+  try {
+    const output = await action.execute(input, {
+      runtime: args.runtime,
+      env: args.env,
+      context: args.storedContext ?? args.context,
+      contextIdentifier: args.contextIdentifier,
+      toolCallId: callId || undefined,
+      messages: [],
+      eventId: args.eventId,
+      executionId: args.executionId,
+      triggerEventId: undefined,
+      contextId: args.contextId,
+      stepId: args.stepId,
+      iteration: args.iteration ?? 0,
+    })
+    return {
+      success: true,
+      output,
+      response: {
+        success: true,
+        contentItems: [{ type: "inputText", text: formatCodexToolOutput(output) }],
+      },
+    }
+  } catch (error) {
+    const errorText = error instanceof Error ? error.message : String(error)
+    return {
+      success: false,
+      output: { error: errorText },
+      errorText,
+      response: {
+        success: false,
+        contentItems: [{ type: "inputText", text: `Action failed: ${errorText}` }],
+      },
+    }
+  }
+}
+
+async function codexAppServerRespond(baseUrl: string, payload: AnyRecord): Promise<void> {
+  const response = await fetch(`${baseUrl}/respond`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  const body = await readJsonResponse(response)
+  if (!response.ok || body.error) {
+    throw new Error(asString(body.error) || `codex_respond_http_${response.status}`)
+  }
+}
+
 function codexSandboxBridgeScript(): string {
   return String.raw`
 import http from "node:http";
@@ -525,7 +654,7 @@ import { randomUUID } from "node:crypto";
 const PORT = Number(process.env.CODEX_BRIDGE_PORT || "4500");
 function asRecord(value) { return value && typeof value === "object" ? value : {}; }
 function asString(value) { return typeof value === "string" ? value : value == null ? "" : String(value); }
-const child = spawn("codex", ["app-server"], { stdio: ["pipe", "pipe", "inherit"], env: process.env });
+const child = spawn("codex", ["app-server", "--enable", "apps"], { stdio: ["pipe", "pipe", "inherit"], env: process.env });
 const rl = createInterface({ input: child.stdout });
 const pending = new Map();
 const subscribers = new Set();
@@ -568,7 +697,7 @@ function sendRpc(payload, timeoutMs = 60000) {
 }
 async function ensureInitialized() {
   if (initialized) return;
-  await sendRpc({ method: "initialize", params: { clientInfo: { name: "ekairos-sandbox", version: "1.0.0" }, capabilities: {} } });
+  await sendRpc({ method: "initialize", params: { clientInfo: { name: "ekairos-sandbox", version: "1.0.0" }, capabilities: { experimentalApi: true } } });
   child.stdin.write(JSON.stringify({ method: "initialized", params: {} }) + "\n");
   initialized = true;
 }
@@ -602,13 +731,34 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.method === "POST" && req.url === "/respond") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", async () => {
+      try {
+        const payload = body ? JSON.parse(body) : {};
+        if (!payload || payload.id === undefined || payload.id === null) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "response_id_required" }));
+          return;
+        }
+        child.stdin.write(JSON.stringify(payload) + "\n");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (error) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: asString(error?.message || error) }));
+      }
+    });
+    return;
+  }
   res.writeHead(404, { "content-type": "application/json" });
   res.end(JSON.stringify({ error: "not_found" }));
 });
 child.on("exit", () => process.exit(1));
-server.listen(PORT, "127.0.0.1", async () => {
+server.listen(PORT, "0.0.0.0", async () => {
   try { await ensureInitialized(); } catch {}
-  console.log("[codex-bridge] listening http://127.0.0.1:" + PORT);
+  console.log("[codex-bridge] listening http://0.0.0.0:" + PORT);
 });
 `
 }
@@ -725,6 +875,7 @@ async function executeCodexSandboxTurn(
   const { sandboxDomain } = await import("@ekairos/sandbox")
   const scoped = await runtime.use(sandboxDomain)
   const actions = (scoped as any).actions
+  const sandboxDb = (scoped as any).db
   if (!actions) throw new Error("codex_sandbox_actions_required")
 
   const provider = sandboxConfig.provider ?? "sprites"
@@ -741,6 +892,16 @@ async function executeCodexSandboxTurn(
   const turnRunnerPath = `${workRoot}/codex-turn-runner.mjs`
   const instructionPath = `${workRoot}/instruction-${args.executionId}-${args.stepId}.txt`
   const checkpoints: Array<{ label: string; checkpointId: string }> = []
+  const observedCommandProcesses = new Map<
+    string,
+    {
+      processId: string
+      streamId: string
+      streamClientId: string
+      writer: WritableStreamDefaultWriter<string>
+      seq: number
+    }
+  >()
 
   let sandboxId = String(sandboxConfig.sandboxId ?? "").trim()
   if (!sandboxId) {
@@ -749,7 +910,9 @@ async function executeCodexSandboxTurn(
         provider: sandboxConfig.provider ?? "sprites",
         runtime: sandboxConfig.runtime ?? "node22",
         purpose: sandboxConfig.purpose ?? "codex-reactor-sandbox",
-        ports: Array.from(new Set([appPort, ...(Array.isArray(sandboxConfig.ports) ? sandboxConfig.ports : [])])),
+        ports: Array.from(
+          new Set([bridgePort, appPort, ...(Array.isArray(sandboxConfig.ports) ? sandboxConfig.ports : [])]),
+        ),
         ...(provider === "sprites"
           ? {
               sprites: {
@@ -767,6 +930,168 @@ async function executeCodexSandboxTurn(
     sandboxId = String((created as any).sandboxId)
   }
   if (!sandboxId) throw new Error("codex_sandbox_id_missing")
+
+  const emitAndObserveProviderChunk = async (providerChunk: unknown) => {
+    await helpers.emitProviderChunk(providerChunk)
+    const evt = asRecord(providerChunk)
+    const method = asString(evt.method)
+    const params = asRecord(evt.params)
+    if (!method) return
+
+    if (method === "item/started") {
+      const item = asRecord(params.item)
+      if (asString(item.type) !== "commandExecution") return
+      const codexItemId = asString(item.id)
+      if (!codexItemId || observedCommandProcesses.has(codexItemId)) return
+      if (!sandboxDb?.streams?.createWriteStream || !sandboxDb?.tx?.sandbox_processes) return
+      const processId = randomUUID()
+      const streamClientId = `sandbox-process:${processId}`
+      const stream = sandboxDb.streams.createWriteStream({ clientId: streamClientId }) as WritableStream<string> & {
+        streamId?: () => Promise<string>
+      }
+      const streamId = typeof stream.streamId === "function" ? await stream.streamId() : streamClientId
+      const writer = stream.getWriter()
+      const now = Date.now()
+      const metadata = {
+        source: "codex.commandExecution",
+        codexItemId,
+        providerThreadId: asString(params.threadId),
+        providerTurnId: asString(params.turnId),
+        parent: "codex-app-server",
+        commandActions: item.commandActions,
+        observed: true,
+        lastSeq: 1,
+        chunkCount: 1,
+      }
+      await sandboxDb.transact([
+        sandboxDb.tx.sandbox_processes[processId]
+          .update({
+            kind: "command",
+            mode: "foreground",
+            status: "running",
+            provider,
+            command: asString(item.command),
+            args: [],
+            cwd: asString(item.cwd) || repoPath,
+            externalProcessId: asString(item.processId) || undefined,
+            streamId,
+            streamClientId,
+            streamStartedAt: now,
+            startedAt: now,
+            updatedAt: now,
+            metadata,
+          })
+          .link({ sandbox: sandboxId, stream: streamId }),
+      ] as any)
+      const statusChunk = {
+        version: 1,
+        at: new Date().toISOString(),
+        seq: 1,
+        type: "status",
+        sandboxId,
+        processId,
+        data: {
+          status: "running",
+          command: asString(item.command),
+          args: [],
+          cwd: asString(item.cwd) || repoPath,
+          externalProcessId: asString(item.processId) || null,
+        },
+      }
+      await writer.write(`${JSON.stringify(statusChunk)}\n`)
+      observedCommandProcesses.set(codexItemId, {
+        processId,
+        streamId,
+        streamClientId,
+        writer,
+        seq: 1,
+      })
+      return
+    }
+
+    if (method === "item/commandExecution/outputDelta") {
+      const codexItemId = asString(params.itemId)
+      const observed = observedCommandProcesses.get(codexItemId)
+      if (!observed) return
+      observed.seq += 1
+      await observed.writer.write(`${JSON.stringify({
+        version: 1,
+        at: new Date().toISOString(),
+        seq: observed.seq,
+        type: "stdout",
+        sandboxId,
+        processId: observed.processId,
+        data: {
+          text: asString(params.delta),
+          source: "codex.commandExecution",
+          codexItemId,
+        },
+      })}\n`)
+      return
+    }
+
+    if (method === "item/completed") {
+      const item = asRecord(params.item)
+      if (asString(item.type) !== "commandExecution") return
+      const codexItemId = asString(item.id)
+      const observed = observedCommandProcesses.get(codexItemId)
+      if (!observed) return
+      const aggregatedOutput = asString(item.aggregatedOutput)
+      if (aggregatedOutput) {
+        observed.seq += 1
+        await observed.writer.write(`${JSON.stringify({
+          version: 1,
+          at: new Date().toISOString(),
+          seq: observed.seq,
+          type: "stdout",
+          sandboxId,
+          processId: observed.processId,
+          data: {
+            text: aggregatedOutput,
+            source: "codex.commandExecution",
+            codexItemId,
+            aggregated: true,
+          },
+        })}\n`)
+      }
+      const exitCode = typeof item.exitCode === "number" ? item.exitCode : Number(item.exitCode ?? 0)
+      const status = asString(item.status) === "failed" || exitCode !== 0 ? "failed" : "exited"
+      observed.seq += 1
+      await observed.writer.write(`${JSON.stringify({
+        version: 1,
+        at: new Date().toISOString(),
+        seq: observed.seq,
+        type: "exit",
+        sandboxId,
+        processId: observed.processId,
+        data: {
+          exitCode: Number.isFinite(exitCode) ? exitCode : null,
+          status,
+        },
+      })}\n`)
+      await observed.writer.close()
+      observed.writer.releaseLock()
+      await sandboxDb.transact([
+        sandboxDb.tx.sandbox_processes[observed.processId].update({
+          status,
+          ...(Number.isFinite(exitCode) ? { exitCode } : {}),
+          streamFinishedAt: Date.now(),
+          streamAbortReason: asString(item.error) || null,
+          exitedAt: Date.now(),
+          updatedAt: Date.now(),
+          metadata: {
+            source: "codex.commandExecution",
+            codexItemId,
+            providerThreadId: asString(params.threadId),
+            providerTurnId: asString(params.turnId),
+            durationMs: item.durationMs,
+            completed: item,
+          },
+        }),
+      ] as any)
+      observedCommandProcesses.delete(codexItemId)
+    }
+  }
 
   ensureOk(
     await actions.installCodexAuth({
@@ -936,45 +1261,60 @@ async function executeCodexSandboxTurn(
     }
   }
 
-  const turnRun = await runProcess(
-    "codex_sandbox_turn",
-    [
-      "set -euo pipefail",
-      `timeout 300s env HOME=${shellSingleQuote(homeDir)} CODEX_HOME=${shellSingleQuote(codexHome)} CODEX_BRIDGE_URL=http://127.0.0.1:${bridgePort} CODEX_REPO_PATH=${shellSingleQuote(repoPath)} CODEX_INSTRUCTION_FILE=${shellSingleQuote(instructionPath)} CODEX_PROVIDER_CONTEXT_ID=${shellSingleQuote(args.config.providerContextId ?? "")} CODEX_MODEL=${shellSingleQuote(args.config.model ?? "")} node ${shellSingleQuote(turnRunnerPath)}`,
-    ].join("\n"),
-    "codex-app-server",
+  const bridgeUrl = ensureOk(
+    await actions.getPortUrl({ sandboxId, port: bridgePort }),
+    "codex_sandbox_bridge_url",
+  )
+  const bridgeBaseUrl = String((bridgeUrl as any).url ?? "").replace(/\/+$/, "")
+  if (!bridgeBaseUrl) throw new Error("codex_sandbox_bridge_url_missing")
+
+  const turn = await executeCodexHttpTurn(
+    {
+      ...args,
+      systemPrompt: args.systemPrompt,
+      config: {
+        ...args.config,
+        mode: "remote",
+        appServerUrl: bridgeBaseUrl,
+        repoPath,
+      },
+      actions: args.actions,
+      actionSpecs: args.actionSpecs,
+      context: args.context,
+      storedContext: args.storedContext,
+      contextIdentifier: args.contextIdentifier,
+    },
+    {
+      ...helpers,
+      emitProviderChunk: emitAndObserveProviderChunk,
+    },
+    bridgeBaseUrl,
   )
 
-  const result = asRecord((turnRun as any).result)
-  const stdout = asString(result.output)
-  const parsed = parseSandboxJsonl(stdout)
-  for (const evt of parsed.events) {
-    await helpers.emitProviderChunk(evt)
-  }
-  const finalResult = parsed.result
-
   return {
-    providerContextId: asString(finalResult.providerContextId) || asString(args.config.providerContextId),
-    turnId: asString(finalResult.turnId),
-    assistantText: asString(finalResult.assistantText),
-    reasoningText: asString(finalResult.reasoningText),
-    diff: asString(finalResult.diff),
-    toolParts: asUnknownArray(asRecord(finalResult.completedTurn).toolParts),
-    usage: asRecord(finalResult.usage),
+    providerContextId: turn.providerContextId,
+    turnId: turn.turnId,
+    assistantText: turn.assistantText,
+    reasoningText: turn.reasoningText,
+    diff: turn.diff,
+    toolParts: turn.toolParts,
+    usage: turn.usage,
     metadata: {
       provider: "codex-sandbox",
+      dynamicTools: asUnknownArray(asRecord(turn.metadata).dynamicTools),
       sandbox: {
         sandboxId,
         repoPath,
         appBaseUrl,
+        bridgeBaseUrl,
         bridgePort,
         appPort,
-        processId: asString((turnRun as any).processId),
-        streamId: asString((turnRun as any).streamId),
-        streamClientId: asString((turnRun as any).streamClientId),
+        processId: "",
+        streamId: "",
+        streamClientId: "",
         checkpoints,
       },
-      providerResponse: finalResult,
+      providerResponse: asRecord(turn.metadata).providerResponse,
       streamTrace: helpers.streamTrace(),
     },
   }
@@ -1010,6 +1350,191 @@ async function codexAppServerRpc<T = AnyRecord>(
     throw new Error(error || "codex_rpc_error")
   }
   return payload as T
+}
+
+async function executeCodexHttpTurn(
+  args: CodexAppServerTurnStepArgs<CodexConfig>,
+  helpers: {
+    emitProviderChunk: (providerChunk: unknown) => Promise<void>
+    streamTrace: () => CodexStreamTrace
+  },
+  baseUrl: string,
+): Promise<CodexTurnResult> {
+  const eventsResponse = await fetch(`${baseUrl}/events`, {
+    method: "GET",
+    headers: { accept: "text/event-stream" },
+  })
+  if (!eventsResponse.ok || !eventsResponse.body) {
+    throw new Error(`codex_events_unavailable_${eventsResponse.status}`)
+  }
+
+  const dynamicTools = buildCodexDynamicTools(args.actionSpecs)
+  const baseInstructions = asString(args.systemPrompt).trim()
+  const requestedThreadId = asString(args.config.providerContextId).trim()
+  let providerContextId = requestedThreadId
+  if (providerContextId && isValidProviderContextId(providerContextId)) {
+    await codexAppServerRpc(baseUrl, "thread/resume", { threadId: providerContextId })
+  } else {
+    const startParams: AnyRecord = {
+      cwd: args.config.repoPath,
+      approvalPolicy: args.config.approvalPolicy ?? "never",
+      sandboxPolicy:
+        args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+          ? args.config.sandboxPolicy
+          : { type: "externalSandbox", networkAccess: "enabled" },
+      ...(dynamicTools.length > 0 ? { dynamicTools, dynamic_tools: dynamicTools } : {}),
+      ...(dynamicTools.length > 0
+        ? { experimentalRawEvents: true, persistExtendedHistory: true }
+        : {}),
+      ...(baseInstructions ? { baseInstructions } : {}),
+    }
+    if (args.config.model) startParams.model = args.config.model
+    const started = await codexAppServerRpc(baseUrl, "thread/start", startParams)
+    providerContextId =
+      asString(asRecord(asRecord(started.result).thread).id) ||
+      asString(asRecord(started.result).id) ||
+      asString(started.threadId)
+  }
+  if (!providerContextId) throw new Error("codex_thread_id_missing")
+
+  const turnParams: AnyRecord = {
+    threadId: providerContextId,
+    input: [{ type: "text", text: args.instruction }],
+    cwd: args.config.repoPath,
+    approvalPolicy: args.config.approvalPolicy ?? "never",
+    sandboxPolicy:
+      args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+        ? args.config.sandboxPolicy
+        : { type: "externalSandbox", networkAccess: "enabled" },
+    ...(dynamicTools.length > 0 ? { dynamicTools, dynamic_tools: dynamicTools } : {}),
+  }
+  if (args.config.model) turnParams.model = args.config.model
+  const turnStart = await codexAppServerRpc(baseUrl, "turn/start", turnParams)
+  let turnId =
+    asString(asRecord(asRecord(turnStart.result).turn).id) ||
+    asString(asRecord(turnStart.result).id) ||
+    asString(turnStart.turnId)
+
+  const reader = eventsResponse.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let assistantText = ""
+  let reasoningText = ""
+  let diff = ""
+  let usage: AnyRecord = {}
+  let completedTurn: AnyRecord = {}
+
+  const isScopedToTurn = (evt: AnyRecord) => {
+    const params = asRecord(evt.params)
+    const evtTurnId = asString(params.turnId) || asString(asRecord(params.turn).id)
+    const evtThreadId =
+      asString(params.threadId) ||
+      asString(params.providerContextId) ||
+      asString(asRecord(params.turn).threadId) ||
+      asString(asRecord(params.turn).providerContextId)
+    return (
+      (evtTurnId && turnId && evtTurnId === turnId) ||
+      (evtThreadId && evtThreadId === providerContextId) ||
+      asString(evt.method).startsWith("thread/") ||
+      asString(evt.method).startsWith("context/")
+    )
+  }
+
+  try {
+    while (true) {
+      const read = await reader.read()
+      if (read.done) break
+      if (!read.value) continue
+      buffer += decoder.decode(read.value, { stream: true })
+      const blocks = buffer.split("\n\n")
+      buffer = blocks.pop() ?? ""
+      for (const block of blocks) {
+        const data = parseSseDataBlock(block)
+        if (!data || data === "[DONE]") continue
+        const evt = asRecord(JSON.parse(data))
+        const method = asString(evt.method)
+        if (!method) continue
+
+        if (method === "item/tool/call" && evt.id !== undefined && evt.id !== null) {
+          if (!isScopedToTurn(evt)) continue
+          const toolParams = asRecord(evt.params)
+          await helpers.emitProviderChunk(evt)
+          const executed = await executeCodexDynamicToolCall(args, toolParams)
+          await helpers.emitProviderChunk({
+            method: "item/tool/result",
+            params: {
+              ...toolParams,
+              result: executed.response,
+              output: executed.output,
+              success: executed.success,
+              errorText: executed.errorText,
+            },
+          })
+          await codexAppServerRespond(baseUrl, {
+            id: evt.id,
+            result: executed.response,
+          })
+          continue
+        }
+
+        const params = asRecord(evt.params)
+        if (!isScopedToTurn(evt)) continue
+
+        await helpers.emitProviderChunk(evt)
+
+        if (method === "turn/started" && !turnId) {
+          turnId = asString(asRecord(params.turn).id) || asString(params.turnId)
+        }
+        if (method === "item/agentMessage/delta") {
+          assistantText += asString(params.delta)
+        }
+        if (method === "item/reasoning/summaryTextDelta" || method === "item/reasoning/textDelta") {
+          reasoningText += asString(params.delta)
+        }
+        if (method === "turn/diff/updated") {
+          diff = asString(params.diff)
+        }
+        if (method === "thread/tokenUsage/updated" || method === "context/tokenUsage/updated") {
+          usage = asRecord(params.tokenUsage)
+        }
+        if (method === "item/completed") {
+          const item = asRecord(params.item)
+          if (asString(item.type) === "agentMessage" && asString(item.text).trim()) {
+            assistantText = asString(item.text)
+          }
+          if (asString(item.type) === "reasoning" && asString(item.summary).trim()) {
+            reasoningText = asString(item.summary)
+          }
+        }
+        if (method === "turn/completed") {
+          completedTurn = asRecord(params.turn)
+          return {
+            providerContextId,
+            turnId: asString(completedTurn.id) || turnId,
+            assistantText,
+            reasoningText,
+            diff,
+            toolParts: asUnknownArray(completedTurn.toolParts),
+            usage,
+            metadata: {
+              provider: "codex-app-server",
+              providerResponse: completedTurn,
+              dynamicTools: dynamicTools.map((tool) => asString(tool.name)).filter(Boolean),
+              streamTrace: helpers.streamTrace(),
+            },
+          }
+        }
+        if (method === "turn/failed") {
+          const evtTurnId = asString(params.turnId) || asString(asRecord(params.turn).id)
+          throw new Error(`codex_turn_failed_${evtTurnId || turnId || "unknown"}`)
+        }
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {})
+  }
+
+  throw new Error("codex_turn_completion_missing")
 }
 
 export async function executeCodexAppServerTurnStep<
@@ -1130,6 +1655,11 @@ export async function executeCodexAppServerTurnStep<
       }
     }
 
+    return await executeCodexHttpTurn(args as CodexAppServerTurnStepArgs<CodexConfig>, {
+      emitProviderChunk,
+      streamTrace,
+    }, baseUrl)
+
     const eventsResponse = await fetch(`${baseUrl}/events`, {
       method: "GET",
       headers: { accept: "text/event-stream" },
@@ -1147,7 +1677,7 @@ export async function executeCodexAppServerTurnStep<
         cwd: args.config.repoPath,
         approvalPolicy: args.config.approvalPolicy ?? "never",
         sandboxPolicy:
-          args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+          args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy ?? {}).length > 0
             ? args.config.sandboxPolicy
             : { type: "externalSandbox", networkAccess: "enabled" },
       }
@@ -1166,7 +1696,7 @@ export async function executeCodexAppServerTurnStep<
       cwd: args.config.repoPath,
       approvalPolicy: args.config.approvalPolicy ?? "never",
       sandboxPolicy:
-        args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy).length > 0
+        args.config.sandboxPolicy && Object.keys(args.config.sandboxPolicy ?? {}).length > 0
           ? args.config.sandboxPolicy
           : { type: "externalSandbox", networkAccess: "enabled" },
     }
@@ -1177,7 +1707,7 @@ export async function executeCodexAppServerTurnStep<
       asString(asRecord(turnStart.result).id) ||
       asString(turnStart.turnId)
 
-    const reader = eventsResponse.body.getReader()
+    const reader = eventsResponse.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ""
     let assistantText = ""
@@ -1197,7 +1727,7 @@ export async function executeCodexAppServerTurnStep<
         for (const block of blocks) {
           const data = parseSseDataBlock(block)
           if (!data || data === "[DONE]") continue
-          const evt = asRecord(JSON.parse(data))
+          const evt = asRecord(JSON.parse(String(data)))
           const method = asString(evt.method)
           if (!method) continue
           const params = asRecord(evt.params)
@@ -1330,6 +1860,25 @@ export function createCodexReactor<
       stepId: params.stepId,
       iteration: params.iteration,
     })
+    const persistedReactor = asRecord(params.context.reactor)
+    const persistedReactorState = asRecord(persistedReactor.state)
+    if (!config.providerContextId) {
+      const providerContextId = asString(persistedReactorState.providerContextId)
+      if (providerContextId) config.providerContextId = providerContextId
+    }
+    if (config.sandbox) {
+      const sandboxState = asRecord(persistedReactorState.sandbox)
+      if (!config.sandbox.sandboxId) {
+        const sandboxId = asString(sandboxState.sandboxId)
+        if (sandboxId) config.sandbox.sandboxId = sandboxId
+      }
+      if (!config.repoPath) {
+        const repoPath = asString(sandboxState.repoPath)
+        if (repoPath) config.repoPath = repoPath
+      }
+    }
+    const effectiveActionSpecs =
+      params.actionSpecs ?? asRecord((params as any).toolsForModel) as Record<string, CodexActionSpec>
 
     const startedAtMs = Date.now()
     let streamedAssistantText = ""
@@ -1344,6 +1893,8 @@ export function createCodexReactor<
       if (
         mappedMethod !== "item/started" &&
         mappedMethod !== "item/completed" &&
+        mappedMethod !== "item/tool/call" &&
+        mappedMethod !== "item/tool/result" &&
         mappedMethod !== "thread/tokenUsage/updated" &&
         mappedMethod !== "context/tokenUsage/updated" &&
         mappedMethod !== "turn/completed" &&
@@ -1527,7 +2078,11 @@ export function createCodexReactor<
         iteration: params.iteration,
         instruction,
         config,
+        actions: params.actions,
+        actionSpecs: effectiveActionSpecs,
         skills: params.skills,
+        storedContext: params.context,
+        contextIdentifier: params.contextIdentifier,
         contextStepStream: params.contextStepStream,
         writable: params.writable,
         silent: params.silent,
@@ -1538,10 +2093,17 @@ export function createCodexReactor<
           env: params.env,
           runtime: params.runtime,
           instruction,
+          systemPrompt: params.systemPrompt,
           contextId: params.contextId,
           eventId: params.eventId,
           executionId: params.executionId,
           stepId: params.stepId,
+          iteration: params.iteration,
+          context,
+          actions: params.actions,
+          actionSpecs: effectiveActionSpecs,
+          storedContext: params.context,
+          contextIdentifier: params.contextIdentifier,
           contextStepStream: params.contextStepStream,
           writable: params.writable as WritableStream<unknown> | undefined,
           silent: params.silent,
@@ -1600,6 +2162,15 @@ export function createCodexReactor<
       assistantEvent,
       actionRequests: [],
       messagesForModel: [],
+      reactor: {
+        kind: "codex",
+        state: {
+          providerContextId: turn.providerContextId,
+          lastTurnId: turn.turnId,
+          provider: asString(asRecord(turn.metadata).provider || "codex"),
+          sandbox: asRecord(asRecord(turn.metadata).sandbox),
+        },
+      },
       llm: {
         provider: "codex",
         model: asString(config.model || "codex"),
