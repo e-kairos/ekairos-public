@@ -37,11 +37,23 @@
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./public": {
+      "types": "./dist/public.d.ts",
+      "import": "./dist/public.js",
+      "require": "./dist/public.js",
+      "default": "./dist/public.js"
+    },
     "./schema": {
       "types": "./dist/schema.d.ts",
       "import": "./dist/schema.js",
       "require": "./dist/schema.js",
       "default": "./dist/schema.js"
+    },
+    "./actions": {
+      "types": "./dist/actions.d.ts",
+      "import": "./dist/actions.js",
+      "require": "./dist/actions.js",
+      "default": "./dist/actions.js"
     }
   },
   "scripts": {

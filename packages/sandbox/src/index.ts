@@ -5,7 +5,9 @@ export type {
   SandboxRunCommandResult,
 } from "./types.js"
 
-export { sandboxDomain } from "./schema.js"
+export { sandboxDomain } from "./actions.js"
+export { sandboxDomain as sandboxSchemaDomain } from "./schema.js"
+export { sandboxDomain as publicSandboxDomain } from "./public.js"
 export { SandboxService } from "./service.js"
 export type { CommandResult } from "./commands.js"
 export type {

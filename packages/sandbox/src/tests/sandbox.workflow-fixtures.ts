@@ -2,7 +2,7 @@ import { EkairosRuntime } from "@ekairos/domain/runtime"
 import { init } from "@instantdb/admin"
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 
-import { sandboxDomain } from "../schema"
+import { sandboxDomain } from "../actions"
 
 export type SandboxWorkflowEnv = {
   appId: string

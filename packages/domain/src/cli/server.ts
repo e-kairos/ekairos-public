@@ -37,6 +37,7 @@ function resolveSource(config: any): RuntimeDomainSource | null {
 
 function buildSchema(source: RuntimeDomainSource | null) {
   if (!source) return null
+  if (typeof (source as any).instantSchema === "function") return (source as any).instantSchema()
   if (typeof source.toInstantSchema === "function") return source.toInstantSchema()
   if (typeof source.schema === "function") return source.schema()
   return {

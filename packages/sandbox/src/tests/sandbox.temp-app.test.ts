@@ -9,7 +9,7 @@ import { init } from "@instantdb/admin"
 import { i } from "@instantdb/core"
 import { configureRuntime } from "@ekairos/domain/runtime"
 import { domain } from "@ekairos/domain"
-import { sandboxDomain } from "../schema"
+import { sandboxDomain } from "../actions"
 import { SandboxService } from "../service"
 import { buildDatasetSkillPackage } from "../../../dataset/src/skill"
 import {

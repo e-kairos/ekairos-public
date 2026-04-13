@@ -114,7 +114,7 @@ export class AppRuntime extends EkairosRuntime<{
     return init({
       appId: env.appId!,
       adminToken: env.adminToken!,
-      schema: appDomain.toInstantSchema(),
+      schema: appDomain.instantSchema(),
       useDateObjects: true,
     } as any);
   }
@@ -147,6 +147,85 @@ export async function runWorkflow() {
 - Keep workflow orchestration above actions.
 - Use `DOMAIN.md` plus `domain.contextString()` when an AI agent needs the model explained.
 
+## Public And Full Domains
+
+Use normal domain composition to split browser-visible schema from server/runtime
+capabilities. The public domain is a smaller domain. The full domain imports and
+extends it.
+
+```ts
+// @acme/sandbox/public
+export const sandboxDomain = domain("sandbox").schema({
+  entities: {
+    sandbox_sandboxes: i.entity({
+      provider: i.string().indexed(),
+      status: i.string().indexed(),
+      createdAt: i.number().indexed(),
+    }),
+  },
+  links: {},
+  rooms: {},
+});
+```
+
+```ts
+// @acme/sandbox
+import { sandboxDomain as publicSandboxDomain } from "@acme/sandbox/public";
+
+export const sandboxDomain = domain("sandbox")
+  .includes(publicSandboxDomain)
+  .schema({
+    entities: {
+      sandbox_processes: i.entity({
+        kind: i.string().indexed(),
+        status: i.string().indexed(),
+        command: i.string(),
+        startedAt: i.number().indexed(),
+      }),
+    },
+    links: {
+      sandboxProcessSandbox: {
+        forward: { on: "sandbox_processes", has: "one", label: "sandbox" },
+        reverse: { on: "sandbox_sandboxes", has: "many", label: "processes" },
+      },
+    },
+    rooms: {},
+  })
+  .actions({
+    runCommand: defineDomainAction({
+      name: "sandbox.runCommand",
+      async execute({ runtime, input }) {
+        "use step";
+        // server/provider work
+      },
+    }),
+  });
+```
+
+Client schema composition imports public domains:
+
+```ts
+import { sandboxDomain } from "@acme/sandbox/public";
+
+export const appDomain = domain("app")
+  .includes(sandboxDomain)
+  .schema({ entities: {}, links: {}, rooms: {} });
+
+export default appDomain.instantSchema();
+```
+
+Server runtime imports full domains:
+
+```ts
+import { sandboxDomain } from "@acme/sandbox";
+
+const sandbox = await runtime.use(sandboxDomain);
+await sandbox.actions.runCommand({ sandboxId, command: "pnpm", args: ["test"] });
+```
+
+This pattern controls schema visibility only. It is not an authorization model:
+configure Instant permissions for actual data access.
+
 ## CLI Input Quality Of Life
 
 The CLI accepts JSON5, `@file`, and stdin:
@@ -166,3 +245,4 @@ pnpm --filter @ekairos/domain test
 pnpm --filter @ekairos/domain test:cli
 pnpm --filter @ekairos/domain test:workflow
 ```
+

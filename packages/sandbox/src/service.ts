@@ -4,7 +4,7 @@ import { id, init, type InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain"
 import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtime"
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
-import { sandboxDomain } from "./schema.js"
+import { sandboxDomain } from "./actions.js"
 import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
 import {
   resolveVercelSandboxConfig,
@@ -444,7 +444,11 @@ export class SandboxService {
     datasetEnabled: boolean
   }): SandboxEkairosManifest {
     const contextString = SandboxService.getDomainContextString(params.domain)
-    const schemaJson = SandboxService.cloneJson((params.domain as any).toInstantSchema())
+    const schemaJson = SandboxService.cloneJson(
+      typeof (params.domain as any).instantSchema === "function"
+        ? (params.domain as any).instantSchema()
+        : (params.domain as any).toInstantSchema(),
+    )
     return {
       version: 1,
       instant: {

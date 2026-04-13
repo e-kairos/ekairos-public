@@ -69,10 +69,13 @@ describe("domain purity and immutability", () => {
 
     const first = appDomain.toInstantSchema();
     const second = appDomain.toInstantSchema();
+    const third = appDomain.instantSchema();
 
     expect(duplicateLinkAttributes(first.links as any)).toEqual([]);
     expect(duplicateLinkAttributes(second.links as any)).toEqual([]);
+    expect(duplicateLinkAttributes(third.links as any)).toEqual([]);
     expect(Object.keys(first.links).sort()).toEqual(Object.keys(second.links).sort());
+    expect(Object.keys(first.links).sort()).toEqual(Object.keys(third.links).sort());
   });
 
   it("does not mutate base builder branches", () => {
@@ -134,6 +137,10 @@ describe("domain purity and immutability", () => {
       "management.task.create",
     ]);
     expect(withCreateAndUpdate.getActions().map((entry) => entry.name)).toEqual([
+      "management.task.create",
+      "management.task.update",
+    ]);
+    expect(withCreateAndUpdate.actions().map((entry) => entry.name)).toEqual([
       "management.task.create",
       "management.task.update",
     ]);

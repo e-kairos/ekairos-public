@@ -344,7 +344,11 @@ export type DomainSchemaResult<
     // This preserves type safety while InstaQLParams uses enriched entities for validation
     readonly originalEntities: E;
     readonly __actionMap?: Actions;
-    // Ensure toInstantSchema method is available
+    // Build the complete Instant schema for provisioning/admin usage.
+    instantSchema: () => ReturnType<typeof i.schema<WithBase<E>, L, R>>;
+    /**
+     * @deprecated Use instantSchema().
+     */
     toInstantSchema: () => ReturnType<typeof i.schema<WithBase<E>, L, R>>;
     // Build full domain context (schema + registry + docs) for AI/system prompts.
     context: (options?: DomainContextOptions) => DomainContext;
@@ -359,6 +363,7 @@ export type DomainSchemaResult<
     meta?: Record<string, unknown>;
     // Attach explicit domain actions to this domain result.
     actions: {
+      (): DomainActionRegistration[];
       <Input extends Record<string, DomainActionLike>>(
         actions: Input,
       ): DomainSchemaResult<E, L, R, MergeActionMaps<Actions, ActionMapFromCollection<Input>>>;
@@ -402,8 +407,8 @@ type BaseEntitiesPhantom = {
 type WithBase<E extends EntitiesDef> = MergeEntities<E, BaseEntitiesPhantom>;
 
 // Note: createInstantSchema is now deprecated.
-// Use domain.toInstantSchema() directly instead:
-// const schema = domain.toInstantSchema();
+// Use domain.instantSchema() directly instead:
+// const schema = domain.instantSchema();
 
 // Builder that automatically includes base entities and enforces type-safe links
 // AccumL preserves literal link keys from included domains
@@ -693,6 +698,7 @@ function listKeys(value: unknown): string[] {
 
 function resolveSchema(source: any): any {
   if (!source) return null;
+  if (typeof source.instantSchema === "function") return source.instantSchema();
   if (typeof source.toInstantSchema === "function") return source.toInstantSchema();
   if (typeof source.schema === "function") return source.schema();
   return {
@@ -1219,6 +1225,78 @@ export function domain(arg?: unknown): any {
           const capturedRooms = cloneRoomsDef(def.rooms);
           let cachedInstantSchema: InstantSchemaResult | null = null;
 
+          const instantSchema = () => {
+            if (cachedInstantSchema) {
+              return cachedInstantSchema;
+            }
+
+            let finalEntities = { ...capturedEntities };
+            let finalLinks = cloneLinksDef(capturedLinks);
+            let hasUnresolvedIncludes = false;
+
+            // Try to resolve lazy includes one more time (domains should be initialized by now)
+            for (const lazyGetter of lazyIncludes) {
+              try {
+                const other = lazyGetter();
+                if (other) {
+                  const entities = (other as any).entities as EntitiesDef;
+                  if (entities) {
+                    finalEntities = { ...finalEntities, ...entities };
+                  }
+                  const links = (other as any).links as LinksDef<any>;
+                  if (links) {
+                    finalLinks = { ...finalLinks, ...links } as typeof finalLinks;
+                  }
+                } else {
+                  hasUnresolvedIncludes = true;
+                }
+              } catch {
+                // If still can't resolve, entities should already be in allEntities from app domain composition
+                hasUnresolvedIncludes = true;
+              }
+            }
+
+            assertNoDuplicateLinkAttributes(finalLinks as LinksDef<any>);
+
+            // Include base entities ($users, $files, $streams) that InstantDB manages
+            // These need to be explicitly included since InstantDB doesn't auto-add them
+            const baseEntities = {
+              $users: i.entity({
+                email: i.string().optional().indexed(),
+              }),
+              $files: i.entity({
+                path: i.string(),
+                url: i.string().optional(),
+                contentType: i.string().optional(),
+                size: i.number().optional(),
+              }),
+              $streams: i.entity({
+                clientId: i.string().optional().indexed(),
+                size: i.number().optional(),
+                createdAt: i.date().optional().indexed(),
+                updatedAt: i.date().optional().indexed(),
+              }),
+            };
+
+            // Merge base entities with user entities, user entities take precedence
+            const allEntitiesWithBase = {
+              ...baseEntities,
+              ...finalEntities,
+            } as WithBase<MergedEntitiesType>;
+
+            const schemaResult = i.schema({
+              entities: allEntitiesWithBase,
+              links: cloneLinksDef(finalLinks as MergedLinksType) as LinksDef<WithBase<MergedEntitiesType>>,
+              rooms: cloneRoomsDef(capturedRooms),
+            });
+
+            const frozenSchema = Object.freeze(schemaResult) as InstantSchemaResult;
+            if (!hasUnresolvedIncludes) {
+              cachedInstantSchema = frozenSchema;
+            }
+            return frozenSchema;
+          };
+
           const result = {
             entities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
             // Strip base phantom from public type so it's assignable to i.schema()
@@ -1226,77 +1304,8 @@ export function domain(arg?: unknown): any {
             rooms: Object.freeze(cloneRoomsDef(def.rooms)),
             // Add originalEntities for type-safe access to original entity definitions
             originalEntities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
-            toInstantSchema: () => {
-              if (cachedInstantSchema) {
-                return cachedInstantSchema;
-              }
-
-              let finalEntities = { ...capturedEntities };
-              let finalLinks = cloneLinksDef(capturedLinks);
-              let hasUnresolvedIncludes = false;
-
-              // Try to resolve lazy includes one more time (domains should be initialized by now)
-              for (const lazyGetter of lazyIncludes) {
-                try {
-                  const other = lazyGetter();
-                  if (other) {
-                    const entities = (other as any).entities as EntitiesDef;
-                    if (entities) {
-                      finalEntities = { ...finalEntities, ...entities };
-                    }
-                    const links = (other as any).links as LinksDef<any>;
-                    if (links) {
-                      finalLinks = { ...finalLinks, ...links } as typeof finalLinks;
-                    }
-                  } else {
-                    hasUnresolvedIncludes = true;
-                  }
-                } catch {
-                  // If still can't resolve, entities should already be in allEntities from app domain composition
-                  hasUnresolvedIncludes = true;
-                }
-              }
-
-              assertNoDuplicateLinkAttributes(finalLinks as LinksDef<any>);
-
-              // Include base entities ($users, $files, $streams) that InstantDB manages
-              // These need to be explicitly included since InstantDB doesn't auto-add them
-              const baseEntities = {
-                $users: i.entity({
-                  email: i.string().optional().indexed(),
-                }),
-                $files: i.entity({
-                  path: i.string(),
-                  url: i.string().optional(),
-                  contentType: i.string().optional(),
-                  size: i.number().optional(),
-                }),
-                $streams: i.entity({
-                  clientId: i.string().optional().indexed(),
-                  size: i.number().optional(),
-                  createdAt: i.date().optional().indexed(),
-                  updatedAt: i.date().optional().indexed(),
-                }),
-              };
-
-              // Merge base entities with user entities, user entities take precedence
-              const allEntitiesWithBase = {
-                ...baseEntities,
-                ...finalEntities,
-              } as WithBase<MergedEntitiesType>;
-
-              const schemaResult = i.schema({
-                entities: allEntitiesWithBase,
-                links: cloneLinksDef(finalLinks as MergedLinksType) as LinksDef<WithBase<MergedEntitiesType>>,
-                rooms: cloneRoomsDef(capturedRooms),
-              });
-
-              const frozenSchema = Object.freeze(schemaResult) as InstantSchemaResult;
-              if (!hasUnresolvedIncludes) {
-                cachedInstantSchema = frozenSchema;
-              }
-              return frozenSchema;
-            },
+            instantSchema,
+            toInstantSchema: instantSchema,
           } as unknown as DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>;
 
           attachMeta(result as object, freezeMeta(meta));
@@ -1318,7 +1327,10 @@ export function domain(arg?: unknown): any {
           );
           setStoredActions(result as any, [...reboundActions]);
           setStoredActionMap(result as any, { ...seedActionMap });
-          (result as any).actions = (actionsInput: DomainActionCollection) => {
+          (result as any).actions = (actionsInput?: DomainActionCollection) => {
+            if (actionsInput === undefined) {
+              return [...getStoredActions(result as any)];
+            }
             const current = getStoredActions(result as any);
             const currentMap = getStoredActionMap(result as any);
             const additions = normalizeActionCollection(result as any, actionsInput);

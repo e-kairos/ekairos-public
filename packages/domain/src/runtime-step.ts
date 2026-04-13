@@ -101,6 +101,7 @@ function getGlobalRuntimeResolver(): StoredRuntimeResolver | null {
 
 function resolveSchema(domain?: RuntimeDomainSource | null): any {
   if (!domain) return null
+  if (typeof (domain as any).instantSchema === "function") return (domain as any).instantSchema()
   if (typeof domain.toInstantSchema === "function") return domain.toInstantSchema()
   if (typeof domain.schema === "function") return domain.schema()
   return {

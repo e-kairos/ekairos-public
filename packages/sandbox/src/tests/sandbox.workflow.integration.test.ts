@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { start } from "workflow/api"
 
-import { sandboxDomain } from "../schema"
+import { sandboxDomain } from "../actions"
 import {
   createTestApp,
   destroyTestApp,

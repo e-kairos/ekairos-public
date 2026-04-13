@@ -6,7 +6,7 @@ import { config as dotenvConfig } from "dotenv"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { sandboxDomain } from "../schema"
+import { sandboxDomain } from "../actions"
 import { SandboxService } from "../service"
 import {
   createTestApp,
