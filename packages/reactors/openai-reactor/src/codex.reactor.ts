@@ -26,6 +26,7 @@ export type CodexConfig = {
 }
 
 type CodexActionSpec = {
+  type?: "function"
   description?: string
   inputSchema?: unknown
 }
@@ -557,6 +558,22 @@ function buildCodexDynamicTools(actionSpecs?: Record<string, CodexActionSpec>): 
       }
     })
     .filter(Boolean) as AnyRecord[]
+}
+
+function toCodexActionSpecs(value: unknown): Record<string, CodexActionSpec> {
+  const specs = asRecord(value)
+  const out: Record<string, CodexActionSpec> = {}
+  for (const [name, spec] of Object.entries(specs)) {
+    const record = asRecord(spec)
+    if (!record) continue
+    if (record.type === "provider-defined") continue
+    out[name] = {
+      type: record.type === "function" ? "function" : undefined,
+      description: asString(record.description) || undefined,
+      inputSchema: record.inputSchema,
+    }
+  }
+  return out
 }
 
 function formatCodexToolOutput(value: unknown): string {
@@ -1877,8 +1894,9 @@ export function createCodexReactor<
         if (repoPath) config.repoPath = repoPath
       }
     }
-    const effectiveActionSpecs =
-      params.actionSpecs ?? asRecord((params as any).toolsForModel) as Record<string, CodexActionSpec>
+    const effectiveActionSpecs = toCodexActionSpecs(
+      params.actionSpecs ?? asRecord((params as any).toolsForModel),
+    )
 
     const startedAtMs = Date.now()
     let streamedAssistantText = ""
