@@ -33,6 +33,7 @@ import {
 import {
   completeExecution,
   createContextStep,
+  getContextItems,
   initializeContext,
   saveTriggerAndCreateExecution,
   saveContextPartsStep,
@@ -427,6 +428,7 @@ type ContextEngineOps<Context> = {
     contextIdentifier: ContextIdentifier,
     status: "open_idle" | "open_streaming" | "closed",
   ) => Promise<void>
+  getItems: (contextIdentifier: ContextIdentifier) => Promise<ContextItem[]>
   saveTriggerAndCreateExecution: (params: {
     contextIdentifier: ContextIdentifier
     triggerEvent: ContextItem
@@ -633,6 +635,7 @@ async function createRuntimeOps<Context>(
     saveContextPartsStep: async (params) => {
       await store.saveStepParts({ stepId: params.stepId, parts: params.parts })
     },
+    getItems: async (contextIdentifier) => await store.getItems(contextIdentifier),
     updateItem: async (itemId, item) => {
       await instrumentedDb.transact([instrumentedDb.tx.event_items[itemId].update(item as any)])
       return {
@@ -677,6 +680,8 @@ async function createWorkflowOps<Context>(
       await updateContextStep({ runtime, ...params }),
     saveContextPartsStep: async (params) =>
       await saveContextPartsStep({ runtime, ...params }),
+    getItems: async (contextIdentifier) =>
+      await getContextItems({ runtime, contextIdentifier }),
     updateItem: async (itemId, item, opts) =>
       await updateItem({ runtime, eventId: itemId, event: item, opts }),
     completeExecution: async (contextIdentifier, executionId, status) =>
@@ -1110,6 +1115,16 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           `${stagePrefix}.skillsMs`,
           async () => await story.buildSkills(updatedContext, env),
         )
+        const rawEvents = await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.loadEventsMs`,
+          async () => await ops.getItems(activeContextSelector),
+        )
+        const expandedEvents = await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.expandEventsMs`,
+          async () => await story.expandEvents(rawEvents, updatedContext, env),
+        )
 
         // IMPORTANT: step args must be serializable.
         // Match DurableAgent behavior: convert tool input schemas to plain JSON Schema in workflow context.
@@ -1166,6 +1181,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               env,
               context: updatedContext,
               contextIdentifier: activeContextSelector,
+              events: expandedEvents,
               triggerEvent,
               model: story.getModel(updatedContext, env),
               systemPrompt,
@@ -1508,7 +1524,8 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
                 }
               }
 
-              const output = await toolDef.execute(actionInput, {
+              const executeAction = toolDef.execute as Function
+              const output = await Reflect.apply(executeAction, undefined, [actionInput, {
                 runtime: runtimeHandle,
                 env,
                 context: updatedContext,
@@ -1521,7 +1538,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
                 contextId: currentContext.id,
                 stepId: String(stepCreate.stepId),
                 iteration: iter,
-              })
+              }])
               return { actionRequest, success: true, output }
             } catch (e: any) {
               return {

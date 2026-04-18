@@ -45,6 +45,15 @@ export type ContextReactorParams<
   env: Env
   context: StoredContext<Context>
   contextIdentifier: ContextIdentifier
+  /**
+   * Context items after the engine-level expansion stage.
+   *
+   * Reactors should prefer these over fetching raw items when constructing
+   * model/runtime input. Expanders must return regular ContextItems whose
+   * parts follow the shared context part contract, so this is not tied to any
+   * specific model provider.
+   */
+  events: ContextItem[]
   triggerEvent: ContextItem
   model: ContextModelInit
   systemPrompt: string

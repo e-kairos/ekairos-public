@@ -97,6 +97,7 @@ export function createAiSdkReactor<
       runtime: params.runtime,
       env: params.env,
       contextIdentifier: params.contextIdentifier,
+      events: params.events,
       model,
       system: params.systemPrompt,
       tools: params.actionSpecs,

@@ -44,10 +44,10 @@
   },
   "dependencies": {
     "@ekairos/domain": "^1.22.0",
-    "@ekairos/sandbox": "^1.22.0",
     "@ekairos/events": "workspace:*",
-    "@instantdb/admin": "0.22.126",
-    "@instantdb/core": "0.22.126",
+    "@ekairos/sandbox": "^1.22.0",
+    "@instantdb/admin": "0.22.158",
+    "@instantdb/core": "0.22.142",
     "ai": "^5.0.44",
     "ajv": "^8.17.1",
     "xmlbuilder2": "^3.1.1",

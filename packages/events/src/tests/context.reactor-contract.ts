@@ -5,8 +5,8 @@ import {
   parseContextPartEnvelope,
   type ContextPartEnvelope,
   type ContextStepStreamChunk,
-} from "../index.js"
-import { readPersistedContextStepStream } from "../runtime.js"
+} from "../index.ts"
+import { readPersistedContextStepStream } from "../runtime.ts"
 
 type AnyRecord = Record<string, unknown>
 

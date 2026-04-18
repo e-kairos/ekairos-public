@@ -8,6 +8,7 @@ describe("ContextReactorParams public contract", () => {
 
     expectTypeOf<Params>().toHaveProperty("actions")
     expectTypeOf<Params>().toHaveProperty("actionSpecs")
+    expectTypeOf<Params>().toHaveProperty("events")
     expectTypeOf<Params>().not.toHaveProperty("toolsForModel")
   })
 })

@@ -322,4 +322,96 @@ describeInstant("context scripted reactor + Instant runtime", () => {
       executionId,
     })
   }, 5 * 60 * 1000)
+
+  itInstant("passes engine-expanded standard events to provider-neutral reactors", async () => {
+    const contextKey = `context-scripted-expanded-events:${Date.now()}`
+    const runtime = new EventsTestRuntime({
+      appId: String(appId),
+      adminToken: String(adminToken),
+      orgId: "org_context_tests",
+      actorId: "user_context_tests",
+    })
+    let reactorSawExpandedEvent = false
+
+    const expandedContext = createContext<ContextTestEnv>("context.tests.scripted.expanded-events")
+      .context((stored, env) => ({
+        ...(stored.content ?? {}),
+        orgId: env.orgId,
+        actorId: env.actorId,
+      }))
+      .expandEvents((events) => [
+        ...events,
+        {
+          id: `derived:${events[0]?.id ?? "missing"}:canvas`,
+          type: "output",
+          channel: "web",
+          createdAt: new Date().toISOString(),
+          content: {
+            parts: [
+              {
+                type: "content",
+                state: "done",
+                content: [
+                  {
+                    type: "text",
+                    text: "Derived canvas snapshot reference.",
+                  },
+                  {
+                    type: "file",
+                    mediaType: "image/png",
+                    filename: "canvas.png",
+                    data: "QUFBQQ==",
+                  },
+                ],
+                metadata: {
+                  canvas: {
+                    sceneId: "scene_expanded",
+                    sceneVersion: 7,
+                    sceneRect: { x: 10, y: 20, width: 300, height: 200 },
+                    scaleX: 1,
+                    scaleY: 1,
+                  },
+                },
+              },
+            ],
+          },
+        } satisfies ContextItem,
+      ])
+      .narrative(() => "Expanded events should reach this reactor.")
+      .actions(() => ({}))
+      .reactor(async (params) => {
+        reactorSawExpandedEvent = params.events.some((event) =>
+          String(event.id).startsWith("derived:") &&
+          JSON.stringify(event.content.parts ?? []).includes("Derived canvas snapshot reference"),
+        )
+        return {
+          assistantEvent: {
+            id: params.eventId,
+            type: "output",
+            channel: "web",
+            createdAt: new Date().toISOString(),
+            content: {
+              parts: [{ type: "text", text: "Saw expanded event." }],
+            },
+          },
+          actionRequests: [],
+          messagesForModel: [],
+        }
+      })
+      .shouldContinue(() => false)
+      .build()
+
+    await expandedContext.react(createTriggerEvent("use expanded canvas context"), {
+      runtime,
+      context: { key: contextKey },
+      durable: false,
+      options: {
+        silent: true,
+        maxIterations: 1,
+        maxModelSteps: 1,
+      },
+    })
+
+    expect(reactorSawExpandedEvent).toBe(true)
+  }, 5 * 60 * 1000)
 })

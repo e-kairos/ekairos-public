@@ -533,6 +533,16 @@ export async function saveReactionItem(
   return saved
 }
 
+export async function getContextItems(
+  params: RuntimeParams & {
+    contextIdentifier: ContextIdentifier
+  },
+): Promise<ContextItem[]> {
+  "use step"
+  const { runtime } = await getRuntimeAndEnv(params)
+  return await runtime.store.getItems(params.contextIdentifier)
+}
+
 export async function updateItem(
   params: RuntimeParams & {
     eventId: string

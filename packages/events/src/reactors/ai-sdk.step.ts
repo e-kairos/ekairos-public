@@ -105,6 +105,7 @@ export async function executeAiSdkReaction(params: {
   runtime: import("../context.runtime.js").ContextRuntime<ContextEnvironment>
   env: ContextEnvironment
   contextIdentifier: ContextIdentifier
+  events?: ContextItem[]
   model: ContextModelInit
   system: string
   tools: Record<string, SerializableActionSpec>
@@ -139,12 +140,14 @@ export async function executeAiSdkReaction(params: {
 
   const { store } = await getContextRuntimeServices(params.runtime)
 
-  let events: ContextItem[]
-  try {
-    events = await store.getItems(params.contextIdentifier)
-  } catch (error) {
-    console.error("[ekairos/story] ai-sdk.step store.getItems failed")
-    throw error
+  let events: ContextItem[] = Array.isArray(params.events) ? params.events : []
+  if (events.length === 0) {
+    try {
+      events = await store.getItems(params.contextIdentifier)
+    } catch (error) {
+      console.error("[ekairos/story] ai-sdk.step store.getItems failed")
+      throw error
+    }
   }
 
   let messagesForModel: ModelMessage[]

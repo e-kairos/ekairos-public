@@ -5,23 +5,24 @@ import { init } from "@instantdb/admin"
 
 import {
   eventsDomain,
-} from "../index.js"
-import { configureContextDurableWorkflow } from "../runtime.js"
+} from "../index.ts"
+import { configureContextDurableWorkflow } from "../runtime.ts"
 import {
   buildTriggerEvent,
   contextEngineDurableWorkflow,
   readRows,
   readString,
   storySmoke,
+  storySmokeExpandedEvents,
   storySmokeScripted,
   storySmokeToolError,
-} from "./context.workflow-fixtures.js"
+} from "./workflow/context.workflow-fixtures.ts"
 import {
   destroyContextTestApp,
   hasInstantProvisionToken,
   provisionContextTestApp,
 } from "./_env.js"
-import { EventsTestRuntime } from "./context.test-runtime.ts"
+import { EventsTestRuntime } from "./workflow/context.test-runtime.ts"
 
 let appId: string | null = null
 let adminToken: string | null = null
@@ -175,6 +176,31 @@ describeWorkflowInstant("context durable workflow integration", () => {
       expectedToolState: "output-available",
       expectedMode: "scripted",
     })
+  }, 10 * 60 * 1000)
+
+  it("durable react passes expanded standard events to provider-neutral reactors", async () => {
+    const runtime = new EventsTestRuntime({
+      appId: String(appId),
+      adminToken: String(adminToken),
+      mode: "scripted",
+    })
+    const shell = await storySmokeExpandedEvents.react(buildTriggerEvent("expand context"), {
+      runtime,
+      context: null,
+      durable: true,
+      options: {
+        maxIterations: 1,
+        maxModelSteps: 1,
+      },
+    })
+
+    expect(shell.run?.runId).toMatch(/^wrun_/)
+
+    const finalResult = await shell.run!.returnValue
+    expect(finalResult.execution.status).toBe("completed")
+    expect(
+      JSON.stringify(finalResult.reaction.content.parts ?? []),
+    ).toContain("Expanded event received.")
   }, 10 * 60 * 1000)
 
   it("ai sdk durable react returns a run handle and persists completed state", async () => {
