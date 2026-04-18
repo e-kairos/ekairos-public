@@ -17,6 +17,111 @@ function asArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
 }
 
+function cleanRecord(value: AnyRecord): AnyRecord {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined))
+}
+
+function codexProviderMetadata(params: {
+  source: string
+  sequence: number
+  at?: string
+  providerThreadId?: string
+  providerTurnId?: string
+  providerItemId?: string
+  providerToolType?: string
+  success?: boolean
+  response?: unknown
+  errorText?: string
+}) {
+  return cleanRecord({
+    source: params.source,
+    sequence: params.sequence,
+    at: params.at ?? "",
+    provider: {
+      codex: cleanRecord({
+        threadId: params.providerThreadId,
+        turnId: params.providerTurnId,
+        itemId: params.providerItemId,
+        toolType: params.providerToolType,
+        success: params.success,
+        response: params.response,
+        errorText: params.errorText,
+      }),
+    },
+  })
+}
+
+function normalizeCodexToolOutputContent(value: unknown): AnyRecord[] {
+  if (value === undefined || value === null) return []
+  if (typeof value === "string") return [{ type: "text", text: value }]
+
+  const record = asRecord(value)
+  if (!record || Object.keys(record).length === 0) {
+    return [{ type: "json", value }]
+  }
+
+  if (record.type === "content" && Array.isArray(record.value)) {
+    const out: AnyRecord[] = []
+    for (const entry of record.value) {
+      const block = asRecord(entry)
+      if (block.type === "text" && typeof block.text === "string") {
+        out.push({ type: "text", text: block.text })
+        continue
+      }
+      if (block.type === "image-data") {
+        out.push(
+          cleanRecord({
+            type: "file",
+            mediaType: asString(block.mediaType) || "application/octet-stream",
+            filename: asString(block.filename) || undefined,
+            data: typeof block.data === "string" ? block.data : undefined,
+          }),
+        )
+        continue
+      }
+      if (block.type === "file") {
+        out.push(
+          cleanRecord({
+            type: "file",
+            mediaType: asString(block.mediaType) || "application/octet-stream",
+            filename: asString(block.filename) || undefined,
+            data: typeof block.data === "string" ? block.data : undefined,
+            url: typeof block.url === "string" ? block.url : undefined,
+            fileId: typeof block.fileId === "string" ? block.fileId : undefined,
+          }),
+        )
+        continue
+      }
+      out.push({ type: "json", value: entry })
+    }
+    return out
+  }
+
+  if (record.type === "file") {
+    return [
+      cleanRecord({
+        type: "file",
+        mediaType: asString(record.mediaType) || "application/octet-stream",
+        filename: asString(record.filename) || undefined,
+        data: typeof record.data === "string" ? record.data : undefined,
+        url: typeof record.url === "string" ? record.url : undefined,
+        fileId: typeof record.fileId === "string" ? record.fileId : undefined,
+      }),
+    ]
+  }
+
+  return [{ type: "json", value }]
+}
+
+function normalizeCodexToolErrorContent(output: AnyRecord, response: AnyRecord): AnyRecord[] {
+  const errorText =
+    asString(output.errorText) ||
+    asString(asRecord(output.output).error) ||
+    asString(asRecord(response).error) ||
+    "Tool execution failed."
+  return [{ type: "text", text: errorText }]
+}
+
 function textFromParts(parts: unknown): string {
   if (!Array.isArray(parts)) return ""
   const out: string[] = []
@@ -366,11 +471,18 @@ export function buildCodexParts(params: {
           status === "failed"
             ? asString(completed.error || completed.message || "command_execution_failed")
             : undefined,
-        metadata: {
+        metadata: codexProviderMetadata({
           source: "codex.timeline",
           sequence: command.sequence ?? 0,
-          at: command.at ?? "",
-        },
+          at: command.at,
+          providerItemId: toolCallId,
+          providerToolType: "commandExecution",
+          success: !(status === "failed" || (typeof exitCode === "number" && exitCode !== 0)),
+          errorText:
+            status === "failed"
+              ? asString(completed.error || completed.message || "command_execution_failed")
+              : undefined,
+        }),
       },
     })
   }
@@ -382,6 +494,9 @@ export function buildCodexParts(params: {
     const toolName = asString(input.tool).trim() || "dynamicTool"
     const success = result.success !== false && !asString(output.errorText)
     const callSequence = toolCall.sequence ?? 0
+    const providerThreadId = asString(input.threadId)
+    const providerTurnId = asString(input.turnId)
+    const providerResponse = Object.keys(result).length > 0 ? result : undefined
 
     parts.push({
       sequence: callSequence,
@@ -393,20 +508,18 @@ export function buildCodexParts(params: {
         content: [
           {
             type: "json",
-            value: {
-              arguments: input.arguments ?? {},
-              provider: "codex",
-              providerToolType: "dynamicTool",
-            },
+            value: input.arguments ?? {},
           },
         ],
-        metadata: {
+        metadata: codexProviderMetadata({
           source: "codex.dynamic_tool",
           sequence: callSequence,
-          at: toolCall.at ?? "",
-          providerThreadId: asString(input.threadId),
-          providerTurnId: asString(input.turnId),
-        },
+          at: toolCall.at,
+          providerThreadId,
+          providerTurnId,
+          providerItemId: toolCallId,
+          providerToolType: "dynamicTool",
+        }),
       },
     })
     if (toolCall.output) {
@@ -417,24 +530,21 @@ export function buildCodexParts(params: {
           toolName,
           toolCallId,
           state: success ? "output-available" : "output-error",
-          content: [
-            {
-              type: "json",
-              value: {
-                success,
-                output: output.output,
-                response: output.result,
-                error: output.errorText,
-              },
-            },
-          ],
-          metadata: {
+          content: success
+            ? normalizeCodexToolOutputContent(output.output)
+            : normalizeCodexToolErrorContent(output, result),
+          metadata: codexProviderMetadata({
             source: "codex.dynamic_tool",
             sequence: callSequence,
-            at: toolCall.at ?? "",
-            providerThreadId: asString(input.threadId),
-            providerTurnId: asString(input.turnId),
-          },
+            at: toolCall.at,
+            providerThreadId,
+            providerTurnId,
+            providerItemId: toolCallId,
+            providerToolType: "dynamicTool",
+            success,
+            response: providerResponse,
+            errorText: asString(output.errorText) || undefined,
+          }),
         },
       })
     }

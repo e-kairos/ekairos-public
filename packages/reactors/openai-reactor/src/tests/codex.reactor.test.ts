@@ -964,6 +964,127 @@ describe("createCodexReactor", () => {
     expect((audit.stream.emittedChunkTypes as Record<string, number>)["chunk.action_output_available"]).toBeUndefined()
   })
 
+  it("normalizes Codex dynamic tool input and output into canonical event parts", async () => {
+    const collected = collectWritableChunks()
+    const toolCallId = "call_create_message_001"
+    const providerChunks: Record<string, unknown>[] = [
+      {
+        method: "turn/started",
+        params: {
+          threadId: "thr-dynamic-tool",
+          turn: { id: "turn-dynamic-tool-001", status: "inProgress" },
+        },
+      },
+      {
+        id: "rpc-tool-call-001",
+        method: "item/tool/call",
+        params: {
+          threadId: "thr-dynamic-tool",
+          turnId: "turn-dynamic-tool-001",
+          callId: toolCallId,
+          tool: "createMessage",
+          arguments: { message: "hello from canonical parts" },
+        },
+      },
+      {
+        method: "item/tool/result",
+        params: {
+          threadId: "thr-dynamic-tool",
+          turnId: "turn-dynamic-tool-001",
+          callId: toolCallId,
+          tool: "createMessage",
+          arguments: { message: "hello from canonical parts" },
+          success: true,
+          output: { message: "hello from canonical parts" },
+          result: {
+            success: true,
+            contentItems: [
+              {
+                type: "inputText",
+                text: "{\"message\":\"hello from canonical parts\"}",
+              },
+            ],
+          },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thr-dynamic-tool",
+          turn: { id: "turn-dynamic-tool-001", status: "completed" },
+        },
+      },
+    ]
+
+    const reactor = createCodexReactor<TestContext, CodexConfig, TestEnv>({
+      resolveConfig: async () => ({
+        appServerUrl: "http://127.0.0.1:3436",
+        repoPath: "/workspace/repo",
+        providerContextId: "thr-dynamic-tool",
+        model: "openai/gpt-5.2-codex",
+      }),
+      executeTurn: async ({ emitChunk }) => {
+        for (const chunk of providerChunks) {
+          await emitChunk(chunk)
+        }
+        return {
+          providerContextId: "thr-dynamic-tool",
+          turnId: "turn-dynamic-tool-001",
+          assistantText: "",
+        }
+      },
+    })
+
+    const result = await reactor(
+      createParams({
+        writable: collected.writable,
+        contextId: "ctx-dynamic-tool",
+        eventId: "evt-dynamic-tool",
+        executionId: "exe-dynamic-tool",
+        stepId: "step-dynamic-tool",
+      }),
+    )
+
+    const parts = Array.isArray(result.assistantEvent.content?.parts)
+      ? result.assistantEvent.content.parts.map((part) => asRecord(part))
+      : []
+    const callPart = parts.find((part) => asString(part.type) === "tool-call" && asString(part.toolName) === "createMessage")
+    const resultPart = parts.find((part) => asString(part.type) === "tool-result" && asString(part.toolName) === "createMessage")
+    const callContent = Array.isArray(callPart?.content) ? callPart?.content.map((entry) => asRecord(entry)) : []
+    const resultContent = Array.isArray(resultPart?.content) ? resultPart?.content.map((entry) => asRecord(entry)) : []
+    const callMetadata = asRecord(callPart?.metadata)
+    const resultMetadata = asRecord(resultPart?.metadata)
+    const callProvider = asRecord(asRecord(callMetadata.provider).codex)
+    const resultProvider = asRecord(asRecord(resultMetadata.provider).codex)
+
+    expect(callPart).toBeTruthy()
+    expect(resultPart).toBeTruthy()
+    expect(callContent[0]).toMatchObject({
+      type: "json",
+      value: { message: "hello from canonical parts" },
+    })
+    expect(resultContent[0]).toMatchObject({
+      type: "json",
+      value: { message: "hello from canonical parts" },
+    })
+    expect(JSON.stringify(callContent[0]?.value)).not.toContain("providerToolType")
+    expect(JSON.stringify(resultContent[0]?.value)).not.toContain("success")
+    expect(callProvider).toMatchObject({
+      threadId: "thr-dynamic-tool",
+      turnId: "turn-dynamic-tool-001",
+      itemId: toolCallId,
+      toolType: "dynamicTool",
+    })
+    expect(resultProvider).toMatchObject({
+      threadId: "thr-dynamic-tool",
+      turnId: "turn-dynamic-tool-001",
+      itemId: toolCallId,
+      toolType: "dynamicTool",
+      success: true,
+    })
+    expect(asRecord(resultProvider.response)).toMatchObject({ success: true })
+  })
+
   const realProviderUrl = asString(process.env.CODEX_REACTOR_REAL_URL).trim()
   const realIt = realProviderUrl.length > 0 ? it : it.skip
 
