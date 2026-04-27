@@ -245,6 +245,7 @@ export type CreateCodexReactorOptions<
     triggerEvent: ContextItem
   }) => string | Promise<string>
   resolveConfig: (params: {
+    runtime: ContextReactorParams<Context, Env>["runtime"]
     context: AnyRecord
     triggerEvent: ContextItem
     contextId: string
@@ -2029,6 +2030,7 @@ export function createCodexReactor<
     ).trim()
 
     const config = await options.resolveConfig({
+      runtime: params.runtime,
       context,
       triggerEvent: params.triggerEvent,
       contextId: params.contextId,

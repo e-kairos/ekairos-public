@@ -33,6 +33,10 @@ export type CodexWorkflowTestEnv = {
 type CodexWorkflowContext = {
   repoPath?: string
   providerContextId?: string
+  codexConfig?: Pick<
+    CodexConfig,
+    "appServerUrl" | "repoPath" | "providerContextId" | "model" | "approvalPolicy"
+  >
 }
 
 export const TEST_CONTEXT_KEY = "codex.reactor.workflow.integration"
@@ -316,6 +320,13 @@ export const codexWorkflowContext = createContext<CodexWorkflowTestEnv>(TEST_CON
     ...(stored.content ?? {}),
     repoPath: env.repoPath,
     providerContextId: env.providerContextId,
+    codexConfig: {
+      appServerUrl: env.appServerUrl,
+      repoPath: env.repoPath,
+      providerContextId: env.providerContextId,
+      model: env.model ?? "codex-test",
+      approvalPolicy: env.approvalPolicy ?? "never",
+    },
   }))
   .narrative(() => "Durable Codex reactor workflow integration test.")
   .actions(() => ({}))
@@ -324,13 +335,16 @@ export const codexWorkflowContext = createContext<CodexWorkflowTestEnv>(TEST_CON
       includeReasoningPart: true,
       includeStreamTraceInOutput: true,
       includeRawProviderChunksInOutput: true,
-      resolveConfig: async ({ env }) => ({
-        appServerUrl: env.appServerUrl,
-        repoPath: env.repoPath,
-        providerContextId: env.providerContextId,
-        model: env.model ?? "codex-test",
-        approvalPolicy: env.approvalPolicy ?? "never",
-      }),
+      resolveConfig: async ({ context }) => {
+        const config = asRecord(context.codexConfig)
+        return {
+          appServerUrl: asString(config.appServerUrl),
+          repoPath: asString(config.repoPath),
+          providerContextId: asString(config.providerContextId) || undefined,
+          model: asString(config.model) || "codex-test",
+          approvalPolicy: asString(config.approvalPolicy) || "never",
+        }
+      },
     }),
   )
   .shouldContinue(() => false)

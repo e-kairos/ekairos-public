@@ -105,6 +105,7 @@ function createParams(params: {
       createdAt: new Date("2026-02-20T00:00:00.000Z"),
       content: {
         repository: "demo-repo",
+        providerContextId,
       },
     },
     contextIdentifier: { id: params.contextId ?? "ctx-001" },
@@ -539,10 +540,10 @@ describe("createCodexReactor", () => {
     let turn = 0
 
     const reactor = createCodexReactor<TestContext, CodexConfig, TestEnv>({
-      resolveConfig: async ({ env }) => ({
+      resolveConfig: async ({ context }) => ({
         appServerUrl: "http://127.0.0.1:3436",
         repoPath: "/workspace/repo",
-        providerContextId: asString((env as TestEnv).providerContextId || seededProviderContextId) || seededProviderContextId,
+        providerContextId: asString(context.providerContextId || seededProviderContextId) || seededProviderContextId,
         model: "openai/gpt-5.2-codex",
       }),
       executeTurn: async ({ config, contextId: callContextId, emitChunk }) => {
