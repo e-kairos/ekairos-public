@@ -1,7 +1,6 @@
-import { tool } from "ai"
 import { z } from "zod"
 
-import { createContext } from "./context.js"
+import { createContext, defineAction } from "./context.js"
 import { didToolExecute } from "./context.toolcalls.js"
 import type { ContextEnvironment } from "./context.config.js"
 import type {
@@ -9,8 +8,8 @@ import type {
   ContextOptions,
   ContextReactParams,
   ContextShouldContinueArgs,
-  ContextTool,
 } from "./context.engine.js"
+import type { ContextTool } from "./context.action.js"
 import type { ContextKey } from "./context.registry.js"
 import type { StoredContext, ContextItem } from "./context.store.js"
 import type { ContextInstance } from "./context.js"
@@ -73,6 +72,15 @@ export const codexToolInputSchema = z.object({
     .optional(),
 })
 
+export const codexToolOutputSchema = z.object({
+  contextId: z.string(),
+  turnId: z.string(),
+  assistantText: z.string(),
+  reasoningText: z.string(),
+  diff: z.string(),
+  toolParts: z.array(z.any()),
+})
+
 export type CodexExecuteArgs<
   Context,
   Env extends CodexContextEnv = CodexContextEnv,
@@ -106,7 +114,7 @@ export type CodexContextBuilderConfig<
   actions?: (
     context: StoredContext<Context>,
     env: Env,
-  ) => Promise<Record<string, ContextTool>> | Record<string, ContextTool>
+  ) => Promise<Record<string, ContextTool<Context, Env>>> | Record<string, ContextTool<Context, Env>>
   model?:
     | ContextModelInit
     | ((context: StoredContext<Context>, env: Env) => ContextModelInit)
@@ -223,10 +231,11 @@ export function createCodexContextBuilder<
       }
       return {
         ...additional,
-        [toolName]: tool({
+        [toolName]: defineAction({
           description: toolDescription,
-          inputSchema: codexToolInputSchema,
-          execute: async (input: CodexToolInput) =>
+          input: codexToolInputSchema,
+          output: codexToolOutputSchema,
+          execute: async ({ input }) =>
             await config.executeCodex({
               context: ctx,
               env,

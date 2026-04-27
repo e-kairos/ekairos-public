@@ -150,7 +150,7 @@ function createScaffoldSchema() {
 }
 
 function createEmptyScaffoldSchema() {
-  const scaffoldDomain = domain("app").schema({
+  const scaffoldDomain = domain("app").withSchema({
     entities: {},
     links: {},
     rooms: {},
@@ -160,7 +160,7 @@ function createEmptyScaffoldSchema() {
 }
 
 function createSupplyChainScaffoldSchema() {
-  const supplierNetworkDomain = domain("supplierNetwork").schema({
+  const supplierNetworkDomain = domain("supplierNetwork").withSchema({
     entities: {
       supplierNetwork_supplier: i.entity({
         name: i.string().indexed(),
@@ -176,7 +176,7 @@ function createSupplyChainScaffoldSchema() {
 
   const procurementDomain = domain("procurement")
     .includes(supplierNetworkDomain)
-    .schema({
+    .withSchema({
       entities: {
         procurement_order: i.entity({
           reference: i.string().indexed(),
@@ -196,7 +196,7 @@ function createSupplyChainScaffoldSchema() {
 
   const inventoryDomain = domain("inventory")
     .includes(procurementDomain)
-    .schema({
+    .withSchema({
       entities: {
         inventory_stockItem: i.entity({
           sku: i.string().indexed(),
@@ -217,7 +217,7 @@ function createSupplyChainScaffoldSchema() {
 
   const transportationDomain = domain("transportation")
     .includes(procurementDomain)
-    .schema({
+    .withSchema({
       entities: {
         transportation_shipment: i.entity({
           carrier: i.string().indexed(),
@@ -238,7 +238,7 @@ function createSupplyChainScaffoldSchema() {
 
   const qualityControlDomain = domain("qualityControl")
     .includes(transportationDomain)
-    .schema({
+    .withSchema({
       entities: {
         qualityControl_inspection: i.entity({
           result: i.string().indexed(),
@@ -259,7 +259,7 @@ function createSupplyChainScaffoldSchema() {
   const scaffoldDomain = domain("supplyChain")
     .includes(inventoryDomain)
     .includes(qualityControlDomain)
-    .schema({ entities: {}, links: {}, rooms: {} })
+    .withSchema({ entities: {}, links: {}, rooms: {} })
 
   return scaffoldDomain.toInstantSchema()
 }
@@ -826,7 +826,7 @@ function buildNextTemplateFiles(params: {
   domainVersion: string
   packageManager: string
   workspacePath?: string
-}) {
+}): Record<string, string> {
   const domainDependency = resolveDomainDependencyVersion(
     params.domainVersion,
     params.targetDir,
@@ -888,7 +888,7 @@ function buildNextTemplateFiles(params: {
         "Suggested first step:",
         "- create one domain with camelCase name",
         "- name entities as `<domainName>_<entityName>`",
-        "- add one `defineDomainAction` for the first business write",
+        "- add one `defineAction` for the first business write",
       ].join("\n"),
       "instant.schema.ts": [
         'import appDomain from "./src/domain";',
@@ -1029,7 +1029,7 @@ function buildNextTemplateFiles(params: {
         '      <ul className="next-steps">',
         "        <li>Name the domain in camelCase.</li>",
         "        <li>Name entities as <code>{\"<domainName>_<entityName>\"}</code>.</li>",
-        "        <li>Expose the first write as a <code>defineDomainAction</code>.</li>",
+        "        <li>Expose the first write as a <code>defineAction</code>.</li>",
         "      </ul>",
         "    </section>",
         "  );",
@@ -1038,13 +1038,13 @@ function buildNextTemplateFiles(params: {
       "src/domain.ts": [
         'import { domain } from "@ekairos/domain";',
         "",
-        "const baseDomain = domain(\"app\").schema({",
+        "const baseDomain = domain(\"app\").withSchema({",
         "  entities: {},",
         "  links: {},",
         "  rooms: {},",
         "});",
         "",
-        "export const appDomain = baseDomain.actions({});",
+        "export const appDomain = baseDomain.withActions({});",
         "",
         "export default appDomain;",
       ].join("\n"),
@@ -1989,10 +1989,10 @@ function buildNextTemplateFiles(params: {
       "}",
     ].join("\n"),
     "src/domain.ts": [
-      "import { defineDomainAction, domain } from \"@ekairos/domain\";",
+      "import { defineAction, domain } from \"@ekairos/domain\";",
       "import { i } from \"@instantdb/core\";",
       "",
-      "export const supplierNetworkDomain = domain(\"supplierNetwork\").schema({",
+      "export const supplierNetworkDomain = domain(\"supplierNetwork\").withSchema({",
       "  entities: {",
       "    supplierNetwork_supplier: i.entity({",
       "      name: i.string().indexed(),",
@@ -2008,7 +2008,7 @@ function buildNextTemplateFiles(params: {
       "",
       "export const procurementDomain = domain(\"procurement\")",
       "  .includes(supplierNetworkDomain)",
-      "  .schema({",
+      "  .withSchema({",
       "    entities: {",
       "      procurement_order: i.entity({",
       "        reference: i.string().indexed(),",
@@ -2028,7 +2028,7 @@ function buildNextTemplateFiles(params: {
       "",
       "export const inventoryDomain = domain(\"inventory\")",
       "  .includes(procurementDomain)",
-      "  .schema({",
+      "  .withSchema({",
       "    entities: {",
       "      inventory_stockItem: i.entity({",
       "        sku: i.string().indexed(),",
@@ -2049,7 +2049,7 @@ function buildNextTemplateFiles(params: {
       "",
       "export const transportationDomain = domain(\"transportation\")",
       "  .includes(procurementDomain)",
-      "  .schema({",
+      "  .withSchema({",
       "    entities: {",
       "      transportation_shipment: i.entity({",
       "        carrier: i.string().indexed(),",
@@ -2070,7 +2070,7 @@ function buildNextTemplateFiles(params: {
       "",
       "export const qualityControlDomain = domain(\"qualityControl\")",
       "  .includes(transportationDomain)",
-      "  .schema({",
+      "  .withSchema({",
       "    entities: {",
       "      qualityControl_inspection: i.entity({",
       "        result: i.string().indexed(),",
@@ -2091,9 +2091,9 @@ function buildNextTemplateFiles(params: {
       "const baseDomain = domain(\"supplyChain\")",
       "  .includes(inventoryDomain)",
       "  .includes(qualityControlDomain)",
-      "  .schema({ entities: {}, links: {}, rooms: {} });",
+      "  .withSchema({ entities: {}, links: {}, rooms: {} });",
       "",
-      "export const launchOrderAction = defineDomainAction<",
+      "export const launchOrderAction = defineAction<",
       "  Record<string, unknown>,",
       "  { reference?: string; supplierName?: string; sku?: string },",
       "  { supplierId: string; orderId: string; stockItemId: string; shipmentId: string; inspectionId: string },",
@@ -2160,7 +2160,7 @@ function buildNextTemplateFiles(params: {
       "  },",
       "});",
       "",
-      "export const expediteShipmentAction = defineDomainAction<",
+      "export const expediteShipmentAction = defineAction<",
       "  Record<string, unknown>,",
       "  { shipmentId?: string },",
       "  { shipmentId: string },",
@@ -2184,7 +2184,7 @@ function buildNextTemplateFiles(params: {
       "  },",
       "});",
       "",
-      "export const appDomain = baseDomain.actions({",
+      "export const appDomain = baseDomain.withActions({",
       "  expediteShipment: expediteShipmentAction,",
       "  launchOrder: launchOrderAction,",
       "});",

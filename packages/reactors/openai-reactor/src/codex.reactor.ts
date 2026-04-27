@@ -2,14 +2,19 @@ import {
   OUTPUT_ITEM_TYPE,
   createContextStepStreamChunk,
   encodeContextStepStreamChunk,
+  resolveContextPartChunkDescriptor,
+  resolveContextPartChunkIdentity,
   type ContextSkillPackage,
   type ContextItem,
   type ContextReactionResult,
   type ContextReactor,
   type ContextReactorParams,
   type ContextStreamChunkType,
+  actionsToActionSpecs,
 } from "@ekairos/events"
 import type { ContextEnvironment } from "@ekairos/events/runtime"
+import type { ActiveDomain } from "@ekairos/domain"
+import type { sandboxDomain as SandboxDomain } from "@ekairos/sandbox"
 import { randomUUID } from "node:crypto"
 
 import { asRecord, asString, buildCodexParts, defaultInstructionFromTrigger, type AnyRecord } from "./shared.js"
@@ -29,6 +34,66 @@ type CodexActionSpec = {
   type?: "function"
   description?: string
   inputSchema?: unknown
+}
+
+type CodexExecutableAction = {
+  execute(input: unknown, context: Record<string, unknown>): Promise<unknown> | unknown
+}
+
+function isCodexExecutableAction(value: unknown): value is CodexExecutableAction {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "execute" in value &&
+    typeof value.execute === "function"
+  )
+}
+
+type CodexSandboxDomain = Omit<ActiveDomain<typeof SandboxDomain, Record<string, never>>, "env">
+
+type SandboxProcessMutation = {
+  update(values: Record<string, unknown>): {
+    link(links: Record<string, string>): unknown
+  }
+}
+
+type StreamCapableSandboxDb = CodexSandboxDomain["db"] & {
+  streams: {
+    createWriteStream(input: { clientId: string }): WritableStream<string> & {
+      streamId?: () => Promise<string>
+    }
+  }
+  tx: CodexSandboxDomain["db"]["tx"] & {
+    sandbox_processes: Record<string, SandboxProcessMutation>
+  }
+  transact(txs: unknown[]): Promise<unknown> | unknown
+}
+
+type CodexSandboxRuntime = {
+  use(domain: typeof SandboxDomain): Promise<CodexSandboxDomain>
+}
+
+function isCodexSandboxRuntime(value: unknown): value is CodexSandboxRuntime {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "use" in value &&
+    typeof value.use === "function"
+  )
+}
+
+function hasStreamCapableSandboxDb(
+  value: CodexSandboxDomain["db"],
+): value is StreamCapableSandboxDb {
+  const db = asRecord(value)
+  const streams = asRecord(db.streams)
+  const tx = asRecord(db.tx)
+  return (
+    typeof db.transact === "function" &&
+    typeof streams.createWriteStream === "function" &&
+    typeof tx.sandbox_processes === "object" &&
+    tx.sandbox_processes !== null
+  )
 }
 
 export type CodexSandboxConfig = {
@@ -68,7 +133,6 @@ export type CodexExecuteTurnArgs<
   Config extends CodexConfig = CodexConfig,
   Env extends ContextEnvironment = ContextEnvironment,
 > = {
-  env: Env
   runtime?: unknown
   context: AnyRecord
   triggerEvent: ContextItem
@@ -117,6 +181,9 @@ export type CodexAppServerTurnStepArgs<
 export type CodexChunkMappingResult = {
   chunkType: ContextStreamChunkType
   providerChunkType?: string
+  providerPartId?: string
+  partType?: string
+  partSlot?: string
   actionRef?: string
   data?: unknown
   raw?: unknown
@@ -128,6 +195,10 @@ export type CodexMappedChunk = {
   sequence: number
   chunkType: ContextStreamChunkType
   providerChunkType?: string
+  providerPartId?: string
+  partId?: string
+  partType?: string
+  partSlot?: string
   actionRef?: string
   data?: unknown
   raw?: unknown
@@ -153,6 +224,10 @@ type CodexEmitPayload = {
   chunkType: ContextStreamChunkType
   provider: "codex"
   providerChunkType?: string
+  providerPartId?: string
+  partId?: string
+  partType?: string
+  partSlot?: string
   actionRef?: string
   data?: unknown
   raw?: unknown
@@ -166,12 +241,10 @@ export type CreateCodexReactorOptions<
   toolName?: string
   includeReasoningPart?: boolean
   buildInstruction?: (params: {
-    env: Env
     context: AnyRecord
     triggerEvent: ContextItem
   }) => string | Promise<string>
   resolveConfig: (params: {
-    env: Env
     context: AnyRecord
     triggerEvent: ContextItem
     contextId: string
@@ -279,6 +352,63 @@ function resolveActionRef(params: AnyRecord, item: AnyRecord): string | undefine
   return undefined
 }
 
+function resolveProviderPartId(params: AnyRecord, item: AnyRecord): string | undefined {
+  const fromParams =
+    asString(params.itemId) ||
+    asString(params.toolCallId) ||
+    asString(params.callId) ||
+    asString(params.id)
+  if (fromParams) return fromParams
+  const fromItem = asString(item.id) || asString(item.toolCallId)
+  if (fromItem) return fromItem
+  return undefined
+}
+
+function withCodexPartDescriptor(
+  chunkType: ContextStreamChunkType,
+  providerPartId: string | undefined,
+) {
+  return resolveContextPartChunkDescriptor({
+    chunkType,
+    providerPartId,
+  })
+}
+
+function completeCodexMappedChunkIdentity(
+  mapped: CodexChunkMappingResult,
+  stepId: string,
+): Pick<CodexMappedChunk, "partId" | "providerPartId" | "partType" | "partSlot" | "actionRef"> {
+  const data = asRecord(mapped.data)
+  const providerPartId =
+    asString(mapped.providerPartId) ||
+    (mapped.chunkType.startsWith("chunk.action_") ? asString(mapped.actionRef) : "") ||
+    asString(data.providerPartId) ||
+    asString(data.id) ||
+    asString(data.itemId) ||
+    asString(data.toolCallId) ||
+    asString(mapped.actionRef)
+
+  const identity = resolveContextPartChunkIdentity({
+    stepId,
+    provider: "codex",
+    providerPartId,
+    chunkType: mapped.chunkType,
+    partType: mapped.partType,
+    partSlot: mapped.partSlot,
+  })
+
+  return {
+    partId: identity?.partId,
+    providerPartId: identity?.providerPartId,
+    partType: identity?.partType,
+    partSlot: identity?.partSlot,
+    actionRef:
+      mapped.chunkType.startsWith("chunk.action_")
+        ? asString(mapped.actionRef) || identity?.providerPartId
+        : undefined,
+  }
+}
+
 export function mapCodexAppServerNotification(
   providerChunk: unknown,
 ): CodexChunkMappingResult | null {
@@ -305,6 +435,7 @@ export function mapCodexAppServerNotification(
   const itemType = normalizeLower(item.type)
   const itemStatus = normalizeLower(item.status)
   const actionRef = resolveActionRef(params, item)
+  const providerPartId = resolveProviderPartId(params, item)
   const hasItemError = Boolean(item.error)
 
   const mappedData = toJsonSafe({
@@ -312,13 +443,19 @@ export function mapCodexAppServerNotification(
     params,
   })
 
-  const map = (chunkType: ContextStreamChunkType): CodexChunkMappingResult => ({
-    chunkType,
-    providerChunkType: method,
-    actionRef: chunkType.startsWith("chunk.action_") ? actionRef : undefined,
-    data: mappedData,
-    raw: toJsonSafe(providerChunk),
-  })
+  const map = (chunkType: ContextStreamChunkType): CodexChunkMappingResult => {
+    const descriptor = withCodexPartDescriptor(chunkType, providerPartId)
+    return {
+      chunkType,
+      providerChunkType: method,
+      providerPartId: descriptor?.providerPartId,
+      partType: descriptor?.partType,
+      partSlot: descriptor?.partSlot,
+      actionRef: chunkType.startsWith("chunk.action_") ? actionRef : undefined,
+      data: mappedData,
+      raw: toJsonSafe(providerChunk),
+    }
+  }
 
   switch (method) {
     case "turn/started":
@@ -408,13 +545,27 @@ export function defaultMapCodexChunk(providerChunk: unknown): CodexChunkMappingR
   const chunk = asRecord(providerChunk)
   const providerChunkType = asString(chunk.type) || "unknown"
   const actionRef = asString(chunk.actionRef) || asString(chunk.toolCallId) || asString(chunk.id) || undefined
+  const providerPartId =
+    asString(chunk.providerPartId) ||
+    asString(chunk.itemId) ||
+    asString(chunk.toolCallId) ||
+    asString(chunk.id) ||
+    asString(chunk.actionRef) ||
+    undefined
+  const chunkType = mapCodexChunkType(providerChunkType)
+  const descriptor = withCodexPartDescriptor(chunkType, providerPartId)
 
   return {
-    chunkType: mapCodexChunkType(providerChunkType),
+    chunkType,
     providerChunkType,
+    providerPartId: descriptor?.providerPartId,
+    partType: descriptor?.partType,
+    partSlot: descriptor?.partSlot,
     actionRef,
     data: toJsonSafe({
       id: chunk.id,
+      itemId: chunk.itemId,
+      providerPartId: descriptor?.providerPartId,
       delta: chunk.delta,
       text: chunk.text,
       finishReason: chunk.finishReason,
@@ -596,10 +747,10 @@ async function executeCodexDynamicToolCall(
 }> {
   const toolName = asString(params.tool).trim()
   const callId = asString(params.callId).trim()
-  const action = toolName ? (args.actions ?? {})[toolName] as any : undefined
+  const action = toolName ? (args.actions ?? {})[toolName] : undefined
   const input = "arguments" in params ? params.arguments : {}
 
-  if (!toolName || !action || typeof action.execute !== "function") {
+  if (!toolName || !isCodexExecutableAction(action)) {
     const errorText = `codex_dynamic_tool_not_found:${toolName || "unknown"}`
     return {
       success: false,
@@ -615,7 +766,6 @@ async function executeCodexDynamicToolCall(
   try {
     const output = await action.execute(input, {
       runtime: args.runtime,
-      env: args.env,
       context: args.storedContext ?? args.context,
       contextIdentifier: args.contextIdentifier,
       toolCallId: callId || undefined,
@@ -884,15 +1034,15 @@ async function executeCodexSandboxTurn(
   },
 ): Promise<CodexTurnResult> {
   const sandboxConfig = args.config.sandbox ?? {}
-  const runtime = (args.runtime || (args.env as any)?.runtime) as any
-  if (!runtime || typeof runtime.use !== "function") {
+  const runtime = args.runtime
+  if (!isCodexSandboxRuntime(runtime)) {
     throw new Error("codex_sandbox_runtime_required")
   }
 
   const { sandboxDomain } = await import("@ekairos/sandbox")
   const scoped = await runtime.use(sandboxDomain)
-  const actions = (scoped as any).actions
-  const sandboxDb = (scoped as any).db
+  const actions = scoped.actions
+  const sandboxDb = scoped.db
   if (!actions) throw new Error("codex_sandbox_actions_required")
 
   const provider = sandboxConfig.provider ?? "sprites"
@@ -944,7 +1094,7 @@ async function executeCodexSandboxTurn(
       }),
       "codex_sandbox_create",
     )
-    sandboxId = String((created as any).sandboxId)
+    sandboxId = String(created.sandboxId)
   }
   if (!sandboxId) throw new Error("codex_sandbox_id_missing")
 
@@ -960,7 +1110,7 @@ async function executeCodexSandboxTurn(
       if (asString(item.type) !== "commandExecution") return
       const codexItemId = asString(item.id)
       if (!codexItemId || observedCommandProcesses.has(codexItemId)) return
-      if (!sandboxDb?.streams?.createWriteStream || !sandboxDb?.tx?.sandbox_processes) return
+      if (!hasStreamCapableSandboxDb(sandboxDb)) return
       const processId = randomUUID()
       const streamClientId = `sandbox-process:${processId}`
       const stream = sandboxDb.streams.createWriteStream({ clientId: streamClientId }) as WritableStream<string> & {
@@ -999,7 +1149,7 @@ async function executeCodexSandboxTurn(
             metadata,
           })
           .link({ sandbox: sandboxId, stream: streamId }),
-      ] as any)
+      ])
       const statusChunk = {
         version: 1,
         at: new Date().toISOString(),
@@ -1105,7 +1255,7 @@ async function executeCodexSandboxTurn(
             completed: item,
           },
         }),
-      ] as any)
+      ])
       observedCommandProcesses.delete(codexItemId)
     }
   }
@@ -1161,7 +1311,7 @@ async function executeCodexSandboxTurn(
     )
     if (requiredText) {
       const output = stripProviderControlChars(
-        `${asString(asRecord((result as any).result).output)}\n${asString(asRecord((result as any).result).error)}`,
+        `${asString(asRecord(result.result).output)}\n${asString(asRecord(result.result).error)}`,
       )
       if (!output.includes(requiredText)) {
         throw new Error(`${label}: missing_sentinel:${requiredText}:${output.slice(-1000)}`)
@@ -1221,7 +1371,7 @@ async function executeCodexSandboxTurn(
       }),
       "codex_sandbox_create_app",
     )
-    const createdAppOutput = stripProviderControlChars(asString(asRecord((createdApp as any).result).output))
+    const createdAppOutput = stripProviderControlChars(asString(asRecord(createdApp.result).output))
     if (!createdAppOutput.includes("sandbox_create_ekairos_app_ok")) {
       throw new Error(`codex_sandbox_create_app: missing_sentinel:${createdAppOutput.slice(-1000)}`)
     }
@@ -1261,7 +1411,7 @@ async function executeCodexSandboxTurn(
       "codex_sandbox_start_app_ok",
     )
     const portUrl = ensureOk(await actions.getPortUrl({ sandboxId, port: appPort }), "codex_sandbox_port_url")
-    appBaseUrl = String((portUrl as any).url ?? "").replace(/\/+$/, "")
+    appBaseUrl = String(portUrl.url ?? "").replace(/\/+$/, "")
     if (appBaseUrl) {
       const response = await fetch(`${appBaseUrl}/api/ekairos/domain`)
       if (!response.ok) throw new Error(`codex_sandbox_app_url_unavailable_${response.status}`)
@@ -1282,7 +1432,7 @@ async function executeCodexSandboxTurn(
     await actions.getPortUrl({ sandboxId, port: bridgePort }),
     "codex_sandbox_bridge_url",
   )
-  const bridgeBaseUrl = String((bridgeUrl as any).url ?? "").replace(/\/+$/, "")
+  const bridgeBaseUrl = String(bridgeUrl.url ?? "").replace(/\/+$/, "")
   if (!bridgeBaseUrl) throw new Error("codex_sandbox_bridge_url_missing")
 
   const turn = await executeCodexHttpTurn(
@@ -1574,12 +1724,17 @@ export async function executeCodexAppServerTurnStep<
     if (!mapped || mapped.skip) return
 
     sequence += 1
+    const identity = completeCodexMappedChunkIdentity(mapped, args.stepId)
     const mappedChunk: CodexMappedChunk = {
       at: new Date().toISOString(),
       sequence,
       chunkType: mapped.chunkType,
       providerChunkType: mapped.providerChunkType,
-      actionRef: mapped.actionRef,
+      partId: identity.partId,
+      providerPartId: identity.providerPartId,
+      partType: identity.partType,
+      partSlot: identity.partSlot,
+      actionRef: identity.actionRef,
       data: mapped.data,
       raw: mapped.raw ?? toJsonSafe(providerChunk),
     }
@@ -1600,13 +1755,20 @@ export async function executeCodexAppServerTurnStep<
       chunkType: mappedChunk.chunkType,
       provider: "codex",
       providerChunkType: mappedChunk.providerChunkType,
+      partId: mappedChunk.partId,
+      providerPartId: mappedChunk.providerPartId,
+      partType: mappedChunk.partType,
+      partSlot: mappedChunk.partSlot,
       actionRef: mappedChunk.actionRef,
       data: mappedChunk.data,
       raw: mappedChunk.raw,
     }
 
     await contextWriter?.write(
-      encodeContextStepStreamChunk(createContextStepStreamChunk(payload)),
+      encodeContextStepStreamChunk(createContextStepStreamChunk({
+        ...payload,
+        stepId: args.stepId,
+      })),
     )
     await workflowWriter?.write({
       type: "data-chunk.emitted",
@@ -1618,7 +1780,7 @@ export async function executeCodexAppServerTurnStep<
         itemId: args.eventId,
         ...payload,
       },
-    } as any)
+    })
   }
 
   const streamTrace = () => ({
@@ -1860,7 +2022,6 @@ export function createCodexReactor<
     const instruction = (
       options.buildInstruction
         ? await options.buildInstruction({
-            env: params.env,
             context,
             triggerEvent: params.triggerEvent,
           })
@@ -1868,7 +2029,6 @@ export function createCodexReactor<
     ).trim()
 
     const config = await options.resolveConfig({
-      env: params.env,
       context,
       triggerEvent: params.triggerEvent,
       contextId: params.contextId,
@@ -1894,9 +2054,7 @@ export function createCodexReactor<
         if (repoPath) config.repoPath = repoPath
       }
     }
-    const effectiveActionSpecs = toCodexActionSpecs(
-      params.actionSpecs ?? asRecord((params as any).toolsForModel),
-    )
+    const effectiveActionSpecs = toCodexActionSpecs(actionsToActionSpecs(params.actions))
 
     const startedAtMs = Date.now()
     let streamedAssistantText = ""
@@ -1962,13 +2120,18 @@ export function createCodexReactor<
       if (!mapped || mapped.skip) return
       const now = new Date().toISOString()
       chunkSequence += 1
+      const identity = completeCodexMappedChunkIdentity(mapped, params.stepId)
 
       const mappedChunk: CodexMappedChunk = {
         at: now,
         sequence: chunkSequence,
         chunkType: mapped.chunkType,
         providerChunkType: mapped.providerChunkType,
-        actionRef: mapped.actionRef,
+        partId: identity.partId,
+        providerPartId: identity.providerPartId,
+        partType: identity.partType,
+        partSlot: identity.partSlot,
+        actionRef: identity.actionRef,
         data: mapped.data,
         raw: includeRawProviderChunksInOutput
           ? mapped.raw ?? toJsonSafe(providerChunk)
@@ -2045,6 +2208,10 @@ export function createCodexReactor<
         chunkType: mappedChunk.chunkType,
         provider: "codex",
         providerChunkType: mappedChunk.providerChunkType,
+        partId: mappedChunk.partId,
+        providerPartId: mappedChunk.providerPartId,
+        partType: mappedChunk.partType,
+        partSlot: mappedChunk.partSlot,
         actionRef: mappedChunk.actionRef,
         data: mappedChunk.data,
         raw: mapped.raw ?? toJsonSafe(providerChunk),
@@ -2055,7 +2222,10 @@ export function createCodexReactor<
         try {
           await writer.write(
             encodeContextStepStreamChunk(
-              createContextStepStreamChunk(payload),
+              createContextStepStreamChunk({
+                ...payload,
+                stepId: params.stepId,
+              }),
             ),
           )
         } finally {
@@ -2085,7 +2255,6 @@ export function createCodexReactor<
 
     const turn = options.executeTurn
       ? await options.executeTurn({
-        env: params.env,
         runtime: params.runtime,
         context,
         triggerEvent: params.triggerEvent,
@@ -2108,7 +2277,6 @@ export function createCodexReactor<
       })
       : await executeCodexAppServerTurnStep({
           config,
-          env: params.env,
           runtime: params.runtime,
           instruction,
           systemPrompt: params.systemPrompt,

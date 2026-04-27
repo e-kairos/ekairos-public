@@ -8,6 +8,7 @@ import type {
   ContextStreamChunkType,
 } from "./context.contract.js"
 import { isContextStreamChunkType } from "./context.contract.js"
+import { assertValidContextPartChunkIdentity } from "./context.part-identity.js"
 
 type IsoDateString = string
 
@@ -158,6 +159,10 @@ export type ChunkEmittedEvent = ContextStreamEventBase & {
   stepId?: string
   itemId?: string
   partKey?: string
+  partId?: string
+  providerPartId?: string
+  partType?: string
+  partSlot?: string
   actionRef?: string
   provider?: string
   providerChunkType?: string
@@ -214,6 +219,13 @@ function assertString(value: unknown, label: string): asserts value is string {
 function assertNumber(value: unknown, label: string): asserts value is number {
   if (typeof value !== "number" || Number.isNaN(value)) {
     throw new Error(`Invalid ${label}: expected number.`)
+  }
+}
+
+function assertPositiveInteger(value: unknown, label: string): asserts value is number {
+  assertNumber(value, label)
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`Invalid ${label}: expected positive integer.`)
   }
 }
 
@@ -324,10 +336,26 @@ export function parseContextStreamEvent(value: unknown): ContextStreamEvent {
       assertOptionalString(value.stepId, `${type}.stepId`)
       assertOptionalString(value.itemId, `${type}.itemId`)
       assertOptionalString(value.partKey, `${type}.partKey`)
+      assertOptionalString(value.partId, `${type}.partId`)
+      assertOptionalString(value.providerPartId, `${type}.providerPartId`)
+      assertOptionalString(value.partType, `${type}.partType`)
+      assertOptionalString(value.partSlot, `${type}.partSlot`)
       assertOptionalString(value.actionRef, `${type}.actionRef`)
       assertOptionalString(value.provider, `${type}.provider`)
       assertOptionalString(value.providerChunkType, `${type}.providerChunkType`)
-      assertOptionalNumber(value.sequence, `${type}.sequence`)
+      assertPositiveInteger(value.sequence, `${type}.sequence`)
+      assertValidContextPartChunkIdentity({
+        label: type,
+        chunkType: value.chunkType,
+        stepId: typeof value.stepId === "string" ? value.stepId : undefined,
+        partId: typeof value.partId === "string" ? value.partId : undefined,
+        provider: typeof value.provider === "string" ? value.provider : undefined,
+        providerPartId:
+          typeof value.providerPartId === "string" ? value.providerPartId : undefined,
+        partType: typeof value.partType === "string" ? value.partType : undefined,
+        partSlot: typeof value.partSlot === "string" ? value.partSlot : undefined,
+        actionRef: typeof value.actionRef === "string" ? value.actionRef : undefined,
+      })
       return value as ChunkEmittedEvent
     }
     default:

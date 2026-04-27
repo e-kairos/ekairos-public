@@ -5,7 +5,7 @@ import { readFile } from "fs/promises"
 import { init, id as newId } from "@instantdb/admin"
 import { i } from "@instantdb/core"
 import { domain } from "@ekairos/domain"
-import { configureRuntime } from "@ekairos/domain/runtime"
+import { configureRuntime, EkairosRuntime } from "@ekairos/domain/runtime"
 import { createScriptedReactor, eventsDomain } from "@ekairos/events"
 import { sandboxDomain, SandboxService } from "@ekairos/sandbox"
 import { dataset } from "../dataset"
@@ -62,9 +62,26 @@ if (adminDb) {
 
 if (adminDb) {
   configureRuntime({
+    domain: { domain: appDomain },
     runtime: async () => ({ db: adminDb } as any),
   })
 }
+
+type TestEnv = Record<string, unknown> & {
+  orgId: string
+}
+
+class DatasetBuilderTestRuntime extends EkairosRuntime<TestEnv, typeof appDomain, any> {
+  protected getDomain() {
+    return appDomain
+  }
+
+  protected resolveDb() {
+    return adminDb as any
+  }
+}
+
+const testRuntime = new DatasetBuilderTestRuntime({ orgId: "test-org" })
 
 function parseJsonl(text: string): any[] {
   return text
@@ -206,7 +223,7 @@ describeInstant("dataset() builder direct API", () => {
   it("fromQuery(domain, query) creates a dataset snapshot without reactor", async () => {
     const { electronicsCategory } = await seedSampleRows(`snapshot-${Date.now()}`)
 
-    const result = await dataset({ orgId: "test-org" })
+    const result = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -267,7 +284,7 @@ describeInstant("dataset() builder direct API", () => {
         ],
       })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromQuery(sampleDomain, {
           query: {
@@ -345,7 +362,7 @@ describeInstant("dataset() builder direct API", () => {
         ],
       })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromFile({ fileId, description: "supplier csv" })
         .schema({
@@ -413,7 +430,7 @@ describeInstant("dataset() builder direct API", () => {
       ],
     })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromText({
           text: "code,description,price\nA1,Widget,10.5\nA2,Gadget,20\nA3,Thing,30.25\n",
@@ -433,7 +450,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("fromDataset(datasetId) + reactor + instructions produces a derived dataset", async () => {
     const { electronicsCategory } = await seedSampleRows(`derived-${Date.now()}`)
-    const source = await dataset({ orgId: "test-org" })
+    const source = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -470,7 +487,7 @@ describeInstant("dataset() builder direct API", () => {
         ],
       })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromDataset({ datasetId: source.datasetId, description: "source electronics" })
         .instructions("Rename fields to sku and priceUsd")
@@ -502,7 +519,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("multiple sources with reactor and instructions produce a combined dataset", async () => {
     const { electronicsCategory } = await seedSampleRows(`combined-${Date.now()}`)
-    const sourceDataset = await dataset({ orgId: "test-org" })
+    const sourceDataset = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -548,7 +565,7 @@ describeInstant("dataset() builder direct API", () => {
         ],
       })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromDataset({ datasetId: sourceDataset.datasetId, description: "electronics" })
         .fromQuery(sampleDomain, {
@@ -586,7 +603,7 @@ describeInstant("dataset() builder direct API", () => {
     const { electronicsCategory } = await seedSampleRows(`first-${Date.now()}`)
 
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .fromQuery(sampleDomain, {
           query: {
             sample_items: {
@@ -610,7 +627,7 @@ describeInstant("dataset() builder direct API", () => {
     const fileId = uploadResult?.data?.id as string
 
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .fromFile({ fileId })
         .schema({
           title: "ProductRecord",
@@ -630,7 +647,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("fromText without sandbox fails with dataset_sandbox_required", async () => {
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .fromText({ text: "hello", name: "hello.txt" })
         .build({ datasetId: "text_no_sandbox_v1" }),
     ).rejects.toThrow("dataset_sandbox_required")
@@ -638,7 +655,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("fromDataset without sandbox fails with dataset_sandbox_required", async () => {
     const { electronicsCategory } = await seedSampleRows(`noreactor-dataset-${Date.now()}`)
-    const source = await dataset({ orgId: "test-org" })
+    const source = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -649,7 +666,7 @@ describeInstant("dataset() builder direct API", () => {
       .build({ datasetId: "dataset_source_no_reactor_v1" })
 
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .fromDataset({ datasetId: source.datasetId })
         .build({ datasetId: "dataset_no_sandbox_v1" }),
     ).rejects.toThrow("dataset_sandbox_required")
@@ -657,7 +674,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("multiple sources without sandbox fail with dataset_sandbox_required", async () => {
     const { electronicsCategory } = await seedSampleRows(`noreactor-multi-${Date.now()}`)
-    const source = await dataset({ orgId: "test-org" })
+    const source = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -668,7 +685,7 @@ describeInstant("dataset() builder direct API", () => {
       .build({ datasetId: "multi_no_reactor_source_v1" })
 
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .fromDataset({ datasetId: source.datasetId })
         .fromQuery(sampleDomain, {
           query: {
@@ -692,7 +709,7 @@ describeInstant("dataset() builder direct API", () => {
     const fileId = uploadResult?.data?.id as string
 
     await expect(
-      dataset({ orgId: "test-org" })
+      dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromFile({ fileId })
         .schema({
@@ -713,7 +730,7 @@ describeInstant("dataset() builder direct API", () => {
 
   it("build({ datasetId }) persists the target id and keeps source ids separate", async () => {
     const { electronicsCategory } = await seedSampleRows(`target-${Date.now()}`)
-    const source = await dataset({ orgId: "test-org" })
+    const source = await dataset(testRuntime)
       .fromQuery(sampleDomain, {
         query: {
           sample_items: {
@@ -743,7 +760,7 @@ describeInstant("dataset() builder direct API", () => {
         ],
       })
 
-      const result = await dataset({ orgId: "test-org" })
+      const result = await dataset(testRuntime)
         .sandbox({ sandboxId: suiteSandboxId! })
         .fromDataset({ datasetId: source.datasetId, description: "copy me" })
         .instructions("Copy the dataset as-is")

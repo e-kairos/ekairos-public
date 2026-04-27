@@ -1,8 +1,8 @@
 import { i } from "@instantdb/core"
-import { domain, type DomainSchemaResult } from "@ekairos/domain"
+import { domain } from "@ekairos/domain"
 
-export const eventsDomain: DomainSchemaResult = domain("events")
-    .schema({
+export const eventsDomain = domain("events")
+    .withSchema({
         entities: {
             event_contexts: i.entity({
                 createdAt: i.date(),

@@ -14,9 +14,66 @@ import type {
   ActiveDomain,
   CompatibleSchemaForDomain,
   DomainSchemaResult,
+  IncludedDomainNamesOf,
   SchemaOf,
 } from "./index.js"
 import { materializeDomain } from "./index.js"
+
+type DomainNamesCompatible<
+  RootDomain,
+  RequiredDomain extends DomainSchemaResult,
+> = string extends IncludedDomainNamesOf<RootDomain>
+  ? true
+  : string extends IncludedDomainNamesOf<RequiredDomain>
+    ? true
+    : Exclude<IncludedDomainNamesOf<RequiredDomain>, IncludedDomainNamesOf<RootDomain>> extends never
+      ? true
+      : false
+
+type RootIncludesDomain<
+  RootDomain,
+  RequiredDomain extends DomainSchemaResult,
+> = RootDomain extends DomainSchemaResult
+  ? DomainNamesCompatible<RootDomain, RequiredDomain> extends true
+    ? CompatibleSchemaForDomain<SchemaOf<RootDomain>, RequiredDomain> extends never
+      ? false
+      : true
+    : false
+  : false
+
+type SubdomainForRoot<
+  RootDomain,
+  Subdomain extends DomainSchemaResult,
+> = RootIncludesDomain<RootDomain, Subdomain> extends true ? Subdomain : never
+
+type RuntimeUseForDomain<
+  Env,
+  RequiredDomain extends DomainSchemaResult,
+> = {
+  use(
+    subdomain: RequiredDomain,
+    options?: RuntimeResolveOptions,
+  ): Promise<Omit<ActiveDomain<RequiredDomain, Env>, "env">>
+}
+
+type RuntimeEnvOf<Runtime extends EkairosRuntime<any, any, any>> =
+  Runtime extends EkairosRuntime<infer Env, any, any> ? Env : never
+
+type RuntimeRootDomainOf<Runtime extends EkairosRuntime<any, any, any>> =
+  Runtime extends EkairosRuntime<any, infer RootDomain, any> ? RootDomain : never
+
+type IsAny<T> = 0 extends (1 & T) ? true : false
+
+type RuntimeDomainCompatibility<
+  Runtime extends EkairosRuntime<any, any, any>,
+  RequiredDomain extends DomainSchemaResult,
+> = IsAny<Runtime> extends true
+  ? unknown
+  : IsAny<RuntimeRootDomainOf<Runtime>> extends true
+  ? unknown
+  : RootIncludesDomain<RuntimeRootDomainOf<Runtime>, RequiredDomain> extends true
+    ? unknown
+    : never
 
 function resolveSchema(domain?: RuntimeDomainSource | null): any {
   if (!domain) return null
@@ -116,11 +173,7 @@ export abstract class EkairosRuntime<
   }
 
   public async use<SubD extends DomainSchemaResult>(
-    subdomain: D extends DomainSchemaResult
-      ? CompatibleSchemaForDomain<SchemaOf<D>, SubD> extends never
-        ? never
-        : SubD
-      : never,
+    subdomain: SubdomainForRoot<D, SubD>,
     options?: RuntimeResolveOptions,
   ): Promise<ActiveDomain<SubD, Env>> {
     const rootDomain = this.getDomain() as any
@@ -147,13 +200,10 @@ export type ExplicitRuntimeLike<
   DB = DomainDbFor<D>,
 > = RuntimeLike<Env, D, DB>
 
-export type CompatibleRuntimeForDomain<
-  Runtime,
+export type RuntimeForDomain<
+  Runtime extends EkairosRuntime<any, any, any>,
   RequiredDomain extends DomainSchemaResult,
-> = Runtime extends EkairosRuntime<infer Env, infer RootDomain, infer DB>
-  ? RootDomain extends DomainSchemaResult
-    ? CompatibleSchemaForDomain<SchemaOf<RootDomain>, RequiredDomain> extends never
-      ? never
-      : EkairosRuntime<Env, RootDomain, DB>
-    : never
-  : never
+> =
+  & Pick<Runtime, "db" | "resolve" | "meta">
+  & RuntimeUseForDomain<RuntimeEnvOf<Runtime>, RequiredDomain>
+  & RuntimeDomainCompatibility<Runtime, RequiredDomain>

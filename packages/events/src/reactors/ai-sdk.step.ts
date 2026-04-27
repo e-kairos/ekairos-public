@@ -30,7 +30,10 @@ async function readWorkflowMetadata(): Promise<WorkflowMeta | null> {
   }
 }
 
-async function resolveWorkflowRunId(env: ContextEnvironment, executionId?: string) {
+async function resolveWorkflowRunId<Env extends ContextEnvironment>(
+  runtime: import("../context.runtime.js").ContextRuntimeServiceHandle,
+  executionId?: string,
+) {
   let runId = ""
   const meta = await readWorkflowMetadata()
   if (meta && meta.workflowRunId !== undefined && meta.workflowRunId !== null) {
@@ -39,9 +42,7 @@ async function resolveWorkflowRunId(env: ContextEnvironment, executionId?: strin
 
   if (!runId && executionId) {
     try {
-      const { getContextRuntime } = await import("../runtime.js")
-      const runtime = await getContextRuntime(env)
-      const db: any = (runtime as any)?.db
+      const db: any = await runtime.db()
       if (db) {
         const q = await db.query({
           event_executions: {
@@ -101,9 +102,8 @@ function safeErrorJson(error: unknown) {
  * - map provider chunks to the Context stream contract
  * - emit UI chunks and persist step stream chunks
  */
-export async function executeAiSdkReaction(params: {
-  runtime: import("../context.runtime.js").ContextRuntime<ContextEnvironment>
-  env: ContextEnvironment
+export async function executeAiSdkReaction<Env extends ContextEnvironment = ContextEnvironment>(params: {
+  runtime: import("../context.runtime.js").ContextRuntimeServiceHandle
   contextIdentifier: ContextIdentifier
   events?: ContextItem[]
   model: ContextModelInit
@@ -204,7 +204,7 @@ export async function executeAiSdkReaction(params: {
 
   const modelId = typeof params.model === "string" ? params.model : ""
   const mappedProvider =
-    modelId.includes("/") ? modelId.split("/")[0] : undefined
+    modelId.includes("/") ? modelId.split("/")[0] || "ai-sdk" : "ai-sdk"
 
   const contextStepStreamWriter = params.contextStepStream?.getWriter()
 
@@ -254,6 +254,11 @@ export async function executeAiSdkReaction(params: {
                 at: mapped.at,
                 sequence: mapped.sequence,
                 chunkType: mapped.chunkType,
+                stepId: params.stepId,
+                partId: mapped.partId,
+                providerPartId: mapped.providerPartId,
+                partType: mapped.partType,
+                partSlot: mapped.partSlot,
                 provider: mapped.provider,
                 providerChunkType: mapped.providerChunkType,
                 actionRef: mapped.actionRef,
@@ -383,10 +388,10 @@ export async function executeAiSdkReaction(params: {
         }
 
   try {
-    const runId = await resolveWorkflowRunId(params.env, params.executionId)
+    const runId = await resolveWorkflowRunId(params.runtime, params.executionId)
     if (runId && llm) {
       await writeContextTraceEvents({
-        env: params.env,
+        runtime: params.runtime,
         events: [
           {
             workflowRunId: runId,

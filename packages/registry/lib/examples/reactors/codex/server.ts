@@ -255,14 +255,16 @@ export async function handleCodexShowcaseRunRequest(request: Request) {
       approvalPolicy,
     } as CodexShowcaseEnv);
 
-    const reaction = await codexShowcaseContext.react(triggerEvent, {
+    const shell = await codexShowcaseContext.react(triggerEvent, {
       runtime,
       context: contextId ? { id: contextId } : null,
+      durable: false,
       options: {
         maxIterations: 1,
         maxModelSteps: 1,
       },
     });
+    const reaction = await shell.run!;
     const resolvedRuntime = await runtime.resolve();
     const runtimeDb: any = resolvedRuntime.db;
 

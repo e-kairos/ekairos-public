@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, join, parse } from "node:path"
 import { createInterface, type Interface } from "node:readline"
 import {
   OUTPUT_ITEM_TYPE,
@@ -11,6 +11,7 @@ import {
   type ContextReactionResult,
   type ContextReactor,
   type ContextReactorParams,
+  actionsToActionSpecs,
 } from "@ekairos/events"
 import { createCodexReactor, type CodexConfig } from "@ekairos/openai-reactor"
 
@@ -39,6 +40,7 @@ export type RealCodexRunner = {
     providerContextId?: string
     approvalPolicy?: string
     skills?: ContextSkillPackage[]
+    onEvent?: (event: JsonRecord) => Promise<void> | void
   }) => Promise<CodexRealTurnResult>
   dispose: () => Promise<void>
 }
@@ -58,12 +60,70 @@ function asArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
 }
 
+const BENCHMARK_TIMINGS = process.env.EKAIROS_BENCHMARK_TIMINGS === "1"
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name])
+  if (!Number.isFinite(value) || value <= 0) return fallback
+  return Math.floor(value)
+}
+
+function benchmarkLog(label: string, data: Record<string, unknown>) {
+  if (!BENCHMARK_TIMINGS) return
+  console.log(`[dataset-codex-benchmark] ${JSON.stringify({ source: "codex.real", stage: label, ...data })}`)
+}
+
+function inferTurnLabel(instruction: string): string {
+  const datasetId = instruction.match(/\bcodex_skill_[a-z0-9_]+\b/i)?.[0]
+  if (datasetId) return datasetId
+
+  const firstLine = instruction
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean)
+  return firstLine?.slice(0, 80) || "turn"
+}
+
 function isValidProviderContextId(value: string): boolean {
   const normalized = value.trim()
   if (!normalized) return false
   if (/^[0-9a-fA-F-]{36}$/.test(normalized)) return true
   if (/^urn:uuid:[0-9a-fA-F-]{36}$/.test(normalized)) return true
   return false
+}
+
+function findNearestCodexProjectRoot(startPath: string): string {
+  let current = startPath
+  const root = parse(current).root
+
+  while (current && current !== root) {
+    if (existsSync(join(current, ".codex"))) return current
+    current = dirname(current)
+  }
+
+  return startPath
+}
+
+function formatTomlString(value: string): string {
+  return JSON.stringify(value)
+}
+
+function writeTempCodexConfig(codexHome: string) {
+  const projectRoot = findNearestCodexProjectRoot(process.cwd())
+  const trustedProjects = Array.from(
+    new Set([
+      projectRoot,
+      projectRoot.toLowerCase(),
+      process.cwd(),
+      process.cwd().toLowerCase(),
+    ]),
+  )
+
+  const content = trustedProjects
+    .map((projectPath) => [`[projects.${formatTomlString(projectPath)}]`, 'trust_level = "trusted"'].join("\n"))
+    .join("\n\n")
+
+  writeFileSync(join(codexHome, "config.toml"), `${content}\n`, "utf8")
 }
 
 function textFromTriggerEvent(event: ContextItem): string {
@@ -96,6 +156,7 @@ function parseToolCallPayload(value: string): { tool?: string; input?: unknown }
 export async function setupRealCodexRunner(params?: {
   env?: Record<string, string>
 }): Promise<RealCodexRunner> {
+  const setupStartedAt = Date.now()
   let codexProcess: ChildProcessWithoutNullStreams | null = null
   let codexStdout: Interface | null = null
   const pendingRpc = new Map<string, PendingRpc>()
@@ -161,6 +222,7 @@ export async function setupRealCodexRunner(params?: {
   const codexHome = join(tmpdir(), `ekairos-dataset-codex-home-${Date.now()}-${Math.random().toString(36).slice(2)}`)
   mkdirSync(codexHome, { recursive: true })
   mkdirSync(join(codexHome, "skills"), { recursive: true })
+  writeTempCodexConfig(codexHome)
   for (const fileName of ["auth.json", ".credentials.json"]) {
     const source = join(currentCodexHome, fileName)
     if (!existsSync(source)) continue
@@ -196,20 +258,30 @@ export async function setupRealCodexRunner(params?: {
   codexStdout = createInterface({ input: codexProcess.stdout })
   codexStdout.on("line", handleStdoutLine)
 
+  const initializeStartedAt = Date.now()
   await sendRpc("initialize", {
     clientInfo: { name: "ekairos-dataset-tests", version: "1.0.0" },
     capabilities: {},
   })
   codexProcess.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`)
+  benchmarkLog("runner.initialize", { ms: Date.now() - initializeStartedAt })
+  benchmarkLog("runner.setup", { ms: Date.now() - setupStartedAt })
 
   return {
     async runTurn(params) {
+      const runStartedAt = Date.now()
+      const turnLabel = inferTurnLabel(params.instruction)
+      const skillsStartedAt = Date.now()
       installSkills(params.skills)
+      const skillsMs = Date.now() - skillsStartedAt
       const requestedThreadId = asString(params.providerContextId).trim()
       let threadId = requestedThreadId
+      const threadStartedAt = Date.now()
+      let threadOperation = "resume"
       if (threadId && isValidProviderContextId(threadId)) {
         await sendRpc("thread/resume", { threadId })
       } else {
+        threadOperation = "start"
         const started = await sendRpc("thread/start", {
           cwd: params.repoPath,
           approvalPolicy: params.approvalPolicy ?? "never",
@@ -222,7 +294,9 @@ export async function setupRealCodexRunner(params?: {
       }
 
       if (!threadId) throw new Error("thread_id_missing")
+      const threadMs = Date.now() - threadStartedAt
 
+      const turnStartStartedAt = Date.now()
       const turnStart = await sendRpc("turn/start", {
         threadId,
         input: [{ type: "text", text: params.instruction }],
@@ -235,18 +309,30 @@ export async function setupRealCodexRunner(params?: {
         asString(asRecord(asRecord(turnStart.result).turn).id) ||
         asString(asRecord(turnStart.result).id) ||
         asString(turnStart.turnId)
+      const turnStartMs = Date.now() - turnStartStartedAt
 
       let assistantText = ""
       let reasoningText = ""
       let diff = ""
       let usage: JsonRecord = {}
       const stream: JsonRecord[] = []
+      let onEventChain: Promise<void> = Promise.resolve()
+      const emitRunnerEvent = (event: JsonRecord) => {
+        if (!params.onEvent) return
+        onEventChain = onEventChain.then(async () => {
+          await params.onEvent!(event)
+        })
+      }
 
-      const completedTurn = await new Promise<JsonRecord>((resolve, reject) => {
+      const waitStartedAt = Date.now()
+      const turnTimeoutMs = readPositiveIntEnv("EKAIROS_CODEX_TURN_TIMEOUT_MS", 180_000)
+      let completedTurn: JsonRecord
+      try {
+        completedTurn = await new Promise<JsonRecord>((resolve, reject) => {
         const timeout = setTimeout(() => {
           unsubscribe()
           reject(new Error("turn_completion_timeout"))
-        }, 180_000)
+        }, turnTimeoutMs)
 
         const unsubscribe = subscribe((event) => {
           const method = asString(event.method)
@@ -266,6 +352,7 @@ export async function setupRealCodexRunner(params?: {
           }
 
           stream.push(event)
+          emitRunnerEvent(event)
 
           if (method === "item/agentMessage/delta") {
             assistantText += asString(eventParams.delta)
@@ -294,6 +381,45 @@ export async function setupRealCodexRunner(params?: {
             resolve(asRecord(eventParams.turn))
           }
         })
+      })
+      } catch (error) {
+        const waitMs = Date.now() - waitStartedAt
+        benchmarkLog("runner.runTurn.failed", {
+          label: turnLabel,
+          totalMs: Date.now() - runStartedAt,
+          skillsMs,
+          threadMs,
+          threadOperation,
+          turnStartMs,
+          waitMs,
+          timeoutMs: turnTimeoutMs,
+          streamEvents: stream.length,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw error
+      }
+      await onEventChain
+      const waitMs = Date.now() - waitStartedAt
+      const commandDurations = stream
+        .map((event) => {
+          if (asString(event.method) !== "item/completed") return undefined
+          const item = asRecord(asRecord(event.params).item)
+          if (asString(item.type) !== "commandExecution") return undefined
+          return typeof item.durationMs === "number" ? item.durationMs : undefined
+        })
+        .filter((entry): entry is number => typeof entry === "number")
+
+      benchmarkLog("runner.runTurn", {
+        label: turnLabel,
+        totalMs: Date.now() - runStartedAt,
+        skillsMs,
+        threadMs,
+        threadOperation,
+        turnStartMs,
+        waitMs,
+        streamEvents: stream.length,
+        commandCount: commandDurations.length,
+        commandDurationMs: commandDurations.reduce((total, entry) => total + entry, 0),
       })
 
       return {
@@ -346,14 +472,19 @@ export async function setupRealCodexRunner(params?: {
 export function createCodexJsonToolReactor<Context, Env extends { repoPath: string; approvalPolicy?: string }>(
   params: {
     runner: RealCodexRunner
+    repoPath: string
+    approvalPolicy?: string
   },
 ): ContextReactor<Context, Env> {
   return async (reactorParams: ContextReactorParams<Context, Env>): Promise<ContextReactionResult> => {
-    const toolSpecs = Object.entries(reactorParams.toolsForModel).map(([name, definition]) => ({
-      name,
-      description: (definition as any)?.description ?? "",
-      inputSchema: (definition as any)?.inputSchema ?? null,
-    }))
+    const toolSpecs = Object.entries(actionsToActionSpecs(reactorParams.actions)).map(([name, definition]) => {
+      const record = asRecord(definition)
+      return {
+        name,
+        description: asString(record.description),
+        inputSchema: record.inputSchema ?? null,
+      }
+    })
 
     const instruction = [
       reactorParams.systemPrompt,
@@ -371,8 +502,8 @@ export function createCodexJsonToolReactor<Context, Env extends { repoPath: stri
 
     const turn = await params.runner.runTurn({
       instruction,
-      repoPath: reactorParams.env.repoPath,
-      approvalPolicy: reactorParams.env.approvalPolicy ?? "never",
+      repoPath: params.repoPath,
+      approvalPolicy: params.approvalPolicy ?? "never",
       skills: reactorParams.skills,
     })
 
@@ -381,7 +512,7 @@ export function createCodexJsonToolReactor<Context, Env extends { repoPath: stri
     const toolInput = parsed?.input
     const actionRef = randomUUID()
     const toolPart =
-      toolName && Object.prototype.hasOwnProperty.call(reactorParams.toolsForModel, toolName)
+      toolName && Object.prototype.hasOwnProperty.call(reactorParams.actions, toolName)
         ? [
             {
               type: `tool-${toolName}`,
@@ -431,13 +562,15 @@ export function createCodexJsonToolReactor<Context, Env extends { repoPath: stri
 export function createRealCodexCommandReactor<Context, Env extends { repoPath: string; approvalPolicy?: string }>(
   params: {
     runner: RealCodexRunner
+    repoPath: string
+    approvalPolicy?: string
   },
 ) {
   return createCodexReactor<Context, CodexConfig, Env>({
-    resolveConfig: async ({ env }) => ({
+    resolveConfig: async () => ({
       appServerUrl: "http://127.0.0.1/unused",
-      repoPath: env.repoPath,
-      approvalPolicy: env.approvalPolicy ?? "never",
+      repoPath: params.repoPath,
+      approvalPolicy: params.approvalPolicy ?? "never",
       mode: "local",
     }),
     executeTurn: async (args) => {
@@ -447,11 +580,8 @@ export function createRealCodexCommandReactor<Context, Env extends { repoPath: s
         providerContextId: args.config.providerContextId,
         approvalPolicy: args.config.approvalPolicy,
         skills: args.skills,
+        onEvent: args.emitChunk,
       })
-
-      for (const event of turn.stream) {
-        await args.emitChunk(event)
-      }
 
       return {
         providerContextId: turn.providerContextId,

@@ -1,6 +1,6 @@
 import "../polyfills/dom-events.js";
 import type { ContextEnvironment } from "../context.config.js";
-import type { ContextRuntime } from "../context.runtime.js";
+import type { ContextRuntimeServiceHandle } from "../context.runtime.js";
 import { getContextRuntimeServices } from "../context.runtime.js";
 import type { TraceEventKind } from "../context.contract.js";
 import { lookup } from "@instantdb/admin";
@@ -26,6 +26,23 @@ function requireToken(): string {
 
 type JwtCache = { token: string; expMs: number };
 let jwtCache: JwtCache | null = null;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function asTraceEnv(value: unknown):
+  | { baseUrl?: string; apiKey?: string; projectId?: string; strict?: boolean }
+  | undefined {
+  const record = asRecord(value);
+  if (Object.keys(record).length === 0) return undefined;
+  return {
+    baseUrl: typeof record.baseUrl === "string" ? record.baseUrl : undefined,
+    apiKey: typeof record.apiKey === "string" ? record.apiKey : undefined,
+    projectId: typeof record.projectId === "string" ? record.projectId : undefined,
+    strict: record.strict === true,
+  };
+}
 
 function parseJwtExpMs(token: string): number | null {
   const parts = token.split(".");
@@ -58,8 +75,8 @@ async function getTraceAuthHeader(baseUrl: string, projectId: string): Promise<s
       body: JSON.stringify({ projectId }),
     });
     if (res.ok) {
-      const json = (await res.json()) as any;
-      const token = typeof json?.token === "string" ? json.token : "";
+      const json = asRecord(await res.json());
+      const token = typeof json.token === "string" ? json.token : "";
       const expMs = parseJwtExpMs(token) ?? now + 60 * 60 * 1000;
       if (token) {
         jwtCache = { token, expMs };
@@ -123,16 +140,15 @@ async function readProjectId(): Promise<string> {
   return fallback;
 }
 
-export async function writeContextTraceEvents(params: {
-  runtime?: ContextRuntime<ContextEnvironment>;
-  env: ContextEnvironment;
+export async function writeContextTraceEvents<Env extends ContextEnvironment = ContextEnvironment>(params: {
+  runtime?: ContextRuntimeServiceHandle;
+  env?: Env;
   events: ContextTraceEventWrite[];
 }) {
   if (!params.events?.length) return;
 
-  const envTrace = (params.env as any)?.traces as
-    | { baseUrl?: string; apiKey?: string; projectId?: string; strict?: boolean }
-    | undefined;
+  const envRecord = asRecord(params.env);
+  const envTrace = asTraceEnv(envRecord.traces);
 
   // Tracing must NEVER break workflows by default.
   // Use EKAIROS_TRACES_STRICT=1 if you want to fail hard.
@@ -143,12 +159,12 @@ export async function writeContextTraceEvents(params: {
       throw new Error("[context/trace] runtime is required");
     }
     const runtime = await getContextRuntimeServices(params.runtime);
-    const db: any = (runtime as any)?.db;
+    const db = runtime.db;
     if (db) {
       const now = new Date();
       const orgId =
-        typeof (params.env as any)?.orgId === "string"
-          ? String((params.env as any).orgId)
+        typeof envRecord.orgId === "string"
+          ? String(envRecord.orgId)
           : "";
       const projectId = await readProjectId();
 

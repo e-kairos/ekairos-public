@@ -1,8 +1,15 @@
-import type { ModelMessage, Tool, UIMessageChunk } from "ai"
+import type { ModelMessage, UIMessageChunk } from "ai"
+import type { DomainSchemaResult } from "@ekairos/domain"
 
 import type { ContextEnvironment } from "./context.config.js"
-import type { ContextRuntime } from "./context.runtime.js"
+import type { ContextTool } from "./context.action.js"
+import type {
+  ContextRuntime,
+  ContextRuntimeHandleForDomain,
+  ContextRuntimeForDomain,
+} from "./context.runtime.js"
 import { getContextRuntimeServices } from "./context.runtime.js"
+import { eventsDomain } from "./schema.js"
 import type {
   ContextExecution,
   ContextItem,
@@ -17,25 +24,27 @@ import {
 } from "./context.parts.js"
 import type { ContextStreamEvent } from "./context.stream.js"
 
-import type { SerializableActionSpec } from "./tools-to-model-tools.js"
 import type { ContextSkillPackage } from "./context.skill.js"
-import { actionsToActionSpecs } from "./tools-to-model-tools.js"
 import {
   createAiSdkReactor,
   type ContextReactor,
 } from "./context.reactor.js"
 import {
   abortPersistedContextStepStream,
-  closePersistedContextStepStream,
-  createPersistedContextStepStream,
   closeContextStream,
+  createPersistedContextStepStreamForRuntime,
+  finalizePersistedContextStepStreamForRuntime,
+  type PersistedContextStepStreamSession,
 } from "./steps/stream.steps.js"
 import {
   completeExecution,
   createContextStep,
+  finalizeReactionStep,
   getContextItems,
   initializeContext,
+  openReactionStep,
   saveTriggerAndCreateExecution,
+  saveContextPartsAndUpdateReaction,
   saveContextPartsStep,
   updateContextContent,
   updateContextReactor,
@@ -50,9 +59,21 @@ import {
 } from "./context.hooks.js"
 import { getContextDurableWorkflow } from "./context.durable.js"
 
-export interface ContextOptions<Context = any, Env extends ContextEnvironment = ContextEnvironment> {
-  onContextCreated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
-  onContextUpdated?: (args: { env: Env; context: StoredContext<Context> }) => void | Promise<void>
+export interface ContextOptions<
+  Context = any,
+  Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+> {
+  onContextCreated?: (args: {
+    env: Env
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
+    context: StoredContext<Context>
+  }) => void | Promise<void>
+  onContextUpdated?: (args: {
+    env: Env
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
+    context: StoredContext<Context>
+  }) => void | Promise<void>
   onEventCreated?: (event: ContextItem) => void | Promise<void>
   onActionExecuted?: (executionEvent: any) => void | Promise<void>
   onEnd?: (
@@ -74,10 +95,12 @@ type ContextBenchmarkRecorder = {
 export async function runContextReactionDirect<
   Context,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
 >(
-  context: ContextEngine<Context, Env>,
+  context: ContextEngine<Context, Env, RequiredDomain>,
   triggerEvent: ContextItem,
-  params: ContextReactParams<Env>,
+  params: ContextReactParams<Env, RequiredDomain, Runtime>,
 ): Promise<ContextReactResult<Context>> {
   return await ContextEngine.runDirect(context, triggerEvent, params)
 }
@@ -133,12 +156,12 @@ export interface ContextStreamOptions {
  */
 export type ContextModelInit = string | (() => Promise<any>)
 
-export type ContextReactParams<Env extends ContextEnvironment = ContextEnvironment> = {
-  runtime?: ContextRuntime<Env>
-  /**
-   * Backward-compatible runtime selector. New callers should pass `runtime`.
-   */
-  env?: Env
+export type ContextReactParams<
+  Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
+> = {
+  runtime: ContextRuntimeForDomain<Runtime, RequiredDomain>
   /**
    * Context selector (exclusive: `{ id }` OR `{ key }`).
    * - `{ id }` resolves a concrete context id.
@@ -161,72 +184,90 @@ export type ContextReactParams<Env extends ContextEnvironment = ContextEnvironme
   __benchmark?: ContextBenchmarkRecorder
 }
 
-async function legacyRuntimeFromEnv<Env extends ContextEnvironment>(
-  env: Env,
-): Promise<ContextRuntime<Env>> {
-  const { getContextRuntime } = await import("./runtime.step.js")
-  const legacy = (await getContextRuntime(env)) as any
-  return {
-    env,
-    db: async () => legacy.db,
-    resolve: async () => ({
-      db: legacy.db,
-      meta: () => ({
-        domain: legacy.domain,
-      }),
-    }),
-    meta: () => ({
-      domain: legacy.domain,
-    }),
-  } as ContextRuntime<Env>
+export type ContextDurableReactParams<
+  Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
+> = Omit<ContextReactParams<Env, RequiredDomain, Runtime>, "durable"> & {
+  durable?: true | undefined
 }
 
-async function resolveReactRuntime<Env extends ContextEnvironment>(
-  params: ContextReactParams<Env>,
-): Promise<ContextRuntime<Env>> {
+export type ContextDirectReactParams<
+  Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
+> = Omit<ContextReactParams<Env, RequiredDomain, Runtime>, "durable"> & {
+  durable: false
+}
+
+async function resolveReactRuntime<
+  Env extends ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult,
+  Runtime extends ContextRuntime<Env>,
+>(
+  params: ContextReactParams<Env, RequiredDomain, Runtime>,
+): Promise<ContextRuntimeForDomain<Runtime, RequiredDomain>> {
   if (params.runtime) return params.runtime
-  if (params.env) return await legacyRuntimeFromEnv(params.env)
-  throw new Error("ContextEngine.react requires either runtime or env.")
+  throw new Error("ContextEngine.react requires runtime.")
 }
 
-export type ContextReactResult<Context = any> = {
+export type ContextReactBase<Context = any> = {
   context: StoredContext<Context>
   trigger: ContextItem
   reaction: ContextItem
   execution: ContextExecution
-  run?: ContextWorkflowRun<Context>
 }
+
+export type ContextReactFinalResult<Context = any> = ContextReactBase<Context>
+
+export type ContextDirectRun<Context = any> = Promise<ContextReactFinalResult<Context>>
 
 export type ContextWorkflowRun<Context = any> = {
   runId: string
   status: Promise<"pending" | "running" | "completed" | "failed" | "cancelled">
-  returnValue: Promise<ContextReactResult<Context>>
+  returnValue: Promise<ContextReactFinalResult<Context>>
+}
+
+export type ContextReactRun<Context = any> =
+  | ContextWorkflowRun<Context>
+  | ContextDirectRun<Context>
+
+export type ContextReactResult<
+  Context = any,
+  Run extends ContextReactRun<Context> = ContextReactRun<Context>,
+> = ContextReactBase<Context> & {
+  run?: Run
 }
 
 export type ContextDurableWorkflowPayload<
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
 > = {
   contextKey: string
-  runtime: ContextRuntime<Env>
+  runtime: ContextRuntimeForDomain<Runtime, RequiredDomain>
   context?: ContextIdentifier | null
   triggerEvent: ContextItem
   options?: Omit<ContextStreamOptions, "writable">
-  bootstrap: NonNullable<ContextReactParams<Env>["__bootstrap"]>
+  bootstrap: NonNullable<ContextReactParams<Env, RequiredDomain, Runtime>["__bootstrap"]>
 }
 
 export type ContextDurableWorkflowFunction<
   Context = any,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
 > = (
-  payload: ContextDurableWorkflowPayload<Env>,
-) => Promise<ContextReactResult<Context>>
+  payload: ContextDurableWorkflowPayload<Env, RequiredDomain, Runtime>,
+) => Promise<ContextReactFinalResult<Context>>
 
 export type ContextToolExecuteContext<
   Context = any,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
 > = {
-  runtime: ContextRuntime<Env>
-  env: Env
+  runtime: ContextRuntimeForDomain<Runtime, RequiredDomain>
   context: StoredContext<Context>
   contextIdentifier: ContextIdentifier
   toolCallId: string
@@ -237,6 +278,7 @@ export type ContextToolExecuteContext<
   contextId: string
   stepId: string
   iteration: number
+  contextStepStream?: WritableStream<string>
 }
 
 /**
@@ -260,14 +302,6 @@ export { toolApprovalHookToken, toolApprovalWebhookToken, getClientResumeHookUrl
  *
  * Default behavior when omitted: `auto === true`.
  */
-export type ContextTool = Tool & {
-  /**
-   * If `false`, this action is not intended for automatic execution by the engine.
-   * (Validation/enforcement can be added by callers; default is `true`.)
-   */
-  auto?: boolean
-}
-
 /**
  * ## Context loop continuation signal
  *
@@ -283,8 +317,10 @@ export type ShouldContinue = boolean
 export type ContextShouldContinueArgs<
   Context = any,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
 > = {
   env: Env
+  runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
   context: StoredContext<Context>
   /**
    * The persisted reaction event **so far** for the current streaming run.
@@ -331,14 +367,22 @@ function summarizePartPreview(part: unknown): {
   if (!part || typeof part !== "object") return {}
   if (isContextPartEnvelope(part)) {
     const preview =
-      part.content[0]?.type === "text"
-        ? part.content[0].text
-        : JSON.stringify(part.content[0] ?? part)
-    const state = "state" in part && typeof part.state === "string" ? part.state : undefined
-    const toolCallId =
-      "toolCallId" in part && typeof part.toolCallId === "string"
-        ? part.toolCallId
-        : undefined
+      part.type === "message"
+        ? part.content.text ?? JSON.stringify(part.content.blocks?.[0] ?? part)
+        : part.type === "reasoning"
+          ? part.content.text
+          : part.type === "source"
+            ? JSON.stringify(part.content.sources[0] ?? part)
+            : part.content.status === "failed"
+              ? part.content.error.message
+              : JSON.stringify(part.content)
+    const state =
+      part.type === "reasoning"
+        ? part.content.state
+        : part.type === "action"
+          ? part.content.status
+          : undefined
+    const toolCallId = part.type === "action" ? part.content.actionCallId : undefined
     return {
       partPreview: preview ? clipPreview(preview) : undefined,
       partState: state,
@@ -411,6 +455,19 @@ async function readActiveWorkflowRunId() {
   }
 }
 
+type ContextStepPatch = {
+  status?: "running" | "completed" | "failed"
+  kind?: "message" | "action_execute" | "action_result"
+  actionName?: string
+  actionInput?: unknown
+  actionOutput?: unknown
+  actionError?: string
+  actionRequests?: any
+  actionResults?: any
+  continueLoop?: boolean
+  errorText?: string
+}
+
 type ContextEngineOps<Context> = {
   initializeContext: (
     contextIdentifier: ContextIdentifier | null,
@@ -437,6 +494,17 @@ type ContextEngineOps<Context> = {
     reactionEvent: ContextItem
     execution: ContextExecution
   }>
+  openReactionStep: (params: {
+    contextIdentifier: ContextIdentifier
+    content: Context
+    executionId: string
+    iteration: number
+  }) => Promise<{
+    stepId: string
+    stream: PersistedContextStepStreamSession
+    context: StoredContext<Context>
+    events: ContextItem[]
+  }>
   createContextStep: (params: {
     executionId: string
     iteration: number
@@ -446,19 +514,18 @@ type ContextEngineOps<Context> = {
     executionId?: string
     contextId?: string
     iteration?: number
-    patch: {
-      status?: "running" | "completed" | "failed"
-      kind?: "message" | "action_execute" | "action_result"
-      actionName?: string
-      actionInput?: unknown
-      actionOutput?: unknown
-      actionError?: string
-      actionRequests?: any
-      actionResults?: any
-      continueLoop?: boolean
-      errorText?: string
-    }
+    patch: ContextStepPatch
   }) => Promise<void>
+  finalizeReactionStep: (params: {
+    session?: PersistedContextStepStreamSession | null
+    stepId: string
+    executionId?: string
+    contextId?: string
+    iteration?: number
+    patch: ContextStepPatch
+    reactionEventId?: string
+    reactionEvent?: ContextItem
+  }) => Promise<{ reactionEvent?: ContextItem }>
   saveContextPartsStep: (params: {
     stepId: string
     executionId?: string
@@ -466,6 +533,15 @@ type ContextEngineOps<Context> = {
     iteration?: number
     parts: any[]
   }) => Promise<void>
+  saveContextPartsAndUpdateReaction: (params: {
+    stepId: string
+    executionId?: string
+    contextId?: string
+    iteration?: number
+    parts: any[]
+    reactionEventId: string
+    reactionEvent: ContextItem
+  }) => Promise<{ reactionEvent: ContextItem }>
   updateItem: (
     itemId: string,
     item: ContextItem,
@@ -611,6 +687,35 @@ async function createRuntimeOps<Context>(
         },
       }
     },
+    openReactionStep: async ({ contextIdentifier, content, executionId, iteration }) => {
+      const stepId = makeRuntimeId()
+      const now = new Date()
+      await instrumentedDb.transact([
+        instrumentedDb.tx.event_steps[stepId].create({
+          createdAt: now,
+          updatedAt: now,
+          status: "running",
+          iteration,
+        }),
+        instrumentedDb.tx.event_steps[stepId].link({ execution: executionId }),
+      ])
+      const stream = await createPersistedContextStepStreamForRuntime(
+        { db: instrumentedDb },
+        {
+          executionId,
+          stepId,
+        },
+      )
+      const context = await store.updateContextContent(contextIdentifier, content)
+      const events = await store.getItems(contextIdentifier)
+
+      return {
+        stepId,
+        stream,
+        context,
+        events,
+      }
+    },
     createContextStep: async ({ executionId, iteration }) => {
       const stepId = makeRuntimeId()
       await instrumentedDb.transact([
@@ -632,8 +737,55 @@ async function createRuntimeOps<Context>(
         }),
       ])
     },
+    finalizeReactionStep: async (params) => {
+      if (params.session) {
+        await finalizePersistedContextStepStreamForRuntime({
+          runtime: { db: instrumentedDb },
+          session: params.session,
+          mode: "close",
+        })
+      }
+
+      await instrumentedDb.transact([
+        instrumentedDb.tx.event_steps[params.stepId].update({
+          ...(params.patch as any),
+          updatedAt: new Date(),
+        }),
+      ])
+
+      if (!params.reactionEventId || !params.reactionEvent) {
+        return {}
+      }
+
+      await instrumentedDb.transact([
+        instrumentedDb.tx.event_items[params.reactionEventId].update(
+          params.reactionEvent as any,
+        ),
+      ])
+
+      return {
+        reactionEvent: {
+          ...(params.reactionEvent as any),
+          id: params.reactionEventId,
+        } as ContextItem,
+      }
+    },
     saveContextPartsStep: async (params) => {
       await store.saveStepParts({ stepId: params.stepId, parts: params.parts })
+    },
+    saveContextPartsAndUpdateReaction: async (params) => {
+      await store.saveStepParts({ stepId: params.stepId, parts: params.parts })
+      await instrumentedDb.transact([
+        instrumentedDb.tx.event_items[params.reactionEventId].update(
+          params.reactionEvent as any,
+        ),
+      ])
+      return {
+        reactionEvent: {
+          ...(params.reactionEvent as any),
+          id: params.reactionEventId,
+        } as ContextItem,
+      }
     },
     getItems: async (contextIdentifier) => await store.getItems(contextIdentifier),
     updateItem: async (itemId, item) => {
@@ -674,12 +826,18 @@ async function createWorkflowOps<Context>(
       await updateContextStatus({ runtime, contextIdentifier, status }),
     saveTriggerAndCreateExecution: async ({ contextIdentifier, triggerEvent }) =>
       await saveTriggerAndCreateExecution({ runtime, contextIdentifier, triggerEvent }),
+    openReactionStep: async (params) =>
+      await openReactionStep<Context>({ runtime, ...params }),
     createContextStep: async ({ executionId, iteration }) =>
       await createContextStep({ runtime, executionId, iteration }),
     updateContextStep: async (params) =>
       await updateContextStep({ runtime, ...params }),
+    finalizeReactionStep: async (params) =>
+      await finalizeReactionStep({ runtime, ...params }),
     saveContextPartsStep: async (params) =>
       await saveContextPartsStep({ runtime, ...params }),
+    saveContextPartsAndUpdateReaction: async (params) =>
+      await saveContextPartsAndUpdateReaction({ runtime, ...params }),
     getItems: async (contextIdentifier) =>
       await getContextItems({ runtime, contextIdentifier }),
     updateItem: async (itemId, item, opts) =>
@@ -702,34 +860,44 @@ async function getContextEngineOps<Context>(
   return await createRuntimeOps<Context>(runtime, benchmark)
 }
 
-export abstract class ContextEngine<Context, Env extends ContextEnvironment = ContextEnvironment> {
-  private readonly reactor: ContextReactor<Context, Env>
+export abstract class ContextEngine<
+  Context,
+  Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+> {
+  private readonly reactor: ContextReactor<Context, Env, RequiredDomain>
 
   constructor(
-    protected readonly opts: ContextOptions<Context, Env> = {},
-    reactor?: ContextReactor<Context, Env>,
+    protected readonly opts: ContextOptions<Context, Env, RequiredDomain> = {},
+    reactor?: ContextReactor<Context, Env, RequiredDomain>,
   ) {
-    this.reactor = reactor ?? createAiSdkReactor<Context, Env>()
+    this.reactor =
+      reactor ??
+      (createAiSdkReactor<Context, Env>() as unknown as ContextReactor<Context, Env, RequiredDomain>)
   }
 
   protected abstract initialize(
     context: StoredContext<Context>,
     env: Env,
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
   ): Promise<Context> | Context
 
   protected abstract buildSystemPrompt(
     context: StoredContext<Context>,
     env: Env,
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
   ): Promise<string> | string
 
   protected abstract buildTools(
     context: StoredContext<Context>,
     env: Env,
-  ): Promise<Record<string, ContextTool>> | Record<string, ContextTool>
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
+  ): Promise<Record<string, ContextTool<Context, Env, RequiredDomain>>> | Record<string, ContextTool<Context, Env, RequiredDomain>>
 
   protected async buildSkills(
     _context: StoredContext<Context>,
     _env: Env,
+    _runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
   ): Promise<ContextSkillPackage[]> {
     return []
   }
@@ -755,18 +923,24 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     events: ContextItem[],
     _context: StoredContext<Context>,
     _env: Env,
+    _runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
   ): Promise<ContextItem[]> {
     return events
   }
 
-  protected getModel(_context: StoredContext<Context>, _env: Env): ContextModelInit {
+  protected getModel(
+    _context: StoredContext<Context>,
+    _env: Env,
+    _runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
+  ): ContextModelInit {
     return "openai/gpt-5"
   }
 
   protected getReactor(
     _context: StoredContext<Context>,
     _env: Env,
-  ): ContextReactor<Context, Env> {
+    _runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>,
+  ): ContextReactor<Context, Env, RequiredDomain> {
     return this.reactor
   }
 
@@ -779,32 +953,49 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
    * Default: `true` (continue).
    */
   protected async shouldContinue(
-    _args: ContextShouldContinueArgs<Context, Env>,
+    _args: ContextShouldContinueArgs<Context, Env, RequiredDomain>,
   ): Promise<ShouldContinue> {
     return true
   }
 
-  public async react(
+  public async react<Runtime extends ContextRuntime<Env>>(
     triggerEvent: ContextItem,
-    params: ContextReactParams<Env>,
+    params: ContextDurableReactParams<Env, RequiredDomain, Runtime>,
+  ): Promise<ContextReactResult<Context, ContextWorkflowRun<Context>>>
+  public async react<Runtime extends ContextRuntime<Env>>(
+    triggerEvent: ContextItem,
+    params: ContextDirectReactParams<Env, RequiredDomain, Runtime>,
+  ): Promise<ContextReactResult<Context, ContextDirectRun<Context>>>
+  public async react<Runtime extends ContextRuntime<Env>>(
+    triggerEvent: ContextItem,
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
+  ): Promise<ContextReactResult<Context>>
+  public async react<Runtime extends ContextRuntime<Env>>(
+    triggerEvent: ContextItem,
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
   ): Promise<ContextReactResult<Context>> {
-    if (params.durable) {
-      return await ContextEngine.startDurable(this, triggerEvent, params)
+    if (params.durable === false) {
+      return await ContextEngine.runDirect(this, triggerEvent, params)
     }
-    return await ContextEngine.runDirect(this, triggerEvent, params)
+    return await ContextEngine.startDurable(this, triggerEvent, params)
   }
 
-  private static async prepareExecutionShell<Context, Env extends ContextEnvironment>(
-    story: ContextEngine<Context, Env>,
+  private static async prepareExecutionShell<
+    Context,
+    Env extends ContextEnvironment,
+    RequiredDomain extends DomainSchemaResult,
+    Runtime extends ContextRuntime<Env>,
+  >(
+    story: ContextEngine<Context, Env, RequiredDomain>,
     triggerEvent: ContextItem,
-    params: ContextReactParams<Env>,
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
   ) {
     const runtimeHandle = await resolveReactRuntime(params)
-    const env = runtimeHandle.env
+    const env = (runtimeHandle as Runtime).env
     const ops = await measureBenchmark(
       params.__benchmark,
       "react.resolveOpsMs",
-      async () => await getContextEngineOps<Context>(runtimeHandle, params.__benchmark),
+      async () => await getContextEngineOps<Context>(runtimeHandle as Runtime, params.__benchmark),
     )
 
     const silent = params.options?.silent ?? false
@@ -818,7 +1009,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     const contextSelector: ContextIdentifier = { id: String(currentContext.id) }
 
     if (ctxResult.isNew) {
-      await story.opts.onContextCreated?.({ env, context: currentContext })
+      await story.opts.onContextCreated?.({
+        env,
+        runtime: runtimeHandle,
+        context: currentContext,
+      })
     }
 
     if (currentContext.status === "closed") {
@@ -842,6 +1037,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     currentContext = { ...currentContext, status: "open_streaming" }
 
     return {
+      runtimeHandle,
       contextSelector,
       currentContext,
       trigger: shell.triggerEvent,
@@ -850,13 +1046,18 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     }
   }
 
-  private static async startDurable<Context, Env extends ContextEnvironment>(
-    story: ContextEngine<Context, Env>,
+  private static async startDurable<
+    Context,
+    Env extends ContextEnvironment,
+    RequiredDomain extends DomainSchemaResult,
+    Runtime extends ContextRuntime<Env>,
+  >(
+    story: ContextEngine<Context, Env, RequiredDomain>,
     triggerEvent: ContextItem,
-    params: ContextReactParams<Env>,
-  ): Promise<ContextReactResult<Context>> {
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
+  ): Promise<ContextReactResult<Context, ContextWorkflowRun<Context>>> {
     const runtimeHandle = await resolveReactRuntime(params)
-    const env = runtimeHandle.env
+    const env = (runtimeHandle as Runtime).env
     if (params.options?.writable) {
       throw new Error("ContextEngine.react: durable runs manage their own workflow stream")
     }
@@ -870,7 +1071,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     }
 
     const workflow = getContextDurableWorkflow() as
-      | ContextDurableWorkflowFunction<Context, Env>
+      | ContextDurableWorkflowFunction<Context, Env, RequiredDomain, Runtime>
       | undefined
 
     if (typeof workflow !== "function") {
@@ -885,55 +1086,73 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
       | {
           runId: string
           status: Promise<"pending" | "running" | "completed" | "failed" | "cancelled">
-          returnValue: Promise<ContextReactResult<Context>>
+          returnValue: Promise<ContextReactFinalResult<Context>>
         }
       | undefined
 
     try {
-      const [{ start }] =
-        await Promise.all([
-          import("workflow/api"),
-        ])
+      const [{ start }] = await measureBenchmark(
+        params.__benchmark,
+        "react.durable.importWorkflowApiMs",
+        async () =>
+          await Promise.all([
+            import("workflow/api"),
+          ]),
+      )
 
-      const startedRun = await start(workflow, [
-        {
-          contextKey,
-          runtime: runtimeHandle,
-          context: params.context ?? null,
-          triggerEvent,
-          options: {
-            maxIterations: params.options?.maxIterations,
-            maxModelSteps: params.options?.maxModelSteps,
-            preventClose: params.options?.preventClose,
-            sendFinish: params.options?.sendFinish,
-            silent: params.options?.silent,
-          },
-          bootstrap: {
-            contextId: shell.currentContext.id,
-            trigger: shell.trigger,
-            reaction: shell.reaction,
-            execution: shell.execution,
-          },
-        } satisfies ContextDurableWorkflowPayload<Env>,
-      ])
+      const startedRun = await measureBenchmark(
+        params.__benchmark,
+        "react.durable.startWorkflowMs",
+        async () =>
+          await start(workflow, [
+            {
+              contextKey,
+              runtime: runtimeHandle,
+              context: params.context ?? null,
+              triggerEvent,
+              options: {
+                maxIterations: params.options?.maxIterations,
+                maxModelSteps: params.options?.maxModelSteps,
+                preventClose: params.options?.preventClose,
+                sendFinish: params.options?.sendFinish,
+                silent: params.options?.silent,
+              },
+              bootstrap: {
+                contextId: shell.currentContext.id,
+                trigger: shell.trigger,
+                reaction: shell.reaction,
+                execution: shell.execution,
+              },
+            } satisfies ContextDurableWorkflowPayload<Env, RequiredDomain, Runtime>,
+          ]),
+      )
 
       run = {
         runId: String(startedRun.runId),
         status: startedRun.status as Promise<
           "pending" | "running" | "completed" | "failed" | "cancelled"
         >,
-        returnValue: startedRun.returnValue as Promise<ContextReactResult<Context>>,
+        returnValue: startedRun.returnValue as Promise<ContextReactFinalResult<Context>>,
       }
 
-      const runtime = await createRuntimeOps<Context>(runtimeHandle)
-      await runtime.db.transact([
-        runtime.db.tx.event_executions[shell.execution.id].update({
-          workflowRunId: startedRun.runId,
-          updatedAt: new Date(),
-        }),
-      ])
+      const runtime = await measureBenchmark(
+        params.__benchmark,
+        "react.durable.resolveRuntimeOpsMs",
+        async () => await createRuntimeOps<Context>(runtimeHandle as Runtime, params.__benchmark),
+      )
+      await measureBenchmark(
+        params.__benchmark,
+        "react.durable.persistWorkflowRunIdMs",
+        async () =>
+          await runtime.db.transact([
+            runtime.db.tx.event_executions[shell.execution.id].update({
+              workflowRunId: startedRun.runId,
+              updatedAt: new Date(),
+            }),
+          ]),
+      )
     } catch (error) {
-      const ops = await getContextEngineOps<Context>(runtimeHandle, params.__benchmark)
+      const ops = await getContextEngineOps<Context>(runtimeHandle as Runtime, params.__benchmark)
       await ops.completeExecution(shell.contextSelector, shell.execution.id, "failed").catch(() => null)
       throw error
     }
@@ -947,17 +1166,44 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
     }
   }
 
-  static async runDirect<Context, Env extends ContextEnvironment>(
-    story: ContextEngine<Context, Env>,
+  static async runDirect<
+    Context,
+    Env extends ContextEnvironment,
+    RequiredDomain extends DomainSchemaResult,
+    Runtime extends ContextRuntime<Env>,
+  >(
+    story: ContextEngine<Context, Env, RequiredDomain>,
     triggerEvent: ContextItem,
-    params: ContextReactParams<Env>,
-  ) {
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
+  ): Promise<ContextReactResult<Context, ContextDirectRun<Context>>> {
+    if (!params.__bootstrap) {
+      const shell = await ContextEngine.prepareExecutionShell(story, triggerEvent, params)
+      const run: ContextDirectRun<Context> = ContextEngine.runDirect(story, triggerEvent, {
+        ...params,
+        runtime: shell.runtimeHandle,
+        __bootstrap: {
+          contextId: shell.currentContext.id,
+          trigger: shell.trigger,
+          reaction: shell.reaction,
+          execution: shell.execution,
+        },
+      })
+
+      return {
+        context: shell.currentContext,
+        trigger: shell.trigger,
+        reaction: shell.reaction,
+        execution: shell.execution,
+        run,
+      }
+    }
+
     const runtimeHandle = await resolveReactRuntime(params)
-    const env = runtimeHandle.env
+    const env = (runtimeHandle as Runtime).env
     const ops = await measureBenchmark(
       params.__benchmark,
       "react.resolveOpsMs",
-      async () => await getContextEngineOps<Context>(runtimeHandle, params.__benchmark),
+      async () => await getContextEngineOps<Context>(runtimeHandle as Runtime, params.__benchmark),
     )
 
     const maxIterations = params.options?.maxIterations ?? 20
@@ -998,9 +1244,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
 
     let updatedContext: StoredContext<Context> = { ...currentContext, status: "open_streaming" }
     let currentStepId: string | null = null
-    let currentStepStream:
-      | Awaited<ReturnType<typeof createPersistedContextStepStream>>
-      | null = null
+    let currentStepStream: PersistedContextStepStreamSession | null = null
 
     const failExecution = async () => {
       try {
@@ -1040,23 +1284,31 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
 
     try {
       for (let iter = 0; iter < maxIterations; iter++) {
-        // Create a persisted step per iteration (IDs generated in step runtime for replay safety)
         const stagePrefix = `react.iteration.${iter}`
-        const stepCreate = await measureBenchmark(
+
+        // Hook: Context DSL `context()` (implemented by subclasses via `initialize()`)
+        const nextContent = await measureBenchmark(
           params.__benchmark,
-          `${stagePrefix}.createStepMs`,
+          `${stagePrefix}.contextMs`,
+          async () => await story.initialize(updatedContext, env, runtimeHandle),
+        )
+
+        const openedStep = await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.openReactionStepMs`,
           async () =>
-            await ops.createContextStep({
+            await ops.openReactionStep({
+              contextIdentifier: activeContextSelector,
+              content: nextContent,
               executionId,
               iteration: iter,
             }),
         )
-        currentStepId = stepCreate.stepId
-        currentStepStream = await createPersistedContextStepStream({
-          runtime: runtimeHandle,
-          executionId,
-          stepId: stepCreate.stepId,
-        })
+        currentStepId = openedStep.stepId
+        currentStepStream = openedStep.stream
+        updatedContext = openedStep.context
+        const rawEvents = openedStep.events
+
         await emitContextEvents({
           silent,
           writable,
@@ -1064,29 +1316,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             {
               type: "step.created",
               at: nowIso(),
-              stepId: String(stepCreate.stepId),
+              stepId: String(openedStep.stepId),
               executionId,
               iteration: iter,
               status: "running",
             },
-          ],
-        })
-
-    // Hook: Context DSL `context()` (implemented by subclasses via `initialize()`)
-        const nextContent = await measureBenchmark(
-          params.__benchmark,
-          `${stagePrefix}.contextMs`,
-          async () => await story.initialize(updatedContext, env),
-        )
-        updatedContext = await measureBenchmark(
-          params.__benchmark,
-          `${stagePrefix}.persistContextMs`,
-          async () => await ops.updateContextContent(activeContextSelector, nextContent),
-        )
-        await emitContextEvents({
-          silent,
-          writable,
-          events: [
             {
               type: "context.content_updated",
               at: nowIso(),
@@ -1095,42 +1329,36 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           ],
         })
 
-        await story.opts.onContextUpdated?.({ env, context: updatedContext })
+        await story.opts.onContextUpdated?.({
+          env,
+          runtime: runtimeHandle,
+          context: updatedContext,
+        })
 
         // Hook: Context DSL `narrative()` (implemented by subclasses via `buildSystemPrompt()`)
         const systemPrompt = await measureBenchmark(
           params.__benchmark,
           `${stagePrefix}.narrativeMs`,
-          async () => await story.buildSystemPrompt(updatedContext, env),
+          async () => await story.buildSystemPrompt(updatedContext, env, runtimeHandle),
         )
 
         // Hook: Context DSL `actions()` (implemented by subclasses via `buildTools()`)
         const toolsAll = await measureBenchmark(
           params.__benchmark,
           `${stagePrefix}.actionsMs`,
-          async () => await story.buildTools(updatedContext, env),
+          async () => await story.buildTools(updatedContext, env, runtimeHandle),
         )
         const skillsAll = await measureBenchmark(
           params.__benchmark,
           `${stagePrefix}.skillsMs`,
-          async () => await story.buildSkills(updatedContext, env),
-        )
-        const rawEvents = await measureBenchmark(
-          params.__benchmark,
-          `${stagePrefix}.loadEventsMs`,
-          async () => await ops.getItems(activeContextSelector),
+          async () => await story.buildSkills(updatedContext, env, runtimeHandle),
         )
         const expandedEvents = await measureBenchmark(
           params.__benchmark,
           `${stagePrefix}.expandEventsMs`,
-          async () => await story.expandEvents(rawEvents, updatedContext, env),
+          async () => await story.expandEvents(rawEvents, updatedContext, env, runtimeHandle),
         )
 
-        // IMPORTANT: step args must be serializable.
-        // Match DurableAgent behavior: convert tool input schemas to plain JSON Schema in workflow context.
-        const actionSpecs: Record<string, SerializableActionSpec> = actionsToActionSpecs(
-          toolsAll as any,
-        )
         // Execute model reaction for this iteration using the stable reaction event id.
         //
         // IMPORTANT:
@@ -1138,7 +1366,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         // If we stream with a per-step id, the UI will render an optimistic assistant message
         // (step id) and then a second persisted assistant message (reaction id) with the same
         // content once InstantDB updates.
-        const reactor = story.getReactor(updatedContext, env)
+        const reactor = story.getReactor(updatedContext, env, runtimeHandle)
         const reactionPartsBeforeStep = Array.isArray(reactionEvent.content?.parts)
           ? [...reactionEvent.content.parts]
           : []
@@ -1151,17 +1379,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           if (nextSignature === persistedReactionPartsSignature) return
           persistedReactionPartsSignature = nextSignature
 
-          await ops.saveContextPartsStep({
-            stepId: stepCreate.stepId,
+          const saved = await ops.saveContextPartsAndUpdateReaction({
+            stepId: openedStep.stepId,
             parts: normalizedParts,
-            executionId,
-            contextId: String(currentContext.id),
-            iteration: iter,
-          })
-
-          reactionEvent = await ops.updateItem(
-            reactionEvent.id,
-            {
+            reactionEventId: reactionEvent.id,
+            reactionEvent: {
               ...reactionEvent,
               content: {
                 ...reactionEvent.content,
@@ -1169,8 +1391,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               },
               status: "pending",
             },
-            { executionId, contextId: String(currentContext.id) },
-          )
+            executionId,
+            contextId: String(currentContext.id),
+            iteration: iter,
+          })
+          reactionEvent = saved.reactionEvent
         }
         const reactionResult = await measureBenchmark(
           params.__benchmark,
@@ -1178,20 +1403,18 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           async () =>
             await reactor({
               runtime: runtimeHandle,
-              env,
               context: updatedContext,
               contextIdentifier: activeContextSelector,
               events: expandedEvents,
               triggerEvent,
-              model: story.getModel(updatedContext, env),
+              model: story.getModel(updatedContext, env, runtimeHandle),
               systemPrompt,
-              actions: toolsAll as Record<string, unknown>,
-              actionSpecs,
+              actions: toolsAll,
               skills: skillsAll,
               eventId: reactionEventId,
               executionId,
               contextId: String(currentContext.id),
-              stepId: String(stepCreate.stepId),
+              stepId: String(openedStep.stepId),
               iteration: iter,
               maxModelSteps,
               // Only emit a `start` chunk once per story turn.
@@ -1235,36 +1458,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             parts: stepParts,
           },
         }
-        await measureBenchmark(
-          params.__benchmark,
-          `${stagePrefix}.saveStepPartsMs`,
-          async () =>
-            await ops.saveContextPartsStep({
-              stepId: stepCreate.stepId,
-              parts: stepParts,
-              executionId,
-              contextId: String(currentContext.id),
-              iteration: iter,
-            }),
-        )
-        await emitContextEvents({
-          silent,
-          writable,
-          events: stepParts.map((part: any, idx: number) => ({
-            type: "part.created" as const,
-            at: nowIso(),
-            partKey: `${String(stepCreate.stepId)}:${idx}`,
-            stepId: String(stepCreate.stepId),
-            idx,
-            partType:
-              part && typeof part.type === "string"
-                ? String(part.type)
-                : undefined,
-            ...summarizePartPreview(part),
-          })),
-        })
-
-        // Persist/append the aggregated reaction event (stable `reactionEventId` for the execution).
         const nextAssistantParts = Array.isArray(assistantEventEffective.content?.parts)
           ? assistantEventEffective.content.parts
           : []
@@ -1276,16 +1469,38 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           },
           status: "pending",
         }
-        reactionEvent = await measureBenchmark(
+        const appendedReactorOutput = await measureBenchmark(
           params.__benchmark,
-          `${stagePrefix}.persistAssistantReactionMs`,
+          `${stagePrefix}.appendReactorOutputMs`,
           async () =>
-            await ops.updateItem(
-              reactionEvent.id,
-              nextReactionEvent,
-              { executionId, contextId: String(currentContext.id) },
-            ),
+            await ops.saveContextPartsAndUpdateReaction({
+              stepId: openedStep.stepId,
+              parts: stepParts,
+              reactionEventId: reactionEvent.id,
+              reactionEvent: nextReactionEvent,
+              executionId,
+              contextId: String(currentContext.id),
+              iteration: iter,
+            }),
         )
+        reactionEvent = appendedReactorOutput.reactionEvent
+        await emitContextEvents({
+          silent,
+          writable,
+          events: stepParts.map((part: any, idx: number) => ({
+            type: "part.created" as const,
+            at: nowIso(),
+            partKey: `${String(openedStep.stepId)}:${idx}`,
+            stepId: String(openedStep.stepId),
+            idx,
+            partType:
+              part && typeof part.type === "string"
+                ? String(part.type)
+                : undefined,
+            ...summarizePartPreview(part),
+          })),
+        })
+
         if (reactionResult.reactor?.kind) {
           updatedContext = await measureBenchmark(
             params.__benchmark,
@@ -1300,42 +1515,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               }),
           )
         }
-        if (currentStepStream) {
-          await closePersistedContextStepStream({
-            runtime: runtimeHandle,
-            session: currentStepStream,
-          })
-          currentStepStream = null
-        }
-
         story.opts.onEventCreated?.(assistantEventEffective)
 
         const firstActionRequest = (actionRequests as any[])?.[0] as
           | { actionName?: string; actionRef?: string; input?: unknown }
           | undefined
-        await measureBenchmark(
-          params.__benchmark,
-          `${stagePrefix}.markStepRunningMs`,
-          async () =>
-            await ops.updateContextStep({
-              stepId: stepCreate.stepId,
-              patch: firstActionRequest
-                ? {
-                    kind: "action_execute",
-                    actionName:
-                      typeof firstActionRequest.actionName === "string"
-                        ? firstActionRequest.actionName
-                        : undefined,
-                    actionInput: firstActionRequest.input,
-                  }
-                : {
-                    kind: "message",
-                  },
-              executionId,
-              contextId: String(currentContext.id),
-              iteration: iter,
-            }),
-        )
         await emitContextEvents({
           silent,
           writable,
@@ -1343,7 +1527,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             {
               type: "step.updated",
               at: nowIso(),
-              stepId: String(stepCreate.stepId),
+              stepId: String(openedStep.stepId),
               executionId,
               iteration: iter,
               status: "running",
@@ -1360,25 +1544,33 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         if (!actionRequests.length) {
           const endResult = await story.callOnEnd(assistantEventEffective)
           if (endResult) {
-            // Mark iteration step completed (no tools)
-          await measureBenchmark(
-            params.__benchmark,
-            `${stagePrefix}.finalizeMessageStepMs`,
-            async () =>
-              await ops.updateContextStep({
-                stepId: stepCreate.stepId,
-                patch: {
-                  status: "completed",
-                  kind: "message",
-                  actionRequests: [],
-                  actionResults: [],
-                  continueLoop: false,
-                },
-                executionId,
-                contextId: String(currentContext.id),
-                iteration: iter,
-              }),
-          )
+            const completedReactionEvent: ContextItem = {
+              ...reactionEvent,
+              status: "completed",
+            }
+            const finalized = await measureBenchmark(
+              params.__benchmark,
+              `${stagePrefix}.finalizeReactionStepMs`,
+              async () =>
+                await ops.finalizeReactionStep({
+                  session: currentStepStream,
+                  stepId: openedStep.stepId,
+                  patch: {
+                    status: "completed",
+                    kind: "message",
+                    actionRequests: [],
+                    actionResults: [],
+                    continueLoop: false,
+                  },
+                  reactionEventId,
+                  reactionEvent: completedReactionEvent,
+                  executionId,
+                  contextId: String(currentContext.id),
+                  iteration: iter,
+                }),
+            )
+            currentStepStream = null
+            reactionEvent = finalized.reactionEvent ?? completedReactionEvent
             await emitContextEvents({
               silent,
               writable,
@@ -1386,7 +1578,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
                 {
                   type: "step.updated",
                   at: nowIso(),
-                  stepId: String(stepCreate.stepId),
+                  stepId: String(openedStep.stepId),
                   executionId,
                   iteration: iter,
                   status: "completed",
@@ -1395,7 +1587,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
                 {
                   type: "step.completed",
                   at: nowIso(),
-                  stepId: String(stepCreate.stepId),
+                  stepId: String(openedStep.stepId),
                   executionId,
                   iteration: iter,
                   status: "completed",
@@ -1403,20 +1595,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               ],
             })
 
-            // Mark reaction event completed
-            await measureBenchmark(
-              params.__benchmark,
-              `${stagePrefix}.completeReactionMs`,
-              async () =>
-                await ops.updateItem(
-                  reactionEventId,
-                  {
-                    ...reactionEvent,
-                    status: "completed",
-                  },
-                  { executionId, contextId: String(currentContext.id) },
-                ),
-            )
             await emitContextEvents({
               silent,
               writable,
@@ -1459,10 +1637,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             })
             if (!silent) {
               await closeContextStream({ preventClose, sendFinish, writable })
-            }
-            reactionEvent = {
-              ...reactionEvent,
-              status: "completed",
             }
             return {
               context: updatedContext,
@@ -1527,7 +1701,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
               const executeAction = toolDef.execute as Function
               const output = await Reflect.apply(executeAction, undefined, [actionInput, {
                 runtime: runtimeHandle,
-                env,
                 context: updatedContext,
                 contextIdentifier: activeContextSelector,
                 toolCallId: actionRequest.actionRef,
@@ -1536,8 +1709,9 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
                 executionId,
                 triggerEventId,
                 contextId: currentContext.id,
-                stepId: String(stepCreate.stepId),
+                stepId: String(openedStep.stepId),
                 iteration: iter,
+                contextStepStream: currentStepStream?.stream,
               }])
               return { actionRequest, success: true, output }
             } catch (e: any) {
@@ -1574,7 +1748,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           `${stagePrefix}.saveFinalStepPartsMs`,
           async () =>
             await ops.saveContextPartsStep({
-              stepId: stepCreate.stepId,
+              stepId: openedStep.stepId,
               parts: finalizedStepParts,
               executionId,
               contextId: String(currentContext.id),
@@ -1614,6 +1788,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           async () =>
             await story.shouldContinue({
               env,
+              runtime: runtimeHandle,
               context: updatedContext,
               reactionEvent,
               assistantEvent: assistantEventEffective,
@@ -1622,38 +1797,49 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             }),
         )
 
-        // Persist per-iteration step outcome (tools + continue signal)
-        await measureBenchmark(
+        const firstActionResult = (actionResults as any[])?.[0]
+        const finalizedReactionStatus = continueLoop === false ? "completed" : "pending"
+        const finalizedReactionEvent: ContextItem = {
+          ...reactionEvent,
+          status: finalizedReactionStatus,
+        }
+        const finalizedStep = await measureBenchmark(
           params.__benchmark,
-          `${stagePrefix}.completeStepMs`,
+          `${stagePrefix}.finalizeReactionStepMs`,
           async () =>
-            await ops.updateContextStep({
-              stepId: stepCreate.stepId,
+            await ops.finalizeReactionStep({
+              session: currentStepStream,
+              stepId: openedStep.stepId,
               patch: {
                 status: "completed",
                 kind: (actionRequests as any[])?.length ? "action_result" : "message",
                 actionName:
-                  typeof (actionResults as any[])?.[0]?.actionRequest?.actionName === "string"
-                    ? (actionResults as any[])[0].actionRequest.actionName
+                  typeof firstActionResult?.actionRequest?.actionName === "string"
+                    ? firstActionResult.actionRequest.actionName
                     : undefined,
-                actionInput: (actionResults as any[])?.[0]?.actionRequest?.input,
+                actionInput: firstActionResult?.actionRequest?.input,
                 actionOutput:
-                  (actionResults as any[])?.[0]?.success === true
-                    ? (actionResults as any[])[0]?.output
+                  firstActionResult?.success === true
+                    ? firstActionResult?.output
                     : undefined,
                 actionError:
-                  (actionResults as any[])?.[0]?.success === false
-                    ? String((actionResults as any[])[0]?.errorText ?? "action_execution_failed")
+                  firstActionResult?.success === false
+                    ? String(firstActionResult?.errorText ?? "action_execution_failed")
                     : undefined,
                 actionRequests,
                 actionResults,
                 continueLoop: continueLoop !== false,
               },
+              reactionEventId,
+              reactionEvent: finalizedReactionEvent,
               executionId,
               contextId: String(currentContext.id),
               iteration: iter,
             }),
         )
+        currentStepStream = null
+        reactionEvent = finalizedStep.reactionEvent ?? finalizedReactionEvent
+
         await emitContextEvents({
           silent,
           writable,
@@ -1661,20 +1847,20 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
             {
               type: "step.updated",
               at: nowIso(),
-              stepId: String(stepCreate.stepId),
+              stepId: String(openedStep.stepId),
               executionId,
               iteration: iter,
               status: "completed",
               kind: (actionRequests as any[])?.length ? "action_result" : "message",
               actionName:
-                typeof (actionResults as any[])?.[0]?.actionRequest?.actionName === "string"
-                  ? (actionResults as any[])[0].actionRequest.actionName
+                typeof firstActionResult?.actionRequest?.actionName === "string"
+                  ? firstActionResult.actionRequest.actionName
                   : undefined,
             },
             {
               type: "step.completed",
               at: nowIso(),
-              stepId: String(stepCreate.stepId),
+              stepId: String(openedStep.stepId),
               executionId,
               iteration: iter,
               status: "completed",
@@ -1683,19 +1869,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         })
 
         if (continueLoop !== false) {
-          reactionEvent = await measureBenchmark(
-            params.__benchmark,
-            `${stagePrefix}.persistPendingReactionMs`,
-            async () =>
-              await ops.updateItem(
-                reactionEventId,
-                {
-                  ...reactionEvent,
-                  status: "pending",
-                },
-                { executionId, contextId: String(currentContext.id) },
-              ),
-          )
           await emitContextEvents({
             silent,
             writable,
@@ -1713,19 +1886,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
         }
 
         if (continueLoop === false) {
-          await measureBenchmark(
-            params.__benchmark,
-            `${stagePrefix}.completeReactionMs`,
-            async () =>
-              await ops.updateItem(
-                reactionEventId,
-                {
-                  ...reactionEvent,
-                  status: "completed",
-                },
-                { executionId, contextId: String(currentContext.id) },
-              ),
-          )
           await emitContextEvents({
             silent,
             writable,
@@ -1769,10 +1929,6 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
           if (!silent) {
             await closeContextStream({ preventClose, sendFinish, writable })
           }
-          reactionEvent = {
-            ...reactionEvent,
-            status: "completed",
-          }
           return {
             context: updatedContext,
             trigger,
@@ -1787,7 +1943,7 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
       if (currentStepStream) {
         try {
           await abortPersistedContextStepStream({
-            runtime: runtimeHandle,
+            runtime: runtimeHandle as Runtime,
             session: currentStepStream,
             reason: error instanceof Error ? error.message : String(error),
           })
@@ -1840,11 +1996,11 @@ export abstract class ContextEngine<Context, Env extends ContextEnvironment = Co
   /**
    * @deprecated Use `react()` instead. Kept for backwards compatibility.
    */
-  public async stream(
+  public async stream<Runtime extends ContextRuntime<Env>>(
     triggerEvent: ContextItem,
-    params: ContextReactParams<Env>,
+    params: ContextReactParams<Env, RequiredDomain, Runtime>,
   ) {
-    return await this.react(triggerEvent, params)
+    return await this.react(triggerEvent, params as any)
   }
 
   private async callOnEnd(lastEvent: ContextItem): Promise<boolean> {

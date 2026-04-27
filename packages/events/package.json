@@ -107,6 +107,7 @@
     "watch": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run -c vitest.config.mts",
     "test:workflow": "vitest run -c vitest.workflow.config.mts",
     "pretest:ai-sdk-reactor": "pnpm --filter @ekairos/domain build",
@@ -134,12 +135,12 @@
   "devDependencies": {
     "@ekairos/testing": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
-    "@workflow/serde": "5.0.0-beta.0",
-    "@workflow/vitest": "5.0.0-beta.1",
     "@types/node": "^24.5.0",
     "@types/react": "^19.2.2",
+    "@workflow/serde": "5.0.0-beta.0",
+    "@workflow/vitest": "5.0.0-beta.1",
     "dotenv": "^17.2.3",
-    "vitest": "^4.0.8",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.0.8"
   }
 }

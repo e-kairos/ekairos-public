@@ -3,6 +3,8 @@ import { init } from "@instantdb/admin"
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde"
 
 import { sandboxDomain } from "../actions"
+import { Sandbox } from "../sandbox"
+import type { SandboxRunCommandInput } from "../sandbox"
 
 export type SandboxWorkflowEnv = {
   appId: string
@@ -97,5 +99,117 @@ export async function sandboxProcessWorkflow(
       const stopped = await sandbox.actions.stopSandbox({ sandboxId })
       if (!stopped.ok) throw new Error(stopped.error)
     }
+  }
+}
+
+export type SandboxSerdeEnv = {
+  marker: string
+}
+
+export class SandboxSerdeRuntime extends EkairosRuntime<
+  SandboxSerdeEnv,
+  typeof sandboxDomain,
+  never
+> {
+  static [WORKFLOW_SERIALIZE](instance: SandboxSerdeRuntime) {
+    return this.serializeRuntime(instance)
+  }
+
+  static [WORKFLOW_DESERIALIZE](data: { env: SandboxSerdeEnv }) {
+    return this.deserializeRuntime(data) as SandboxSerdeRuntime
+  }
+
+  protected getDomain() {
+    return sandboxDomain
+  }
+
+  protected resolveDb(): never {
+    throw new Error("sandbox_serde_runtime_db_should_not_be_used")
+  }
+
+  public override async use(subdomain: typeof sandboxDomain): Promise<any> {
+    if (subdomain !== sandboxDomain) {
+      throw new Error("sandbox_serde_runtime_unexpected_domain")
+    }
+
+    return {
+      actions: {
+        runCommandProcess: async (input: {
+          sandboxId: string
+          command: string
+          args?: string[]
+        }) => {
+          const command = [input.command, ...(input.args ?? [])].join(" ")
+          return {
+            ok: true,
+            data: {
+              processId: `process_${input.sandboxId}`,
+              streamId: `stream_${input.sandboxId}`,
+              streamClientId: `sandbox-process:process_${input.sandboxId}`,
+              result: {
+                success: true,
+                exitCode: 0,
+                output: `${this.env.marker}:${input.sandboxId}:${command}`,
+                command,
+              },
+            },
+          }
+        },
+      },
+    }
+  }
+}
+
+export async function createSandboxSerdeHandle(
+  runtime: SandboxSerdeRuntime,
+  input: { sandboxId: string },
+) {
+  "use step"
+  return Sandbox.from(runtime, {
+    version: 1,
+    sandboxId: input.sandboxId,
+    provider: "sprites",
+    runtime: "node22",
+    purpose: "workflow-serde-test",
+  })
+}
+
+export async function executeSandboxSerdeHandle(
+  sandbox: Sandbox<SandboxSerdeRuntime>,
+  input: SandboxRunCommandInput,
+) {
+  "use step"
+  const result = await sandbox.actions()[Sandbox.runCommandActionName].execute(
+    input,
+    {} as any,
+  )
+
+  return {
+    sandboxId: sandbox.sandboxId,
+    sandboxInstance: sandbox instanceof Sandbox,
+    state: sandbox.state,
+    result,
+  }
+}
+
+export async function sandboxSerdeRoundTripWorkflow(
+  runtime: SandboxSerdeRuntime,
+  input: { sandboxId: string; command: string; args?: string[] },
+) {
+  "use workflow"
+
+  const sandbox = await createSandboxSerdeHandle(runtime, {
+    sandboxId: input.sandboxId,
+  })
+  const executed = await executeSandboxSerdeHandle(sandbox, {
+    command: input.command,
+    args: input.args,
+  })
+
+  return {
+    sandboxInstance: sandbox instanceof Sandbox,
+    sandboxId: sandbox.sandboxId,
+    state: sandbox.state,
+    executed,
   }
 }

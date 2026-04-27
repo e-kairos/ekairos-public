@@ -49,8 +49,8 @@
     "@ekairos/events": "workspace:*"
   },
   "devDependencies": {
-    "@ekairos/sandbox": "workspace:*",
     "@ekairos/events": "workspace:*",
+    "@ekairos/sandbox": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
     "dotenv": "^17.2.2",

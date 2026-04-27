@@ -1,6 +1,7 @@
 import { i } from "@instantdb/core";
 import type { InstantAdminDatabase } from "@instantdb/admin";
 import type { EntitiesDef, LinksDef, RoomsDef, InstantSchemaDef, EntityDef } from "@instantdb/core";
+import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import {
   filterDomainDoc,
   parseDomainDoc,
@@ -21,7 +22,7 @@ export {
 } from "./domain-doc.js";
 export {
   EkairosRuntime,
-  type CompatibleRuntimeForDomain,
+  type RuntimeForDomain,
   type RuntimeLike,
   type ExplicitRuntimeLike,
 } from "./runtime-handle.js";
@@ -69,16 +70,78 @@ export type DomainActionExecuteParams<
   runtime: Runtime;
 };
 
+declare const DOMAIN_ACTION_RUNTIME_OUTPUT: unique symbol;
+declare const DOMAIN_ACTION_SERIALIZED_OUTPUT: unique symbol;
+
+export type DomainActionOutputContract<
+  RuntimeOutput,
+  SerializedOutput = RuntimeOutput,
+> = {
+  readonly kind: string;
+  readonly [DOMAIN_ACTION_RUNTIME_OUTPUT]?: RuntimeOutput;
+  readonly [DOMAIN_ACTION_SERIALIZED_OUTPUT]?: SerializedOutput;
+};
+
+export type WorkflowSerializableConstructor<
+  Instance = unknown,
+  Serialized = unknown,
+> = {
+  [WORKFLOW_SERIALIZE](instance: Instance): Serialized;
+  [WORKFLOW_DESERIALIZE](data: Serialized): Instance;
+};
+
+export type WorkflowOutputInstance<Ctor> =
+  Ctor extends { [WORKFLOW_DESERIALIZE](data: any): infer Instance }
+    ? Instance
+    : never;
+
+export type WorkflowOutputSerialized<Ctor> =
+  Ctor extends { [WORKFLOW_SERIALIZE](instance: any): infer Serialized }
+    ? Serialized
+    : never;
+
+export type DomainWorkflowOutput<
+  Ctor extends WorkflowSerializableConstructor<any, any>,
+> = DomainActionOutputContract<
+  WorkflowOutputInstance<Ctor>,
+  WorkflowOutputSerialized<Ctor>
+> & {
+  readonly kind: "workflow";
+  readonly ctor: Ctor;
+};
+
+export type DomainActionRuntimeOutput<Output> =
+  Output extends DomainActionOutputContract<infer RuntimeOutput, any>
+    ? RuntimeOutput
+    : Output;
+
+export type DomainActionSerializedOutputValue<Output> =
+  Output extends DomainActionOutputContract<any, infer SerializedOutput>
+    ? SerializedOutput
+    : Output;
+
+export function workflow<Ctor extends WorkflowSerializableConstructor<any, any>>(
+  ctor: Ctor,
+): DomainWorkflowOutput<Ctor> {
+  return {
+    kind: "workflow",
+    ctor,
+  } as DomainWorkflowOutput<Ctor>;
+}
+
 export type DomainActionDefinition<
   Env extends Record<string, unknown> = Record<string, unknown>,
   Input = unknown,
   Output = unknown,
   Runtime = unknown,
   Domain = unknown,
+  OutputContract = unknown,
 > = {
   name?: string;
   description?: string;
   inputSchema?: unknown;
+  output?: OutputContract;
+  outputSchema?: unknown;
   requiredScopes?: string[];
   /**
    * Domain actions are step-safe command units.
@@ -103,12 +166,13 @@ export type DomainActionRegistration<
   Output = unknown,
   Runtime = unknown,
   Domain = unknown,
-> = DomainActionDefinition<Env, Input, Output, Runtime, Domain> & {
+  OutputContract = unknown,
+> = DomainActionDefinition<Env, Input, Output, Runtime, Domain, OutputContract> & {
   name: string;
 };
 
 export type DomainActionLike =
-  | DomainActionDefinition<any, any, any, any, any>
+  | DomainActionDefinition<any, any, any, any, any, any>
   | ((params: DomainActionExecuteParams<any, any, any, any>) => unknown);
 
 export type DomainActionCollection =
@@ -143,11 +207,17 @@ export type DomainContextOptions = {
   includeSchemas?: boolean;
 };
 
+type UnknownDomainNames = string;
+
 const EKAIROS_META = Symbol.for("@ekairos/domain/meta");
 const EKAIROS_ACTIONS = Symbol.for("@ekairos/domain/actions");
 const EKAIROS_ACTION_MAP = Symbol.for("@ekairos/domain/action-map");
 const EKAIROS_ACTION_BINDING = Symbol.for("@ekairos/domain/action-binding");
 const EKAIROS_ACTION_STACK = Symbol.for("@ekairos/domain/action-stack");
+declare const DOMAIN_NAME_TYPE: unique symbol;
+declare const DOMAIN_INCLUDED_NAMES_TYPE: unique symbol;
+declare const DOMAIN_ACTION_MAP_TYPE: unique symbol;
+declare const DOMAIN_LINKS_TYPE: unique symbol;
 
 // No hard-coded base entities here. InstantDB adds base entities at runtime inside i.schema.
 // We only add them at the TYPE level via WithBase<> so links can reference them.
@@ -168,7 +238,7 @@ export type DomainInstance<E extends EntitiesDef, L extends LinksDef<E>, R exten
 
 export type SchemaOf<D extends DomainDefinition<any, any, any> | DomainSchemaResult<any, any, any>> =
   D extends DomainSchemaResult<any, any, any>
-    ? ReturnType<D["toInstantSchema"]>
+    ? ReturnType<D["instantSchema"]>
     : InstantSchemaDef<D["entities"], LinksDef<D["entities"]>, D["rooms"]>;
 
 export type DomainDbFor<D extends DomainDefinition<any, any, any> | DomainSchemaResult<any, any, any>> =
@@ -181,6 +251,23 @@ type EntitiesOf<S> =
 
 type LinksOf<S> =
   S extends InstantSchemaDef<any, infer L, any> ? L : never;
+
+type AttrsOfEntity<E> =
+  E extends EntityDef<infer Attrs, any, any> ? Attrs : never;
+
+type EnsureIncludesEntityAttrs<
+  FullEntity,
+  RequiredEntity,
+> = [
+  {
+    [K in keyof AttrsOfEntity<RequiredEntity>]:
+      K extends keyof AttrsOfEntity<FullEntity>
+        ? (AttrsOfEntity<FullEntity>[K] extends AttrsOfEntity<RequiredEntity>[K] ? never : K)
+        : K
+  }[keyof AttrsOfEntity<RequiredEntity>]
+] extends [never]
+  ? true
+  : false;
 
 /**
  * Verifies that Full schema includes all entities and links from Required schema.
@@ -195,7 +282,7 @@ type EnsureIncludesSchema<
   {
     [K in keyof EntitiesOf<Required>]:
       K extends keyof EntitiesOf<Full>
-        ? (EntitiesOf<Full>[K] extends EntitiesOf<Required>[K] ? never : K)
+        ? (EnsureIncludesEntityAttrs<EntitiesOf<Full>[K], EntitiesOf<Required>[K]> extends true ? never : K)
         : K
   }[keyof EntitiesOf<Required>]
   ] extends [never]
@@ -236,6 +323,25 @@ export type CompatibleSchemaForDomain<
   RequiredDomain extends DomainDefinition<any, any, any> | DomainSchemaResult<any, any, any> | DomainInstance<any, any, any>
 > = EnsureIncludesSchema<S, SchemaOf<RequiredDomain>>;
 
+export type DomainNameOf<D> =
+  D extends { readonly [DOMAIN_NAME_TYPE]?: infer Name }
+    ? NonNullable<Name> extends string
+      ? NonNullable<Name>
+      : UnknownDomainNames
+    : UnknownDomainNames;
+
+export type IncludedDomainNamesOf<D> =
+  D extends { readonly [DOMAIN_INCLUDED_NAMES_TYPE]?: infer Names }
+    ? NonNullable<Names> extends string
+      ? NonNullable<Names>
+      : DomainNameOf<D>
+    : DomainNameOf<D>;
+
+export type DomainInstantSchema<D> =
+  D extends DomainSchemaResult<any, any, any, any, any, any>
+    ? ReturnType<D["instantSchema"]>
+    : never;
+
 // Utility types for extracting from domain definitions/instances
 type ExtractEntities<T> = T extends { entities: infer E } ? E extends EntitiesDef ? E : never : never;
 type ExtractLinks<T> = T extends { links: infer L } ? L extends LinksDef<any> ? L : never : never;
@@ -243,7 +349,7 @@ type ExtractRooms<T> = T extends { rooms: infer R } ? R extends RoomsDef ? R : n
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
-type DomainActionMap = Record<string, DomainActionRegistration<any, any, any, any, any>>;
+export type DomainActionMap = Record<string, DomainActionRegistration<any, any, any, any, any, any>>;
 
 type InferActionRegistrationFromLike<Value, Key extends string> =
   Value extends DomainActionDefinition<
@@ -251,9 +357,10 @@ type InferActionRegistrationFromLike<Value, Key extends string> =
     infer Input,
     infer Output,
     infer Runtime,
-    infer Domain
+    infer Domain,
+    infer OutputContract
   >
-    ? DomainActionRegistration<Env, Input, Output, Runtime, Domain>
+    ? DomainActionRegistration<Env, Input, Output, Runtime, Domain, OutputContract>
     : Value extends (params: DomainActionExecuteParams<
         infer Env,
         infer Input,
@@ -275,17 +382,33 @@ type MergeActionMaps<
   Next extends DomainActionMap,
 > = Simplify<Omit<Current, keyof Next> & Next>;
 
-type ActionMapOf<D> =
-  D extends { readonly __actionMap?: infer Actions }
+export type ActionMapOf<D> =
+  D extends { readonly [DOMAIN_ACTION_MAP_TYPE]?: infer Actions }
     ? NonNullable<Actions>
     : {};
 
+export type DomainActionsOf<D> = ActionMapOf<D>;
+
 type ActionInputOf<Action> =
-  Action extends DomainActionDefinition<any, infer Input, any, any, any> ? Input : never;
+  Action extends DomainActionDefinition<any, infer Input, any, any, any, any> ? Input : never;
 
 type ActionOutputOf<Action> =
-  Action extends DomainActionDefinition<any, any, infer Output, any, any>
+  Action extends DomainActionDefinition<any, any, infer Output, any, any, any>
     ? Awaited<Output>
+    : never;
+
+export type DomainActionOutput<Action> =
+  Action extends DomainActionDefinition<any, any, infer Output, any, any, any>
+    ? Awaited<Output>
+    : never;
+
+export type DomainActionSerializedOutput<Action> =
+  Action extends DomainActionDefinition<any, any, infer Output, any, any, infer OutputContract>
+    ? [OutputContract] extends [never]
+      ? Awaited<Output>
+      : unknown extends OutputContract
+      ? Awaited<Output>
+      : DomainActionSerializedOutputValue<OutputContract>
     : never;
 
 type DomainActionMethods<Actions extends DomainActionMap> = {
@@ -319,6 +442,31 @@ type MergeLinks<A extends LinksDef<any>, B extends LinksDef<any>> = Simplify<{
       : never;
 }>;
 
+type DomainSchemaSource =
+  | DomainInstance<any, any, any>
+  | DomainSchemaResult<any, any, any>
+  | InstantSchemaDef<any, any, any>;
+
+type EntitiesOfDomainSource<D> =
+  D extends DomainSchemaResult<infer E, any, any, any, any, any>
+    ? E
+    : D extends DomainInstance<infer E, any, any>
+      ? E
+      : D extends InstantSchemaDef<infer E, any, any>
+        ? E
+        : {};
+
+type LinksOfDomainSource<D> =
+  D extends { readonly [DOMAIN_LINKS_TYPE]?: infer L }
+    ? NonNullable<L> extends LinksDef<any>
+      ? NonNullable<L>
+      : {}
+    : D extends { links: infer L }
+      ? L extends LinksDef<any>
+        ? L
+        : {}
+    : {};
+
 // Permissive links type that preserves literal keys but doesn't validate entity references
 // This allows links to reference entities that will be available after includes ($users, cross-domain entities)
 type PermissiveLinksDef = Record<string, {
@@ -329,7 +477,7 @@ type PermissiveLinksDef = Record<string, {
 // Simple type to represent entity names for basic validation
 type EntityNames<T> = T extends Record<string, any> ? keyof T : never;
 
-// Result of domain.schema() with toInstantSchema method
+// Result of domain.withSchema() with toInstantSchema method
 // L represents the merged links (current domain + included domains) with literal keys preserved
 // This type preserves both:
 // 1. Full compatibility with InstantDB's schema type for InstaQLParams validation (enriched entities)
@@ -342,12 +490,17 @@ export type DomainSchemaResult<
   L extends LinksDef<any> = LinksDef<any>,
   R extends RoomsDef = RoomsDef,
   Actions extends DomainActionMap = {},
+  Name extends string = string,
+  IncludedNames extends string = Name,
 > = 
   ReturnType<typeof i.schema<WithBase<E>, L, R>> & {
     // Add originalEntities property for type-safe access to original entity definitions
     // This preserves type safety while InstaQLParams uses enriched entities for validation
     readonly originalEntities: E;
-    readonly __actionMap?: Actions;
+    readonly [DOMAIN_NAME_TYPE]?: Name;
+    readonly [DOMAIN_INCLUDED_NAMES_TYPE]?: IncludedNames;
+    readonly [DOMAIN_ACTION_MAP_TYPE]?: Actions;
+    readonly [DOMAIN_LINKS_TYPE]?: L;
     // Build the complete Instant schema for provisioning/admin usage.
     instantSchema: () => ReturnType<typeof i.schema<WithBase<E>, L, R>>;
     /**
@@ -362,16 +515,17 @@ export type DomainSchemaResult<
     fromDB: <DB = any>(
       db: DB,
       bindings?: { env?: unknown; runtime?: unknown },
-    ) => ConcreteDomain<DomainSchemaResult<E, L, R, Actions>, DB>;
+    ) => ConcreteDomain<DomainSchemaResult<E, L, R, Actions, Name, IncludedNames>, DB>;
     // Optional metadata for this domain.
     meta?: Record<string, unknown>;
+    // Raw domain action definitions declared for this domain result.
+    readonly actions: Readonly<Actions>;
     // Attach explicit domain actions to this domain result.
-    actions: {
-      (): DomainActionRegistration[];
+    withActions: {
       <Input extends Record<string, DomainActionLike>>(
         actions: Input,
-      ): DomainSchemaResult<E, L, R, MergeActionMaps<Actions, ActionMapFromCollection<Input>>>;
-      (actions: DomainActionLike[] | DomainActionRegistration[]): DomainSchemaResult<E, L, R, Actions>;
+      ): DomainSchemaResult<E, L, R, MergeActionMaps<Actions, ActionMapFromCollection<Input>>, Name, IncludedNames>;
+      (actions: DomainActionLike[] | DomainActionRegistration[]): DomainSchemaResult<E, L, R, Actions, Name, IncludedNames>;
     };
     // Retrieve actions explicitly attached to this domain result.
     getActions: () => DomainActionRegistration[];
@@ -416,29 +570,43 @@ type WithBase<E extends EntitiesDef> = MergeEntities<E, BaseEntitiesPhantom>;
 
 // Builder that automatically includes base entities and enforces type-safe links
 // AccumL preserves literal link keys from included domains
-export type DomainBuilder<AccumE extends EntitiesDef, AccumL extends LinksDef<any> = LinksDef<any>> = {
+export type DomainBuilder<
+  AccumE extends EntitiesDef,
+  AccumL extends LinksDef<any> = LinksDef<any>,
+  Name extends string = string,
+  IncludedNames extends string = Name,
+> = {
   // Include other domains (instances or schema results). Links are merged and literal keys preserved.
-  includes<
-    E2 extends EntitiesDef,
-    L2 extends LinksDef<any> = {}
-  >(
+  includes<const OtherDomain extends DomainSchemaSource>(
     other:
-      | DomainInstance<E2, L2, any>
-      | DomainSchemaResult<E2, L2, any>
-      | InstantSchemaDef<E2, L2, any>
-      | (() => DomainInstance<E2, L2, any> | DomainSchemaResult<E2, L2, any> | InstantSchemaDef<E2, L2, any>)
+      | OtherDomain
+      | (() => OtherDomain)
       | undefined
-  ): DomainBuilder<MergeEntities<AccumE, E2>, MergeLinks<AccumL, L2>>;
+  ): DomainBuilder<
+    MergeEntities<AccumE, EntitiesOfDomainSource<OtherDomain>>,
+    MergeLinks<AccumL, LinksOfDomainSource<OtherDomain>>,
+    Name,
+    IncludedNames | IncludedDomainNamesOf<OtherDomain>
+  >;
 
   // Define local entities and links
   // LL validates against merged entities (includes + local + base entities)
   // This ensures type safety: links can only reference entities that are available
   // Base entities ($users, $files) are included via WithBase, and included domains via AccumE
-  schema<LE extends EntitiesDef, const LL extends LinksDef<WithBase<MergeEntities<AccumE, LE>>>>(def: {
+  withSchema<LE extends EntitiesDef, const LL extends LinksDef<any>>(def: {
     entities: LE;
     links: LL;
     rooms: RoomsDef;
-  }): DomainSchemaResult<MergeEntities<AccumE, LE>, MergeLinks<AccumL, LL>, RoomsDef>;
+  }): DomainSchemaResult<MergeEntities<AccumE, LE>, MergeLinks<AccumL, LL>, RoomsDef, {}, Name, IncludedNames>;
+
+  /**
+   * @deprecated Use withSchema().
+   */
+  schema<LE extends EntitiesDef, const LL extends LinksDef<any>>(def: {
+    entities: LE;
+    links: LL;
+    rooms: RoomsDef;
+  }): DomainSchemaResult<MergeEntities<AccumE, LE>, MergeLinks<AccumL, LL>, RoomsDef, {}, Name, IncludedNames>;
 };
 
 function getMeta(source: unknown): DomainMeta | null {
@@ -461,7 +629,7 @@ function getActionBinding(source: unknown): { name: string; domain: unknown; key
 }
 
 function bindAction(
-  action: DomainActionDefinition<any, any, any, any>,
+  action: DomainActionDefinition<any, any, any, any, any, any>,
   params: { name: string; domain: unknown; key?: string },
 ): DomainActionRegistration {
   const registration: DomainActionRegistration = {
@@ -736,6 +904,47 @@ function assertSchemaIncludes(fullSchema: any, requiredSchema: any) {
   }
 }
 
+function collectTransitiveDomainNames(source: unknown, seen = new Set<unknown>()): Set<string> {
+  const names = new Set<string>();
+  if (!source || typeof source !== "object") return names;
+  if (seen.has(source)) return names;
+  seen.add(source);
+
+  const meta = getMeta(source);
+  if (!meta) return names;
+  if (meta.name) names.add(meta.name);
+
+  for (const getter of meta.includes ?? []) {
+    if (!getter) continue;
+    let child: unknown = null;
+    try {
+      child = getter();
+    } catch {
+      child = null;
+    }
+    for (const name of collectTransitiveDomainNames(child, seen)) {
+      names.add(name);
+    }
+  }
+
+  return names;
+}
+
+function assertDomainNamesInclude(rootDomain: unknown, requiredDomain: unknown) {
+  const rootMeta = getMeta(rootDomain);
+  const requiredMeta = getMeta(requiredDomain);
+  if (!rootMeta || !requiredMeta) return;
+
+  const rootNames = collectTransitiveDomainNames(rootDomain);
+  const requiredNames = collectTransitiveDomainNames(requiredDomain);
+  if (rootNames.size === 0 || requiredNames.size === 0) return;
+
+  const missing = Array.from(requiredNames).filter((name) => !rootNames.has(name));
+  if (missing.length > 0) {
+    throw new Error(`ConcreteDomain: domain is missing required names (${missing.join(", ")})`);
+  }
+}
+
 function createConcreteDomain<D extends DomainSchemaResult, DB>(
   domainInstance: D,
   db: DB,
@@ -798,6 +1007,7 @@ export function materializeDomain<SubD extends DomainSchemaResult>(params: {
 }): ActiveDomain<SubD, unknown> {
   const baseSchema = resolveSchema(params.rootDomain);
   const requiredSchema = resolveSchema(params.subdomain);
+  assertDomainNamesInclude(params.rootDomain, params.subdomain);
   assertSchemaIncludes(baseSchema, requiredSchema);
   return createConcreteDomain(
     params.subdomain,
@@ -1057,7 +1267,13 @@ export function domain<E extends EntitiesDef, L extends LinksDef<E>, R extends R
   def: DomainDefinition<E, L, R>
 ): DomainInstance<E, L, R>;
 
-// Overload 2: builder API with dependsOn
+// Overload 2: builder API preserving the domain name literal.
+export function domain<const Name extends string>(name: Name): DomainBuilder<{}, {}, Name, Name>;
+export function domain<const Name extends string>(
+  options: DomainConstructorOptions & { name: Name }
+): DomainBuilder<{}, {}, Name, Name>;
+
+// Overload 3: builder API fallback when the name has already been widened.
 export function domain(name?: string | DomainConstructorOptions): DomainBuilder<{}, {}>;
 
 // Impl
@@ -1085,7 +1301,7 @@ export function domain(arg?: unknown): any {
     if (!opts.name) {
       throw new Error("domain() requires a name");
     }
-    return createBuilder<{}, {}>(baseEntities, {} as any, [], {
+    return createBuilder<{}, {}, string, string>(baseEntities, {} as any, [], {
       name: opts.name,
       rootDir: opts.rootDir,
       packageName: opts.packageName,
@@ -1096,14 +1312,22 @@ export function domain(arg?: unknown): any {
   // builder API - runtime state tracks accumulated dependencies
   // Support lazy includes for circular dependencies by storing references and resolving at schema()/toInstantSchema() time
   // AL preserves literal link keys from included domains
-  function createBuilder<AE extends EntitiesDef, AL extends LinksDef<any> = LinksDef<any>>(
+  function createBuilder<
+    AE extends EntitiesDef,
+    AL extends LinksDef<any> = LinksDef<any>,
+    Name extends string = string,
+    IncludedNames extends string = Name,
+  >(
     deps: AE,
     linkDeps: AL,
     lazyIncludes: Array<() => DomainInstance<any, any, any> | DomainSchemaResult<any, any, any> | InstantSchemaDef<any, any, any> | undefined> = [],
     meta: DomainMeta
-  ): DomainBuilder<AE, AL> {
-    return {
-      includes<E2 extends EntitiesDef, L2 extends LinksDef<any> = {}>(other: DomainInstance<E2, L2, any> | DomainSchemaResult<E2, L2, any> | InstantSchemaDef<E2, L2, any> | (() => DomainInstance<E2, L2, any> | DomainSchemaResult<E2, L2, any> | InstantSchemaDef<E2, L2, any>) | undefined) {
+  ): DomainBuilder<AE, AL, Name, IncludedNames> {
+    const builder = {
+      includes<const OtherDomain extends DomainSchemaSource>(other: OtherDomain | (() => OtherDomain) | undefined) {
+        type E2 = EntitiesOfDomainSource<OtherDomain>;
+        type L2 = LinksOfDomainSource<OtherDomain>;
+        type NextIncludedNames = IncludedNames | IncludedDomainNamesOf<OtherDomain>;
         // Support lazy includes via function for circular dependencies
         if (typeof other === 'function') {
           const lazyGetter = () => {
@@ -1115,7 +1339,7 @@ export function domain(arg?: unknown): any {
           };
           const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys using MergeLinks
-          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
+          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>, Name, NextIncludedNames>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter as any],
@@ -1131,7 +1355,7 @@ export function domain(arg?: unknown): any {
           const lazyGetter = () => undefined;
           const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys
-          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
+          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>, Name, NextIncludedNames>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter],
@@ -1147,7 +1371,7 @@ export function domain(arg?: unknown): any {
             const lazyGetter = () => other;
             const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
             // Preserve link literal keys
-            return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
+            return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>, Name, NextIncludedNames>(
               deps as MergeEntities<AE, E2>,
               linkDeps as MergeLinks<AL, L2>,
               [...lazyIncludes, lazyGetter as any],
@@ -1161,13 +1385,13 @@ export function domain(arg?: unknown): any {
           const mergedLinks = (links ? { ...linkDeps, ...links } : { ...linkDeps }) as MergeLinks<AL, L2>;
           const includeRef = () => other as any;
           const nextMeta = appendMetaInclude(meta, includeRef);
-          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(mergedEntities, mergedLinks, lazyIncludes, nextMeta);
+          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>, Name, NextIncludedNames>(mergedEntities, mergedLinks, lazyIncludes, nextMeta);
         } catch (e) {
           // If accessing entities throws, store as lazy
           const lazyGetter = () => other;
           const nextMeta = appendMetaInclude(meta, lazyGetter as DomainIncludeRef);
           // Preserve link literal keys
-          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>>(
+          return createBuilder<MergeEntities<AE, E2>, MergeLinks<AL, L2>, Name, NextIncludedNames>(
             deps as MergeEntities<AE, E2>,
             linkDeps as MergeLinks<AL, L2>,
             [...lazyIncludes, lazyGetter as any],
@@ -1175,11 +1399,11 @@ export function domain(arg?: unknown): any {
           );
         }
       },
-      schema<LE extends EntitiesDef, const LL extends LinksDef<WithBase<MergeEntities<AE, LE>>>>(def: {
+      withSchema<LE extends EntitiesDef, const LL extends LinksDef<any>>(def: {
         entities: LE;
         links: LL;
         rooms: RoomsDef;
-      }): DomainSchemaResult<MergeEntities<AE, LE>, MergeLinks<AL, LL>, RoomsDef> {
+      }): DomainSchemaResult<MergeEntities<AE, LE>, MergeLinks<AL, LL>, RoomsDef, {}, Name, IncludedNames> {
         // Resolve lazy includes at schema() time (when all domains should be initialized)
         // This handles circular dependencies by deferring entity resolution
         let resolvedDeps = { ...deps };
@@ -1217,12 +1441,12 @@ export function domain(arg?: unknown): any {
         type MergedLinksType = MergeLinks<AL, LL>;
         type MergedEntitiesType = MergeEntities<AE, LE>;
         
-        const createDomainResult = (
+        const createDomainResult = <Actions extends DomainActionMap = {}>(
           seedActions: DomainActionRegistration[] = [],
-          seedActionMap: DomainActionMap = {},
-        ): DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms> => {
+          seedActionMap: Actions = {} as Actions,
+        ): DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms, Actions, Name, IncludedNames> => {
           type InstantSchemaResult = ReturnType<
-            DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>["toInstantSchema"]
+            DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms, Actions, Name, IncludedNames>["toInstantSchema"]
           >;
           const capturedEntities = { ...allEntities };
           const capturedLinks = cloneLinksDef(allLinks);
@@ -1310,7 +1534,7 @@ export function domain(arg?: unknown): any {
             originalEntities: Object.freeze({ ...allEntities }) as MergedEntitiesType,
             instantSchema,
             toInstantSchema: instantSchema,
-          } as unknown as DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms>;
+          } as unknown as DomainSchemaResult<MergedEntitiesType, MergedLinksType, typeof def.rooms, Actions, Name, IncludedNames>;
 
           attachMeta(result as object, freezeMeta(meta));
           (result as any).context = (options?: DomainContextOptions) =>
@@ -1322,19 +1546,31 @@ export function domain(arg?: unknown): any {
             bindings?: { env?: unknown; runtime?: unknown },
           ) => createConcreteDomain(result as any, db, resolveSchema(result), bindings);
 
-          const reboundActions = seedActions.map((action) =>
-            bindAction(action, {
+          const reboundByAction = new Map<DomainActionRegistration, DomainActionRegistration>();
+          const reboundActionMap = Object.fromEntries(
+            Object.entries(seedActionMap).map(([key, action]) => {
+              const rebound = bindAction(action, {
+                name: action.name,
+                domain: result,
+                key,
+              });
+              reboundByAction.set(action, rebound);
+              return [key, rebound] as const;
+            }),
+          ) as Actions;
+          const reboundActions = seedActions.map((action) => {
+            const rebound = reboundByAction.get(action);
+            if (rebound) return rebound;
+            return bindAction(action, {
               name: action.name,
               domain: result,
-              key: (getActionBinding(action) as any)?.key,
-            }),
-          );
+              key: getActionBinding(action)?.key,
+            });
+          });
           setStoredActions(result as any, [...reboundActions]);
-          setStoredActionMap(result as any, { ...seedActionMap });
-          (result as any).actions = (actionsInput?: DomainActionCollection) => {
-            if (actionsInput === undefined) {
-              return [...getStoredActions(result as any)];
-            }
+          setStoredActionMap(result as any, reboundActionMap);
+          (result as any).actions = getStoredActionMap(result as any);
+          (result as any).withActions = (actionsInput: DomainActionCollection) => {
             const current = getStoredActions(result as any);
             const currentMap = getStoredActionMap(result as any);
             const additions = normalizeActionCollection(result as any, actionsInput);
@@ -1351,7 +1587,15 @@ export function domain(arg?: unknown): any {
 
         return createDomainResult([], {});
       },
+      schema<LE extends EntitiesDef, const LL extends LinksDef<any>>(def: {
+        entities: LE;
+        links: LL;
+        rooms: RoomsDef;
+      }): DomainSchemaResult<MergeEntities<AE, LE>, MergeLinks<AL, LL>, RoomsDef, {}, Name, IncludedNames> {
+        return this.withSchema(def);
+      },
     };
+    return builder as unknown as DomainBuilder<AE, AL, Name, IncludedNames>;
   }
 
   if (typeof arg === "string" && !arg.trim()) {
@@ -1360,7 +1604,7 @@ export function domain(arg?: unknown): any {
 
   const meta: DomainMeta = { name: String(arg), includes: [] };
 
-  return createBuilder<{}, {}>(baseEntities, {} as any, [], meta);
+  return createBuilder<{}, {}, string, string>(baseEntities, {} as any, [], meta);
 }
 
 export function composeDomain(
@@ -1371,7 +1615,7 @@ export function composeDomain(
   for (const include of includes) {
     builder = builder.includes(include as any);
   }
-  return builder.schema({ entities: {}, links: {}, rooms: {} });
+  return builder.withSchema({ entities: {}, links: {}, rooms: {} });
 }
 
 /**
@@ -1385,15 +1629,54 @@ export function composeDomain(
  * composition, and from higher-level workflows that orchestrate them.
  */
 export function defineDomainAction<
+  OutputContract extends DomainActionOutputContract<any, any>,
+  Env extends Record<string, unknown> = Record<string, unknown>,
+  Input = unknown,
+  Runtime = unknown,
+  Domain = unknown,
+>(
+  action: Omit<
+    DomainActionDefinition<
+      Env,
+      Input,
+      DomainActionRuntimeOutput<OutputContract>,
+      Runtime,
+      Domain,
+      OutputContract
+    >,
+    "output"
+  > & {
+    output: OutputContract;
+  },
+): DomainActionDefinition<
+  Env,
+  Input,
+  DomainActionRuntimeOutput<OutputContract>,
+  Runtime,
+  Domain,
+  OutputContract
+>;
+export function defineDomainAction<
   Env extends Record<string, unknown> = Record<string, unknown>,
   Input = unknown,
   Output = unknown,
   Runtime = unknown,
+  Domain = unknown,
 >(
-  action: DomainActionDefinition<Env, Input, Output, Runtime>,
-): DomainActionDefinition<Env, Input, Output, Runtime> {
+  action: Omit<
+    DomainActionDefinition<Env, Input, Output, Runtime, Domain, never>,
+    "output"
+  > & {
+    output?: never;
+  },
+): DomainActionDefinition<Env, Input, Output, Runtime, Domain, never>;
+export function defineDomainAction(
+  action: DomainActionDefinition<any, any, any, any, any, any>,
+): DomainActionDefinition<any, any, any, any, any, any> {
   return action;
 }
+
+export const defineAction = defineDomainAction;
 
 export function getDomainActions(source: unknown): DomainActionRegistration[] {
   return getStoredActions(source);

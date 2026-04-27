@@ -1,8 +1,10 @@
 import { tool } from "ai"
 import { z } from "zod"
 import type { DomainSchemaResult } from "@ekairos/domain"
+import type { EkairosRuntime, RuntimeForDomain } from "@ekairos/domain/runtime"
 import type { ContextReactor } from "@ekairos/events"
 import { dataset, type DatasetSchemaInput } from "./dataset"
+import { datasetDomain } from "./schema"
 
 const fileSourceSchema = z.object({
   kind: z.literal("file"),
@@ -41,21 +43,41 @@ const materializeDatasetToolInputSchema = z.object({
   datasetId: z.string().optional(),
   sandboxId: z.string().optional(),
   title: z.string().optional(),
-  sources: z.array(z.discriminatedUnion("kind", [
-    fileSourceSchema,
-    textSourceSchema,
-    datasetSourceSchema,
-    querySourceSchema,
-  ])).min(1),
+  sources: z
+    .array(
+      z.discriminatedUnion("kind", [
+        fileSourceSchema,
+        textSourceSchema,
+        datasetSourceSchema,
+        querySourceSchema,
+      ]),
+    )
+    .min(1),
   instructions: z.string().optional(),
+  mode: z.enum(["auto", "schema"]).optional(),
+  output: z.enum(["rows", "object"]).optional(),
   schema: datasetSchemaSchema.optional(),
   first: z.boolean().optional(),
 })
 
-export function createMaterializeDatasetTool<Env extends { orgId: string }>(params: {
-  env: Env
+type MaterializeDatasetRuntimeEnv = { orgId: string }
+type AnyMaterializeDatasetRuntime = EkairosRuntime<any, any, any>
+type MaterializeDatasetRuntimeHandle<
+  Runtime extends AnyMaterializeDatasetRuntime,
+> = RuntimeForDomain<Runtime, typeof datasetDomain>
+
+type CompatibleToolQueryDomain<
+  Runtime extends AnyMaterializeDatasetRuntime,
+  QueryDomain extends DomainSchemaResult,
+> = RuntimeForDomain<Runtime, QueryDomain> extends never ? never : QueryDomain
+
+export function createMaterializeDatasetTool<
+  Runtime extends AnyMaterializeDatasetRuntime,
+  QueryDomain extends DomainSchemaResult,
+>(params: {
+  runtime: Runtime & MaterializeDatasetRuntimeHandle<Runtime>
   reactor?: ContextReactor<any, any>
-  queryDomain: DomainSchemaResult
+  queryDomain: QueryDomain & CompatibleToolQueryDomain<Runtime, QueryDomain>
   toolName?: string
 }) {
   return tool({
@@ -73,10 +95,12 @@ export function createMaterializeDatasetTool<Env extends { orgId: string }>(para
         | z.infer<typeof querySourceSchema>
       >
       instructions?: string
+      mode?: "auto" | "schema"
+      output?: "rows" | "object"
       schema?: DatasetSchemaInput
       first?: boolean
     }) => {
-      let builder = dataset(params.env)
+      let builder = dataset(params.runtime)
 
       if (input.title?.trim()) {
         builder = builder.title(input.title)
@@ -98,16 +122,22 @@ export function createMaterializeDatasetTool<Env extends { orgId: string }>(para
           builder = builder.fromDataset(source)
           continue
         }
-        builder = builder.fromQuery(params.queryDomain, {
-          query: source.query,
+        builder = (builder as any).fromQuery(params.queryDomain, {
+          query: source.query as any,
           title: source.title,
           explanation: source.explanation,
         })
       }
 
+      if (input.output === "object") {
+        builder = builder.asObject()
+      } else {
+        builder = builder.asRows()
+      }
+
       if (input.schema) {
         builder = builder.schema(input.schema)
-      } else {
+      } else if (input.mode === "auto" || input.mode === undefined) {
         builder = builder.inferSchema()
       }
 

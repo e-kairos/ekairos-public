@@ -105,50 +105,50 @@ describe("context output parts", () => {
               {
                 idx: 0,
                 part: {
-                  type: "content",
-                  content: [
-                    {
-                      type: "text",
-                      text: "Inspecting region.",
-                    },
-                  ],
+                  type: "message",
+                  content: {
+                    text: "Inspecting region.",
+                  },
                 },
               },
               {
                 idx: 1,
                 part: {
-                  type: "tool-call",
-                  toolCallId: "tc_inspect_region_1",
-                  toolName: "inspect_region",
-                  state: "input-available",
-                  content: [
-                    {
-                      type: "json",
-                      value: {
+                  type: "action",
+                  content: {
+                    status: "started",
+                    actionCallId: "tc_inspect_region_1",
+                    actionName: "inspect_region",
+                    input: {
                         rect: { x: 120, y: 240, width: 360, height: 220 },
-                      },
                     },
-                  ],
+                  },
                 },
               },
               {
                 idx: 2,
                 part: {
-                  type: "tool-result",
-                  toolCallId: "tc_inspect_region_1",
-                  toolName: "inspect_region",
-                  state: "output-available",
-                  content: [
-                    {
-                      type: "text",
-                      text: "Zoomed crop for x:120 y:240 w:360 h:220",
+                  type: "action",
+                  content: {
+                    status: "completed",
+                    actionCallId: "tc_inspect_region_1",
+                    actionName: "inspect_region",
+                    output: {
+                      type: "content",
+                      value: [
+                        {
+                          type: "text",
+                          text: "Zoomed crop for x:120 y:240 w:360 h:220",
+                        },
+                        {
+                          type: "image-data",
+                          data: "QUFBQQ==",
+                          mediaType: "image/png",
+                          filename: "inspect-region.png",
+                        },
+                      ],
                     },
-                    {
-                      type: "file",
-                      data: "QUFBQQ==",
-                      mediaType: "image/png",
-                    },
-                  ],
+                  },
                 },
               },
             ],
@@ -180,15 +180,15 @@ describe("context output parts", () => {
     expect(Array.isArray(output?.value)).toBe(true)
   })
 
-  it("wraps legacy raw outputs as json output parts", () => {
+  it("wraps raw outputs as json output parts", () => {
     expect(
       normalizeContextOutputPart({
-        summary: "legacy output",
+        summary: "raw output",
       }),
     ).toEqual({
       type: "json",
       value: {
-        summary: "legacy output",
+        summary: "raw output",
       },
     })
   })

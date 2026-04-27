@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 import { createContext, eventsDomain, type ContextItem } from "@ekairos/events"
+import { Sandbox } from "@ekairos/sandbox/sandbox"
 import { init } from "@instantdb/admin"
 import { readPersistedContextStepStream } from "@ekairos/events/runtime"
 
@@ -375,7 +376,7 @@ describeInstant("codex reactor + Instant integration", () => {
       "Read packages/reactors/openai-reactor/README.md and summarize what createCodexReactor does. Do not modify files.",
     )
 
-    const result = await timer.measure("reactMs", async () =>
+    const shell = await timer.measure("reactShellMs", async () =>
       await codexContext.react(triggerEvent, {
         env: {
           actorId: "codex-reactor-test-user",
@@ -394,6 +395,7 @@ describeInstant("codex reactor + Instant integration", () => {
         },
       }),
     )
+    const result = await timer.measure("reactRunMs", async () => await shell.run!)
 
     const snapshot = await timer.measure("snapshotQueryMs", async () =>
       await currentDb().query({
@@ -419,14 +421,27 @@ describeInstant("codex reactor + Instant integration", () => {
     const reactionItem = itemRows.find((row) => readString(row, "id") === result.reaction.id)
     const reactionContent = asRecord(reactionItem?.content)
     const reactionParts = Array.isArray(reactionContent.parts) ? reactionContent.parts : []
-    const assistantTextPart = reactionParts.find((part) => asString(asRecord(part).type) === "text")
-    const commandParts = reactionParts.filter(
-      (part) => asString(asRecord(part).type) === "tool-commandExecution",
-    )
-    const metadataPart = reactionParts.find(
-      (part) => asString(asRecord(part).type) === "tool-turnMetadata",
-    )
-    const codexOutput = asRecord(asRecord(metadataPart).output)
+    const assistantTextPart = reactionParts.find((part) => asString(asRecord(part).type) === "message")
+    const assistantText = asString(asRecord(asRecord(assistantTextPart).content).text)
+    const commandParts = reactionParts.filter((part) => {
+      const record = asRecord(part)
+      const content = asRecord(record.content)
+      return (
+        asString(record.type) === "action" &&
+        asString(content.actionName) === Sandbox.runCommandActionName
+      )
+    })
+    const metadataPart = reactionParts.find((part) => {
+      const record = asRecord(part)
+      const content = asRecord(record.content)
+      return (
+        asString(record.type) === "action" &&
+        asString(content.status) === "completed" &&
+        asString(content.actionName) === "turnMetadata"
+      )
+    })
+    const metadataContent = asRecord(asRecord(metadataPart).content)
+    const codexOutput = asRecord(metadataContent.output)
     const streamTrace = asRecord(codexOutput.streamTrace)
     const emittedPayloads = getChunkPayloads(collected.written)
     const firstStepRow = stepRows[0]
@@ -485,7 +500,7 @@ describeInstant("codex reactor + Instant integration", () => {
           emittedChunks: audit.stream.emittedChunks,
           providerContextId: asString(codexOutput.providerContextId),
           turnId: asString(codexOutput.turnId),
-          assistantTextPreview: truncate(asString(asRecord(assistantTextPart).text)),
+          assistantTextPreview: truncate(assistantText),
         },
         null,
         2,
@@ -515,7 +530,7 @@ describeInstant("codex reactor + Instant integration", () => {
     expect(commandParts.length).toBeGreaterThan(0)
     expect(asString(codexOutput.providerContextId)).not.toBe("")
     expect(asString(codexOutput.turnId)).not.toBe("")
-    expect(asString(asRecord(assistantTextPart).text)).not.toBe("")
+    expect(assistantText).not.toBe("")
     expect(Array.isArray(streamTrace.chunks)).toBe(false)
   }, 10 * 60 * 1000)
 })

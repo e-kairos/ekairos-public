@@ -137,7 +137,7 @@ describeRealInstant("context ai sdk reactor + real AI Gateway model", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "set_status"))
       .build()
 
-    const result = await timer.measure("reactMs", async () =>
+    const shell = await timer.measure("reactShellMs", async () =>
       await realContext.react(createTriggerEvent("set status to ready"), {
         runtime,
         context: { key: contextKey },
@@ -151,6 +151,7 @@ describeRealInstant("context ai sdk reactor + real AI Gateway model", () => {
         },
       }),
     )
+    const result = await timer.measure("reactRunMs", async () => await shell.run!)
 
     expect(result.context.status).toBe("closed")
     expect(result.execution.status).toBe("completed")
@@ -208,7 +209,13 @@ describeRealInstant("context ai sdk reactor + real AI Gateway model", () => {
     const hasToolOutput = partRows.some((row) => {
       const part = asRecord(row.part)
       if (!part) return false
-      return part.type === "tool-result" && part.state === "output-available"
+      const content = asRecord(part.content)
+      return (
+        (part.type === "tool-result" && part.state === "output-available") ||
+        (part.type === "action" &&
+          content?.status === "completed" &&
+          content?.actionName === "set_status")
+      )
     })
     expect(hasToolOutput).toBe(true)
 

@@ -115,10 +115,11 @@ async function createSmokeModelForTool(modelId: string) {
 async function executeEchoTool(
   { message }: { message: string },
   ctx: ContextToolExecuteContext<any, WorkflowSmokeEnv>,
+  mode: WorkflowSmokeEnv["mode"],
 ) {
   "use step";
 
-  if (ctx.env.mode === "tool-error") {
+  if (mode === "tool-error") {
     throw new Error("echo_failed")
   }
 
@@ -128,8 +129,7 @@ async function executeEchoTool(
     value: {
       ok: true,
       message,
-      mode: ctx.env.mode,
-      runtimeMode: String((ctx.runtime as any).env?.mode ?? ""),
+      mode,
       contextId: String(ctx.context.id),
       stepId: String(ctx.stepId),
       hasDb: Boolean(db),
@@ -146,7 +146,7 @@ function createStorySmoke(mode: WorkflowSmokeEnv["mode"]) {
         echo: tool({
           description: "Return the input payload as a simple echo response.",
           inputSchema: z.object({ message: z.string() }),
-          execute: executeEchoTool,
+          execute: (input, ctx) => executeEchoTool(input, ctx, mode),
         }),
       }))
       .reactor(
@@ -190,7 +190,7 @@ function createStorySmoke(mode: WorkflowSmokeEnv["mode"]) {
       echo: tool({
         description: "Return the input payload as a simple echo response.",
         inputSchema: z.object({ message: z.string() }),
-        execute: executeEchoTool,
+        execute: (input, ctx) => executeEchoTool(input, ctx, mode),
       }),
     }))
     .model(model)

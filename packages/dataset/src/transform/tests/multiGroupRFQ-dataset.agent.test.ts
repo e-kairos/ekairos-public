@@ -47,6 +47,7 @@ if (adminDb) {
 
 if (adminDb) {
     configureRuntime({
+        domain: { domain: appDomain },
         runtime: async () => ({ db: adminDb } as any),
     })
 }

@@ -9,7 +9,7 @@ import {
 } from "./index.js";
 export {
   EkairosRuntime,
-  type CompatibleRuntimeForDomain,
+  type RuntimeForDomain,
   type RuntimeLike,
   type ExplicitRuntimeLike,
 } from "./runtime-handle.js";
@@ -142,7 +142,7 @@ export type RuntimeDomainConfig = {
   meta?: Record<string, unknown>;
   // Optional MCP auth configuration.
   mcp?: RuntimeMcpConfig;
-  // Optional explicit actions (in addition to domain.actions()).
+  // Optional explicit actions (in addition to domain.withActions(...)).
   actions?: RuntimeDomainActionCollection;
 };
 

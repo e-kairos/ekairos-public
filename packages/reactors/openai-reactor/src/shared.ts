@@ -1,4 +1,5 @@
 import type { ContextItem } from "@ekairos/events"
+import { Sandbox } from "@ekairos/sandbox/sandbox"
 
 export type AnyRecord = Record<string, unknown>
 
@@ -445,44 +446,68 @@ export function buildCodexParts(params: {
     const status = asString(completed.status || input.status || "completed").trim()
     const exitCode =
       typeof completed.exitCode === "number" ? completed.exitCode : undefined
+    const resultMetadata = asRecord(params.result.metadata)
+    const sandboxMetadata = asRecord(resultMetadata.sandbox)
+    const sandboxId = asString(sandboxMetadata.sandboxId).trim()
+    const commandText = asString(input.command)
+    const failed = status === "failed" || (typeof exitCode === "number" && exitCode !== 0)
+    const errorText =
+      status === "failed"
+        ? asString(completed.error || completed.message || "command_execution_failed")
+        : undefined
+    const reactorMetadata = cleanRecord({
+      reactorKind: "codex",
+      ...codexProviderMetadata({
+        source: "codex.timeline",
+        sequence: command.sequence ?? 0,
+        at: command.at,
+        providerItemId: toolCallId,
+        providerToolType: "commandExecution",
+        success: !failed,
+        errorText,
+      }),
+    })
     parts.push({
       sequence: command.sequence ?? 0,
       part: {
-        type: "tool-commandExecution",
-        toolName: "commandExecution",
-        toolCallId,
-        state:
-          status === "failed" || (typeof exitCode === "number" && exitCode !== 0)
-            ? "output-error"
-            : "output-available",
-        input: {
-          command: asString(input.command),
-          cwd: asString(input.cwd),
-          commandActions: asArray(input.commandActions),
+        type: "action",
+        content: {
+          status: "started",
+          actionName: Sandbox.runCommandActionName,
+          actionCallId: toolCallId,
+          input: cleanRecord({
+            command: commandText,
+            cwd: asString(input.cwd) || undefined,
+            metadata: cleanRecord({
+              commandActions: asArray(input.commandActions),
+            }),
+          }),
         },
-        output: {
-          text: outputText,
-          exitCode,
-          durationMs:
-            typeof completed.durationMs === "number" ? completed.durationMs : undefined,
-          status,
+        reactorMetadata,
+      },
+    })
+    if (!command.completed) continue
+    parts.push({
+      sequence: (command.sequence ?? 0) + 0.1,
+      part: {
+        type: "action",
+        content: {
+          status: "completed",
+          actionName: Sandbox.runCommandActionName,
+          actionCallId: toolCallId,
+          output: cleanRecord({
+            sandboxId: sandboxId || undefined,
+            success: !failed,
+            exitCode,
+            output: outputText || undefined,
+            error: failed ? errorText : undefined,
+            command: commandText || undefined,
+            durationMs:
+              typeof completed.durationMs === "number" ? completed.durationMs : undefined,
+            status,
+          }),
         },
-        errorText:
-          status === "failed"
-            ? asString(completed.error || completed.message || "command_execution_failed")
-            : undefined,
-        metadata: codexProviderMetadata({
-          source: "codex.timeline",
-          sequence: command.sequence ?? 0,
-          at: command.at,
-          providerItemId: toolCallId,
-          providerToolType: "commandExecution",
-          success: !(status === "failed" || (typeof exitCode === "number" && exitCode !== 0)),
-          errorText:
-            status === "failed"
-              ? asString(completed.error || completed.message || "command_execution_failed")
-              : undefined,
-        }),
+        reactorMetadata,
       },
     })
   }

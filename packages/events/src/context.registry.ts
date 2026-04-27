@@ -3,7 +3,7 @@ import type { ContextInstance } from "./context.builder.js"
 
 export type ContextKey = string
 
-type AnyContext = ContextInstance<any, any>
+type AnyContext = ContextInstance<any, any, any>
 
 export type ContextFactory = () => AnyContext
 

@@ -253,7 +253,10 @@ export async function executeMockCodexTurnStep(
       }
 
       await contextWriter?.write(
-        encodeContextStepStreamChunk(createContextStepStreamChunk(payload)),
+        encodeContextStepStreamChunk(createContextStepStreamChunk({
+          ...payload,
+          stepId: args.stepId,
+        })),
       )
       await workflowWriter?.write({
         type: "data-chunk.emitted",

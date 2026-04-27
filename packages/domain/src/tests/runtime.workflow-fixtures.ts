@@ -163,7 +163,7 @@ export const runtimeWorkflowDomain = domain("runtime.workflow.integration")
     links: {},
     rooms: {},
   })
-  .actions({
+  .withActions({
     normalizeProbeLabel: normalizeProbeLabelAction,
     createProbe: createProbeAction,
     readProbe: readProbeAction,

@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from "vitest";
 import { i } from "@instantdb/core";
-import { defineDomainAction, domain } from "../index.ts";
+
+import { domain } from "../index.ts";
 
 function duplicateLinkAttributes(links: Record<string, any>) {
   const ownership = new Map<string, string>();
@@ -29,8 +30,12 @@ function duplicateLinkAttributes(links: Record<string, any>) {
   return duplicates;
 }
 
-describe("domain purity and immutability", () => {
-  it("keeps toInstantSchema idempotent across repeated calls", () => {
+describe("domain instant schema idempotence", () => {
+  it("keeps instant schema materialization idempotent across repeated calls", () => {
+    // given: a composed domain where the same organization domain is included
+    // directly and transitively through another domain. This is the case that
+    // can accidentally duplicate generated link attrs if materialization mutates
+    // shared state.
     const organizationDomain = domain("organization").schema({
       entities: {
         organization_organizations: i.entity({
@@ -67,82 +72,18 @@ describe("domain purity and immutability", () => {
       .includes(codeDomain)
       .schema({ entities: {}, links: {}, rooms: {} });
 
+    // when: the same domain is materialized multiple times through both the
+    // legacy alias and the preferred instantSchema method.
     const first = appDomain.toInstantSchema();
     const second = appDomain.toInstantSchema();
     const third = appDomain.instantSchema();
 
+    // then: every materialization has stable link keys and no duplicate link
+    // attrs.
     expect(duplicateLinkAttributes(first.links as any)).toEqual([]);
     expect(duplicateLinkAttributes(second.links as any)).toEqual([]);
     expect(duplicateLinkAttributes(third.links as any)).toEqual([]);
     expect(Object.keys(first.links).sort()).toEqual(Object.keys(second.links).sort());
     expect(Object.keys(first.links).sort()).toEqual(Object.keys(third.links).sort());
-  });
-
-  it("does not mutate base builder branches", () => {
-    const coreDomain = domain("core").schema({
-      entities: {
-        core_items: i.entity({
-          name: i.string(),
-        }),
-      },
-      links: {},
-      rooms: {},
-    });
-
-    const extraDomain = domain("extra").schema({
-      entities: {
-        extra_items: i.entity({
-          name: i.string(),
-        }),
-      },
-      links: {},
-      rooms: {},
-    });
-
-    const baseBuilder = domain("app").includes(coreDomain);
-    const left = baseBuilder.schema({ entities: {}, links: {}, rooms: {} });
-    const right = baseBuilder.includes(extraDomain).schema({ entities: {}, links: {}, rooms: {} });
-
-    expect("core_items" in left.entities).toBe(true);
-    expect("extra_items" in left.entities).toBe(false);
-    expect("extra_items" in right.entities).toBe(true);
-  });
-
-  it("returns a new immutable domain result when registering actions", () => {
-    const baseDomain = domain("management").schema({
-      entities: {
-        management_tasks: i.entity({
-          title: i.string(),
-        }),
-      },
-      links: {},
-      rooms: {},
-    });
-
-    const createTask = defineDomainAction({
-      name: "management.task.create",
-      execute: async () => ({ ok: true }),
-    });
-    const updateTask = defineDomainAction({
-      name: "management.task.update",
-      execute: async () => ({ ok: true }),
-    });
-
-    const withCreate = baseDomain.actions([createTask]);
-    const withCreateAndUpdate = withCreate.actions([updateTask]);
-
-    expect(baseDomain).not.toBe(withCreate);
-    expect(withCreate).not.toBe(withCreateAndUpdate);
-    expect(withCreate.getActions().map((entry) => entry.name)).toEqual([
-      "management.task.create",
-    ]);
-    expect(withCreateAndUpdate.getActions().map((entry) => entry.name)).toEqual([
-      "management.task.create",
-      "management.task.update",
-    ]);
-    expect(withCreateAndUpdate.actions().map((entry) => entry.name)).toEqual([
-      "management.task.create",
-      "management.task.update",
-    ]);
   });
 });

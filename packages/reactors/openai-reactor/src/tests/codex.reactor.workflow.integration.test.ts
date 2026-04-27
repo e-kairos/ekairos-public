@@ -5,6 +5,7 @@ import { init } from "@instantdb/admin"
 import http from "node:http"
 import { eventsDomain } from "@ekairos/events"
 import { configureContextDurableWorkflow } from "@ekairos/events/runtime"
+import { Sandbox } from "@ekairos/sandbox/sandbox"
 
 import {
   ASSISTANT_TEXT,
@@ -201,48 +202,44 @@ describeWorkflowInstant("codex reactor + durable context engine workflow", () =>
     const parts = eventDomain.parts.map((part) => asRecord(part))
     const partTypes = parts.map((part) => asString(part.type))
 
-    expect(partTypes).toContain("content")
-    expect(partTypes).toContain("tool-call")
-    expect(partTypes).toContain("tool-result")
+    expect(partTypes).toContain("message")
+    expect(partTypes).toContain("action")
     expect(partTypes).not.toContain("codex-event")
 
     const textPart = parts.find((part) => {
-      if (asString(part.type) !== "content") return false
-      const content = Array.isArray(part.content) ? part.content : []
-      return content.some((entry) => asString(asRecord(entry).text) === ASSISTANT_TEXT)
+      if (asString(part.type) !== "message") return false
+      const content = asRecord(part.content)
+      return asString(content.text) === ASSISTANT_TEXT
     })
     expect(textPart).toBeTruthy()
 
     const commandCallPart = parts.find(
       (part) =>
-        asString(part.type) === "tool-call" &&
-        asString(part.toolName) === "commandExecution",
+        asString(part.type) === "action" &&
+        asString(asRecord(part.content).status) === "started" &&
+        asString(asRecord(part.content).actionName) === Sandbox.runCommandActionName,
     )
     expect(commandCallPart).toBeTruthy()
-    const commandCallJson = Array.isArray(commandCallPart?.content)
-      ? asRecord(asRecord(commandCallPart.content[0]).value)
-      : {}
+    const commandCallJson = asRecord(asRecord(commandCallPart?.content).input)
     expect(asString(commandCallJson.command)).toBe("git status --short")
 
     const commandResultPart = parts.find(
       (part) =>
-        asString(part.type) === "tool-result" &&
-        asString(part.toolName) === "commandExecution",
+        asString(part.type) === "action" &&
+        asString(asRecord(part.content).status) === "completed" &&
+        asString(asRecord(part.content).actionName) === Sandbox.runCommandActionName,
     )
-    expect(asString(commandResultPart?.state)).toBe("output-available")
-    const commandResultJson = Array.isArray(commandResultPart?.content)
-      ? asRecord(asRecord(commandResultPart.content[0]).value)
-      : {}
-    expect(asString(commandResultJson.text)).toBe("clean")
+    const commandResultJson = asRecord(asRecord(commandResultPart?.content).output)
+    expect(commandResultJson.success).toBe(true)
+    expect(asString(commandResultJson.output)).toBe("clean")
 
     const metadataPart = parts.find(
       (part) =>
-        asString(part.type) === "tool-result" &&
-        asString(part.toolName) === "turnMetadata",
+        asString(part.type) === "action" &&
+        asString(asRecord(part.content).status) === "completed" &&
+        asString(asRecord(part.content).actionName) === "turnMetadata",
     )
-    const metadataOutput = Array.isArray(metadataPart?.content)
-      ? asRecord(asRecord(metadataPart.content[0]).value)
-      : {}
+    const metadataOutput = asRecord(asRecord(metadataPart?.content).output)
     expect(asString(metadataOutput.providerContextId)).toBe(PROVIDER_CONTEXT_ID)
     expect(asString(metadataOutput.turnId)).toBe(TURN_ID)
     expect(asRecord(metadataOutput.tokenUsage).totalTokens).toBe(53)

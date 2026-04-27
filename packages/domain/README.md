@@ -7,9 +7,9 @@ Operate it through a CLI.
 
 ## What you get
 
-- Composed domain graphs with `domain(...).schema(...)`
+- Composed domain graphs with `domain(...).withSchema(...)`
 - Explicit runtimes with `EkairosRuntime`
-- Step-safe write boundaries with `defineDomainAction(...)`
+- Step-safe write boundaries with `defineAction(...)`
 - Workflow-ready action execution with `executeRuntimeAction(...)`
 - A companion CLI through `@ekairos/cli` for `create-app`, `inspect`, `action`, and `query`
 
@@ -77,13 +77,13 @@ The CLI uses `/api/ekairos/domain` by default and falls back to the legacy
 ## Core Pattern
 
 ```ts
-import { defineDomainAction, domain } from "@ekairos/domain";
+import { defineAction, domain } from "@ekairos/domain";
 import { EkairosRuntime } from "@ekairos/domain/runtime-handle";
 import { executeRuntimeAction } from "@ekairos/domain/runtime";
 import { init } from "@instantdb/admin";
 import { i } from "@instantdb/core";
 
-const baseDomain = domain("tasks").schema({
+const baseDomain = domain("tasks").withSchema({
   entities: {
     tasks: i.entity({
       title: i.string().indexed(),
@@ -94,7 +94,7 @@ const baseDomain = domain("tasks").schema({
   rooms: {},
 });
 
-export const createTaskAction = defineDomainAction({
+export const createTaskAction = defineAction({
   name: "tasks.create",
   async execute({ runtime, input }) {
     "use step";
@@ -104,9 +104,12 @@ export const createTaskAction = defineDomainAction({
   },
 });
 
-export const appDomain = baseDomain.actions({
+export const appDomain = baseDomain.withActions({
   createTask: createTaskAction,
 });
+
+// Raw definitions stay available for reflection and adapters:
+appDomain.actions.createTask;
 
 export class AppRuntime extends EkairosRuntime<{
   appId?: string;
@@ -161,7 +164,7 @@ extends it.
 
 ```ts
 // @acme/sandbox/public
-export const sandboxDomain = domain("sandbox").schema({
+export const sandboxDomain = domain("sandbox").withSchema({
   entities: {
     sandbox_sandboxes: i.entity({
       provider: i.string().indexed(),
@@ -180,7 +183,7 @@ import { sandboxDomain as publicSandboxDomain } from "@acme/sandbox/public";
 
 export const sandboxDomain = domain("sandbox")
   .includes(publicSandboxDomain)
-  .schema({
+  .withSchema({
     entities: {
       sandbox_processes: i.entity({
         kind: i.string().indexed(),
@@ -197,8 +200,8 @@ export const sandboxDomain = domain("sandbox")
     },
     rooms: {},
   })
-  .actions({
-    runCommand: defineDomainAction({
+  .withActions({
+    runCommand: defineAction({
       name: "sandbox.runCommand",
       async execute({ runtime, input }) {
         "use step";
@@ -215,7 +218,7 @@ import { sandboxDomain } from "@acme/sandbox/public";
 
 export const appDomain = domain("app")
   .includes(sandboxDomain)
-  .schema({ entities: {}, links: {}, rooms: {} });
+  .withSchema({ entities: {}, links: {}, rooms: {} });
 
 export default appDomain.instantSchema();
 ```
@@ -251,4 +254,75 @@ pnpm --filter @ekairos/domain test
 pnpm --filter @ekairos/domain test:cli
 pnpm --filter @ekairos/domain test:workflow
 ```
+
+## Type And DX Notes
+
+`@ekairos/domain` intentionally encapsulates InstantDB at the domain boundary, but
+the schema returned by a domain must remain usable anywhere an InstantDB schema is
+expected.
+
+Use `instantSchema()` when provisioning or passing a runtime schema to InstantDB:
+
+```ts
+const db = init({
+  appId,
+  adminToken,
+  schema: appDomain.instantSchema(),
+});
+```
+
+Use `DomainInstantSchema<typeof domain>` when you need the schema type for
+`db.query`, `InstaQLParams`, `InstaQLResult`, or service constructors:
+
+```ts
+import type { DomainInstantSchema } from "@ekairos/domain";
+import type { InstantAdminDatabase } from "@instantdb/admin";
+
+type AppSchema = DomainInstantSchema<typeof appDomain>;
+
+function createService(db: InstantAdminDatabase<AppSchema, true>) {
+  return db.query({
+    tasks: {
+      owner: {},
+    },
+  });
+}
+```
+
+Prefer exported domain values without widening their type:
+
+```ts
+export const tasksDomain = domain("tasks").withSchema({
+  entities: { tasks: i.entity({ title: i.string() }) },
+  links: {},
+  rooms: {},
+});
+```
+
+Avoid annotating exported domains as plain `DomainSchemaResult` unless you need to
+hide their concrete shape. That annotation widens the domain name and schema, so
+TypeScript loses some compile-time checks for `runtime.use(...)`, `RuntimeForDomain`,
+and composed queries.
+
+```ts
+// Avoid for runtime/domain composition:
+export const tasksDomain: DomainSchemaResult = domain("tasks").withSchema(...);
+```
+
+Type tests under `src/__type_tests__` are intentionally split by use case:
+
+- `domain.schema-*.typecheck.ts`: schema extraction, entity/link visibility, and query shape.
+- `domain.includes-*.typecheck.ts`: composed entities, transitive links, and traversal direction.
+- `domain.instaql-fetch.typecheck.ts`: namespaces, associations, deferred query shapes, and `queryOnce`.
+- `domain.instaql-filters.typecheck.ts`: dotted relation filters and advanced where operators.
+- `domain.instaql-options.typecheck.ts`: pagination, ordering, selected fields, and page info.
+- `domain.instantdb-*.typecheck.ts`: InstantDB query, entity, and result helpers.
+- `domain.query-negative-*.typecheck.ts`: invalid entities and relation labels stay rejected.
+- `domain.dx-*.typecheck.ts`: public helper aliases, literal names, and schema helpers.
+- `runtime.domain-names-*.typecheck.ts`: `RuntimeForDomain` validates name plus schema.
+- `workflow-output-*.typecheck.ts`: workflow serde output contracts.
+
+When a type regression appears, add one small file or one focused case to the
+matching file. Avoid broad "kitchen sink" type tests; they make IntelliSense and
+compiler failures hard to read.
 

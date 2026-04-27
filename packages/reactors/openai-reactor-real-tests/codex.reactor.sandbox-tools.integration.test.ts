@@ -242,7 +242,7 @@ describeReal("codex reactor sandbox dynamic tools on Vercel", () => {
       },
     } as any
 
-    const result = await codexContext.react(triggerEvent, {
+    const shell = await codexContext.react(triggerEvent, {
       env: { ...runtime.env, runtime } as any,
       runtime,
       context: { key: contextKey },
@@ -253,6 +253,7 @@ describeReal("codex reactor sandbox dynamic tools on Vercel", () => {
         silent: false,
       },
     })
+    const result = await shell.run!
 
     const db = init({
       appId,

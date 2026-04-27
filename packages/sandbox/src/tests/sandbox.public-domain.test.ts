@@ -10,11 +10,11 @@ describe("sandbox public/full domain composition", () => {
 
     expect(Object.keys(publicSchema.entities)).toContain("sandbox_sandboxes")
     expect(Object.keys(publicSchema.entities)).not.toContain("sandbox_processes")
-    expect(publicSandboxDomain.actions()).toEqual([])
+    expect(Object.values(publicSandboxDomain.actions)).toEqual([])
 
     expect(Object.keys(fullSchema.entities)).toContain("sandbox_sandboxes")
     expect(Object.keys(fullSchema.entities)).toContain("sandbox_processes")
-    expect(fullSandboxDomain.actions().map((action) => action.name)).toContain(
+    expect(Object.values(fullSandboxDomain.actions).map((action) => action.name)).toContain(
       "sandbox.runCommandProcess",
     )
   })

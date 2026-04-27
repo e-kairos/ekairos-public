@@ -14,7 +14,12 @@ import {
   type ContextItem,
 } from "../index.ts"
 import { describeInstant, itInstant, destroyContextTestApp, provisionContextTestApp } from "./_env.ts"
-import { createStageTimer, writeBenchmarkReport } from "./_benchmark.ts"
+import {
+  createStageTimer,
+  summarizeContextBenchmarkComponents,
+  summarizeInstantDbCounts,
+  writeBenchmarkReport,
+} from "./_benchmark.ts"
 import { EventsTestRuntime } from "./context.test-runtime.ts"
 
 type ContextTestEnv = {
@@ -142,7 +147,7 @@ describeInstant("context scripted reactor + Instant runtime", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "set_status"))
       .build()
 
-    const result = await timer.measure("reactMs", async () =>
+    const shell = await timer.measure("reactShellMs", async () =>
       await scriptedContext.react(createTriggerEvent("set status to ready"), {
         runtime,
         context: { key: contextKey },
@@ -155,6 +160,13 @@ describeInstant("context scripted reactor + Instant runtime", () => {
         },
       }),
     )
+
+    expect(shell.context.status).toBe("open_streaming")
+    expect(shell.reaction.status).toBe("pending")
+    expect(shell.execution.status).toBe("executing")
+    expect(shell.run).toBeInstanceOf(Promise)
+
+    const result = await timer.measure("reactRunMs", async () => await shell.run!)
 
     expect(result.context.id).toBeTruthy()
     expect(result.context.status).toBe("closed")
@@ -210,7 +222,13 @@ describeInstant("context scripted reactor + Instant runtime", () => {
     const hasToolOutput = partRows.some((row) => {
       const part = asRecord(row.part)
       if (!part) return false
-      return part.type === "tool-result" && part.state === "output-available"
+      const content = asRecord(part.content)
+      return (
+        (part.type === "tool-result" && part.state === "output-available") ||
+        (part.type === "action" &&
+          content?.status === "completed" &&
+          content?.actionName === "set_status")
+      )
     })
     expect(hasToolOutput).toBe(true)
 
@@ -219,6 +237,11 @@ describeInstant("context scripted reactor + Instant runtime", () => {
       test: "context scripted reactor + Instant runtime > executes directly in non-durable mode and completes persisted shell state",
       mode: "direct",
       totalMs: timings.totalMs,
+      componentTimingsMs: {
+        totalWallMs: timings.totalMs,
+        ...summarizeContextBenchmarkComponents(timings.stageTimingsMs),
+      },
+      instantDbCounts: summarizeInstantDbCounts(timings.stageTimingsMs),
       stageTimingsMs: timings.stageTimingsMs,
       contextId: result.context.id,
       executionId: result.execution.id,
@@ -277,20 +300,21 @@ describeInstant("context scripted reactor + Instant runtime", () => {
       .shouldContinue(() => true)
       .build()
 
+    const shell = await timer.measure("reactShellMs", async () =>
+      await failingContext.react(createTriggerEvent("force scripted exhaustion"), {
+        runtime,
+        context: { key: contextKey },
+        durable: false,
+        __benchmark: timer,
+        options: {
+          silent: true,
+          maxIterations: 3,
+          maxModelSteps: 1,
+        },
+      }),
+    )
     await expect(
-      timer.measure("reactMs", async () =>
-        await failingContext.react(createTriggerEvent("force scripted exhaustion"), {
-          runtime,
-          context: { key: contextKey },
-          durable: false,
-          __benchmark: timer,
-          options: {
-            silent: true,
-            maxIterations: 3,
-            maxModelSteps: 1,
-          },
-        }),
-      ),
+      timer.measure("reactRunMs", async () => await shell.run!),
     ).rejects.toThrow("createScriptedReactor: no scripted step available")
 
     const failureSnapshot = await timer.measure("snapshotQueryMs", async () =>
@@ -401,7 +425,7 @@ describeInstant("context scripted reactor + Instant runtime", () => {
       .shouldContinue(() => false)
       .build()
 
-    await expandedContext.react(createTriggerEvent("use expanded canvas context"), {
+    const shell = await expandedContext.react(createTriggerEvent("use expanded canvas context"), {
       runtime,
       context: { key: contextKey },
       durable: false,
@@ -411,6 +435,7 @@ describeInstant("context scripted reactor + Instant runtime", () => {
         maxModelSteps: 1,
       },
     })
+    await shell.run!
 
     expect(reactorSawExpandedEvent).toBe(true)
   }, 5 * 60 * 1000)

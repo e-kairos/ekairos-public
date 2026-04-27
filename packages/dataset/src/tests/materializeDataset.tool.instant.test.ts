@@ -5,7 +5,7 @@ import { readFile } from "fs/promises"
 import { init, id as newId } from "@instantdb/admin"
 import { i } from "@instantdb/core"
 import { domain } from "@ekairos/domain"
-import { configureRuntime } from "@ekairos/domain/runtime"
+import { configureRuntime, EkairosRuntime } from "@ekairos/domain/runtime"
 import { createScriptedReactor, eventsDomain } from "@ekairos/events"
 import { sandboxDomain, SandboxService } from "@ekairos/sandbox"
 import { createMaterializeDatasetTool } from "../materializeDataset.tool"
@@ -58,9 +58,26 @@ if (adminDb) {
 
 if (adminDb) {
   configureRuntime({
+    domain: { domain: appDomain },
     runtime: async () => ({ db: adminDb } as any),
   })
 }
+
+type TestEnv = Record<string, unknown> & {
+  orgId: string
+}
+
+class MaterializeDatasetToolTestRuntime extends EkairosRuntime<TestEnv, typeof appDomain, any> {
+  protected getDomain() {
+    return appDomain
+  }
+
+  protected resolveDb() {
+    return adminDb as any
+  }
+}
+
+const testRuntime = new MaterializeDatasetToolTestRuntime({ orgId: "test-org" })
 
 function parseJsonl(text: string): any[] {
   return text
@@ -171,7 +188,7 @@ describeInstant("createMaterializeDatasetTool()", () => {
   it("materializes a query snapshot and returns only datasetId", async () => {
     const { electronicsCategory } = await seedRows(`tool-snapshot-${Date.now()}`)
     const materializeTool = createMaterializeDatasetTool({
-      env: { orgId: "test-org" },
+      runtime: testRuntime,
       queryDomain: sampleDomain,
     })
 
@@ -239,7 +256,7 @@ describeInstant("createMaterializeDatasetTool()", () => {
     })
 
     const materializeTool = createMaterializeDatasetTool({
-      env: { orgId: "test-org" },
+      runtime: testRuntime,
       reactor,
       queryDomain: sampleDomain,
     })
@@ -278,7 +295,7 @@ describeInstant("createMaterializeDatasetTool()", () => {
     const fileId = uploadResult?.data?.id as string
 
     const materializeTool = createMaterializeDatasetTool({
-      env: { orgId: "test-org" },
+      runtime: testRuntime,
       queryDomain: sampleDomain,
     })
 
@@ -300,7 +317,7 @@ describeInstant("createMaterializeDatasetTool()", () => {
     const fileId = uploadResult?.data?.id as string
 
     const materializeTool = createMaterializeDatasetTool({
-      env: { orgId: "test-org" },
+      runtime: testRuntime,
       queryDomain: sampleDomain,
     })
 
@@ -316,7 +333,7 @@ describeInstant("createMaterializeDatasetTool()", () => {
   it("throws when first=true produces more than one row", async () => {
     const { electronicsCategory } = await seedRows(`tool-first-${Date.now()}`)
     const materializeTool = createMaterializeDatasetTool({
-      env: { orgId: "test-org" },
+      runtime: testRuntime,
       queryDomain: sampleDomain,
     })
 

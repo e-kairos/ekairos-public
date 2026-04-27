@@ -87,10 +87,6 @@ function readToolNameFromPart(part: Record<string, unknown>) {
   return String(part.type).split("-").slice(1).join("-")
 }
 
-function stripDataUrlPrefix(value: string) {
-  return value.replace(/^data:[^;]+;base64,/i, "")
-}
-
 function asCanonicalParts(parts: unknown[]): ContextPartEnvelope[] {
   return normalizePartsForPersistence(parts)
 }
@@ -162,55 +158,44 @@ function contentBlockToPrimaryUiParts(
   return []
 }
 
-function toolCallContentToInput(content: ContextPartContent[]) {
-  if (content.length === 0) return undefined
-  if (content.length === 1) {
-    const first = content[0]
-    if (first.type === "json") return first.value
-    if (first.type === "text") return first.text
-    return first
-  }
-  return content
-}
-
 function canonicalPartsToPrimaryUiParts(parts: ContextPartEnvelope[]): UIMessage["parts"] {
   const uiParts: UIMessage["parts"] = []
 
   for (const part of parts) {
-    if (part.type === "content") {
-      uiParts.push(...part.content.flatMap((block) => contentBlockToPrimaryUiParts(block)))
+    if (part.type === "message") {
+      if (part.content.text) {
+        uiParts.push({ type: "text", text: part.content.text })
+      }
+      if (Array.isArray(part.content.blocks)) {
+        uiParts.push(
+          ...part.content.blocks.flatMap((block) => contentBlockToPrimaryUiParts(block)),
+        )
+      }
       continue
     }
 
     if (part.type === "reasoning") {
-      const text = part.content
-        .filter(
-          (block: ContextPartContent): block is Extract<ContextPartContent, { type: "text" }> =>
-            block.type === "text",
-        )
-        .map((block: Extract<ContextPartContent, { type: "text" }>) => block.text)
-        .join("\n\n")
-      if (text.trim()) {
+      if (part.content.text.trim()) {
         uiParts.push({
           type: "reasoning",
-          text,
-          state: part.state,
+          text: part.content.text,
+          state: part.content.state,
         })
       }
       continue
     }
 
     if (part.type === "source") {
-      uiParts.push(...part.content.flatMap((block) => contentBlockToPrimaryUiParts(block)))
+      uiParts.push(...part.content.sources.flatMap((block) => contentBlockToPrimaryUiParts(block)))
       continue
     }
 
-    if (part.type === "tool-call") {
+    if (part.type === "action" && part.content.status === "started") {
       uiParts.push({
-        type: `tool-${part.toolName}`,
-        toolCallId: part.toolCallId,
-        state: part.state ?? "input-available",
-        input: toolCallContentToInput(part.content),
+        type: `tool-${part.content.actionName}`,
+        toolCallId: part.content.actionCallId,
+        state: "input-available",
+        input: part.content.input,
       })
     }
   }
@@ -218,90 +203,36 @@ function canonicalPartsToPrimaryUiParts(parts: ContextPartEnvelope[]): UIMessage
   return uiParts
 }
 
-function canonicalToolResultContentToOutput(content: ContextPartContent[]) {
-  if (content.length === 1 && content[0]?.type === "json") {
-    return {
-      type: "json" as const,
-      value: content[0].value,
-    }
-  }
-
-  return {
-    type: "content" as const,
-    value: content.map((block) => {
-      if (block.type === "text") {
-        return {
-          type: "text" as const,
-          text: block.text,
-        }
-      }
-
-      if (block.type === "file") {
-        return {
-          type: "media" as const,
-          mediaType: block.mediaType,
-          data:
-            typeof block.data === "string" && block.data.length > 0
-              ? stripDataUrlPrefix(block.data)
-              : typeof block.url === "string" && block.url.length > 0
-                ? block.url
-                : block.fileId,
-        }
-      }
-
-      if (block.type === "json") {
-        return {
-          type: "text" as const,
-          text: JSON.stringify(block.value, null, 2),
-        }
-      }
-
-      return {
-        type: "text" as const,
-        text: JSON.stringify(block),
-      }
-    }),
-  }
-}
-
 function canonicalToolPartsToModelMessages(parts: ContextPartEnvelope[]): ModelMessage[] {
-  const toolInputs = new Map<string, unknown>()
+  const actionInputs = new Map<string, unknown>()
   const toolResults: Array<Record<string, unknown>> = []
 
   for (const part of parts) {
-    if (part.type === "tool-call") {
-      toolInputs.set(part.toolCallId, toolCallContentToInput(part.content))
+    if (part.type !== "action") {
       continue
     }
 
-    if (part.type !== "tool-result") {
+    if (part.content.status === "started") {
+      actionInputs.set(part.content.actionCallId, part.content.input)
       continue
     }
 
-    if (part.state === "output-error") {
-      const text = part.content
-        .filter(
-          (block: ContextPartContent): block is Extract<ContextPartContent, { type: "text" }> =>
-            block.type === "text",
-        )
-        .map((block: Extract<ContextPartContent, { type: "text" }>) => block.text)
-        .join("\n\n")
-
+    if (part.content.status === "failed") {
       toolResults.push({
         type: "tool-error",
-        toolCallId: part.toolCallId,
-        toolName: part.toolName,
-        input: toolInputs.get(part.toolCallId),
-        error: text || "Tool execution failed.",
+        toolCallId: part.content.actionCallId,
+        toolName: part.content.actionName,
+        input: actionInputs.get(part.content.actionCallId),
+        error: part.content.error.message || "Action execution failed.",
       })
       continue
     }
 
     toolResults.push({
       type: "tool-result",
-      toolCallId: part.toolCallId,
-      toolName: part.toolName,
-      output: canonicalToolResultContentToOutput(part.content),
+      toolCallId: part.content.actionCallId,
+      toolName: part.content.actionName,
+      output: normalizeContextOutputPart(part.content.output),
     })
   }
 

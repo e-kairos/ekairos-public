@@ -56,7 +56,7 @@ describeCliE2E("domain cli", () => {
   })
 
   let appDomain: any
-  appDomain = baseDomain.actions({
+  appDomain = baseDomain.withActions({
     createTask: defineDomainAction<CliEnv, { title: string }, { taskId: string; title: string; actorId: string | null }, any, any>({
       name: "cli.task.create",
       async execute({ runtime, input, env }) {
@@ -208,11 +208,17 @@ describeCliE2E("domain cli", () => {
   }
 
   it("logs in, inspects the domain, executes JSON5 actions, and queries through client/server contexts", async () => {
+    // given: a temporary Instant app, a domain CLI server, and a user refresh
+    // token created during beforeAll.
     const loginIo = createIo()
+
+    // when: the CLI logs in against the local domain route.
     const loginCode = await runCli(
       ["login", baseUrl, `--refreshToken=${refreshToken}`, `--appId=${appId}`],
       loginIo.io as any,
     )
+
+    // then: the CLI stores the actor and app identity for later commands.
     expect(loginCode, JSON.stringify(loginIo.read())).toBe(0)
     const loginPayload = JSON.parse(loginIo.read().stdout)
     expect(loginPayload.ok).toBe(true)
@@ -220,8 +226,11 @@ describeCliE2E("domain cli", () => {
     expect(loginPayload.data.appId).toBe(appId)
     expect(loginPayload.data.actor.id).toBe(userId)
 
+    // when: inspect reads domain metadata through the saved CLI session.
     const inspectIo = createIo()
     const inspectCode = await runCli(["inspect"], inspectIo.io as any)
+
+    // then: the response exposes entities and registered domain actions.
     expect(inspectCode).toBe(0)
     const inspectPayload = JSON.parse(inspectIo.read().stdout)
     expect(Array.isArray(inspectPayload.data.entities)).toBe(true)
@@ -233,11 +242,14 @@ describeCliE2E("domain cli", () => {
       ),
     ).toBe(true)
 
+    // when: an action is executed with JSON5 input.
     const actionIo = createIo()
     const actionCode = await runCli(
       ["createTask", "{ title: 'Ship CLI adapter' }"],
       actionIo.io as any,
     )
+
+    // then: the domain action runs with actor context and returns its output.
     expect(actionCode, JSON.stringify(actionIo.read())).toBe(0)
     const actionPayload = JSON.parse(actionIo.read().stdout)
     expect(actionPayload.ok, JSON.stringify(actionPayload)).toBe(true)
@@ -245,6 +257,7 @@ describeCliE2E("domain cli", () => {
     expect(actionPayload.data.output.title).toBe("Ship CLI adapter")
     expect(actionPayload.data.output.actorId).toBe(userId)
 
+    // when: the query command runs without --admin.
     const clientQueryIo = createIo()
     const clientQueryCode = await runCli(
       [
@@ -254,6 +267,9 @@ describeCliE2E("domain cli", () => {
       ],
       clientQueryIo.io as any,
     )
+
+    // then: the CLI uses the authenticated client path and returns linked
+    // creator data.
     expect(clientQueryCode, JSON.stringify(clientQueryIo.read())).toBe(0)
     const clientQueryPayload = JSON.parse(clientQueryIo.read().stdout)
     expect(clientQueryPayload.source).toBe("client")
@@ -265,6 +281,7 @@ describeCliE2E("domain cli", () => {
       : clientQueryPayload.data.cli_tasks[0].creator
     expect(String(creator?.id ?? "")).toBe(userId)
 
+    // when: the same query runs with --admin.
     const serverQueryIo = createIo()
     const serverQueryCode = await runCli(
       [
@@ -275,6 +292,8 @@ describeCliE2E("domain cli", () => {
       ],
       serverQueryIo.io as any,
     )
+
+    // then: the CLI uses the server/admin path and sees the same task data.
     expect(serverQueryCode, JSON.stringify(serverQueryIo.read())).toBe(0)
     const serverQueryPayload = JSON.parse(serverQueryIo.read().stdout)
     expect(serverQueryPayload.source).toBe("server")

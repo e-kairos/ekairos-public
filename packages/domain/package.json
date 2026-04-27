@@ -83,9 +83,9 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "pnpm run test:unit",
     "test:workflow": "vitest run -c vitest.workflow.config.mts",
-    "test:unit": "vitest run -c vitest.config.ts src/tests/runtime.actions.unit.test.ts src/tests/domain.purity.unit.test.ts src/tests/create-app.progress.unit.test.ts",
+    "test:unit": "vitest run -c vitest.config.ts src/tests/create-app.help.unit.test.ts src/tests/create-app.noninteractive-required.unit.test.ts src/tests/create-app.scaffold.unit.test.ts src/tests/create-app.secret-redaction.unit.test.ts src/tests/domain-conflicts.instant-schema.unit.test.ts src/tests/domain-conflicts.safe-composition.unit.test.ts src/tests/domain.actions-immutability.unit.test.ts src/tests/domain.actions-reflection.unit.test.ts src/tests/domain.builder-branches.unit.test.ts src/tests/domain.instant-schema-idempotent.unit.test.ts src/tests/runtime-actions.domain-name-validation.unit.test.ts src/tests/runtime-actions.duplicates.unit.test.ts src/tests/runtime-actions.explicit-runtime.unit.test.ts src/tests/runtime-actions.included-subdomain.unit.test.ts src/tests/runtime-actions.missing.unit.test.ts src/tests/runtime-actions.recursion.unit.test.ts src/tests/runtime-actions.registry.unit.test.ts src/tests/runtime-actions.step-safe.unit.test.ts",
     "test:cli": "vitest run -c vitest.config.ts src/tests/cli.instant.e2e.test.ts src/tests/cli.create-app.instant.e2e.test.ts",
-    "test:conflicts": "node dist/__type_tests__/conflict-validation.test.js",
+    "test:conflicts": "vitest run -c vitest.config.ts src/tests/domain-conflicts.safe-composition.unit.test.ts src/tests/domain-conflicts.instant-schema.unit.test.ts",
     "test:context": "node dist/context.test-runner.js",
     "test:e2e": "vitest run -c vitest.config.ts src/tests/domain.context.e2e.test.ts"
   },

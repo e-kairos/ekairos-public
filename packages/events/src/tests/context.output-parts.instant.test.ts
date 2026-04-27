@@ -42,6 +42,62 @@ function readString(row: Record<string, unknown> | undefined, key: string): stri
   return null
 }
 
+function findPersistedActionPart(
+  partRows: Record<string, unknown>[],
+  actionName: string,
+  status: "started" | "completed" | "failed",
+): Record<string, unknown> | null {
+  const legacyStateByStatus = {
+    started: "input-available",
+    completed: "output-available",
+    failed: "output-error",
+  } satisfies Record<"started" | "completed" | "failed", string>
+
+  for (const row of partRows) {
+    const part = asRecord(row.part)
+    if (!part) continue
+
+    const content = asRecord(part.content)
+    if (
+      part.type === "action" &&
+      content?.status === status &&
+      content?.actionName === actionName
+    ) {
+      return part
+    }
+
+    if (
+      readString(part, "toolName") === actionName &&
+      readString(part, "state") === legacyStateByStatus[status]
+    ) {
+      return part
+    }
+  }
+
+  return null
+}
+
+function readPersistedActionOutput(
+  part: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!part) return null
+  if (part.type === "action") {
+    return asRecord(asRecord(part.content)?.output)
+  }
+
+  const output = asRecord(part.output)
+  if (output) return output
+
+  if (Array.isArray(part.content)) {
+    return {
+      type: "content",
+      value: part.content,
+    }
+  }
+
+  return null
+}
+
 function createTriggerEvent(text: string): ContextItem {
   return {
     id: randomUUID(),
@@ -61,12 +117,12 @@ async function inspectRuntimeExecute(
   "use step"
 
   const db = await ctx.runtime.db()
+  const contextContent = asRecord(ctx.context.content)
   return {
     type: "json" as const,
     value: {
       note,
-      envActorId: ctx.env.actorId,
-      runtimeActorId: String((ctx.runtime as any).env?.actorId ?? ""),
+      contextActorId: readString(contextContent ?? undefined, "actorId"),
       contextId: String(ctx.context.id),
       stepId: String(ctx.stepId),
       iteration: ctx.iteration,
@@ -185,7 +241,7 @@ describeInstant("context output parts + Instant runtime", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "inspect_region"))
       .build()
 
-    const result = await previewContext.react(createTriggerEvent("zoom here"), {
+    const shell = await previewContext.react(createTriggerEvent("zoom here"), {
       runtime,
       context: { key: contextKey },
       durable: false,
@@ -195,6 +251,7 @@ describeInstant("context output parts + Instant runtime", () => {
         maxModelSteps: 1,
       },
     })
+    const result = await shell.run!
 
     const snapshot = await currentDb().query({
       event_steps: {
@@ -216,20 +273,22 @@ describeInstant("context output parts + Instant runtime", () => {
     })
     const partRows = readRows(partsSnapshot, "event_parts")
 
-    const persistedToolCallPart = asRecord(
-      partRows.find((row) => readString(row, "type") === "tool-call")?.part,
-    )
-    const persistedToolResultPart = asRecord(
-      partRows.find((row) => readString(row, "type") === "tool-result")?.part,
-    )
-    expect(readString(persistedToolCallPart ?? undefined, "toolName")).toBe("inspect_region")
-    expect(readString(persistedToolResultPart ?? undefined, "state")).toBe("output-available")
-    const persistedContent = Array.isArray(persistedToolResultPart?.content)
-      ? persistedToolResultPart?.content
+    const persistedToolCallPart = findPersistedActionPart(partRows, "inspect_region", "started")
+    const persistedToolResultPart = findPersistedActionPart(partRows, "inspect_region", "completed")
+    expect(
+      readString(asRecord(persistedToolCallPart?.content) ?? undefined, "actionName"),
+    ).toBe("inspect_region")
+    expect(
+      readString(asRecord(persistedToolResultPart?.content) ?? undefined, "status"),
+    ).toBe("completed")
+    const persistedOutput = readPersistedActionOutput(persistedToolResultPart)
+    expect(readString(persistedOutput ?? undefined, "type")).toBe("content")
+    const persistedContent = Array.isArray(persistedOutput?.value)
+      ? persistedOutput?.value
       : []
     expect(persistedContent).toHaveLength(2)
     expect(readString(asRecord(persistedContent[0]) ?? undefined, "type")).toBe("text")
-    expect(readString(asRecord(persistedContent[1]) ?? undefined, "type")).toBe("file")
+    expect(readString(asRecord(persistedContent[1]) ?? undefined, "type")).toBe("image-data")
 
     await currentDb().transact([
       currentDb().tx.event_items[result.reaction.id].update({
@@ -255,7 +314,7 @@ describeInstant("context output parts + Instant runtime", () => {
     expect(readString(toolResultOutput ?? undefined, "type")).toBe("content")
     const replayedOutputParts = Array.isArray(toolResultOutput?.value) ? toolResultOutput?.value : []
     expect(replayedOutputParts).toHaveLength(2)
-    expect(readString(asRecord(replayedOutputParts[1]) ?? undefined, "type")).toBe("media")
+    expect(readString(asRecord(replayedOutputParts[1]) ?? undefined, "type")).toBe("image-data")
   }, 5 * 60 * 1000)
 
   itInstant("passes runtime and env into context tool execution", async () => {
@@ -317,7 +376,7 @@ describeInstant("context output parts + Instant runtime", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "inspect_runtime"))
       .build()
 
-    const result = await runtimeAwareContext.react(createTriggerEvent("inspect runtime"), {
+    const shell = await runtimeAwareContext.react(createTriggerEvent("inspect runtime"), {
       runtime,
       context: { key: contextKey },
       durable: false,
@@ -327,6 +386,7 @@ describeInstant("context output parts + Instant runtime", () => {
         maxModelSteps: 1,
       },
     })
+    const result = await shell.run!
 
     const snapshot = await currentDb().query({
       event_steps: {
@@ -348,19 +408,15 @@ describeInstant("context output parts + Instant runtime", () => {
     })
 
     const partRows = readRows(partsSnapshot, "event_parts")
-    const persistedToolResultPart = asRecord(
-      partRows.find((row) => readString(row, "type") === "tool-result")?.part,
-    )
-    expect(readString(persistedToolResultPart ?? undefined, "state")).toBe("output-available")
-    const persistedContent = Array.isArray(persistedToolResultPart?.content)
-      ? persistedToolResultPart?.content
-      : []
-    expect(persistedContent).toHaveLength(1)
-    expect(readString(asRecord(persistedContent[0]) ?? undefined, "type")).toBe("json")
-    const jsonPayload = asRecord(asRecord(persistedContent[0])?.value)
+    const persistedToolResultPart = findPersistedActionPart(partRows, "inspect_runtime", "completed")
+    expect(
+      readString(asRecord(persistedToolResultPart?.content) ?? undefined, "status"),
+    ).toBe("completed")
+    const persistedOutput = readPersistedActionOutput(persistedToolResultPart)
+    expect(readString(persistedOutput ?? undefined, "type")).toBe("json")
+    const jsonPayload = asRecord(persistedOutput?.value)
     expect(readString(jsonPayload ?? undefined, "note")).toBe("hello-runtime")
-    expect(readString(jsonPayload ?? undefined, "envActorId")).toBe("user_runtime_tests")
-    expect(readString(jsonPayload ?? undefined, "runtimeActorId")).toBe("user_runtime_tests")
+    expect(readString(jsonPayload ?? undefined, "contextActorId")).toBe("user_runtime_tests")
     expect(readString(jsonPayload ?? undefined, "contextId")).toBe(String(result.context.id))
     expect(readString(jsonPayload ?? undefined, "stepId")).toBe(String(stepId))
     expect(readString(jsonPayload ?? undefined, "hasDb")).toBe(null)

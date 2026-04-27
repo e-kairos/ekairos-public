@@ -16,14 +16,36 @@ export {
   type ContextActionRequest,
   type ContextReactionLLM,
   ContextEngine,
+  defineAction,
+  action,
   type RegistrableContextBuilder,
   type ContextReactParams,
+  type ContextDirectReactParams,
+  type ContextDurableReactParams,
   type ContextReactResult,
+  type ContextReactBase,
+  type ContextReactFinalResult,
+  type ContextDirectRun,
+  type ContextReactRun,
   type ContextWorkflowRun,
   type ContextDurableWorkflowPayload,
   type ContextDurableWorkflowFunction,
   type ContextModelInit,
   type ContextTool,
+  type ContextAction,
+  type ContextActionBase,
+  type ContextActionExecuteParams,
+  type AnyContextAction,
+  type ContextActionDefinition,
+  type DefineContextActionDefinition,
+  type DefineContextActionExecute,
+  type LegacyContextActionDefinition,
+  type LegacyContextActionExecute,
+  type ContextActionExecute,
+  type ContextActionInput,
+  type ContextActionOutput,
+  type ContextProviderDefinedAction,
+  type ContextActionSchema,
   type ContextToolExecuteContext,
   runContextReactionDirect,
 } from "./context.js"
@@ -57,17 +79,40 @@ export { eventsDomain } from "./schema.js"
 
 export { didToolExecute, extractToolCallsFromParts } from "./context.toolcalls.js"
 export {
+  actionsToActionSpecs,
+  actionSpecToAiSdkTool,
+  type SerializableActionSpec,
+  type SerializableFunctionActionSpec,
+  type SerializableProviderDefinedActionSpec,
+} from "./tools-to-model-tools.js"
+export {
+  reactorMetadataSchema,
   contextPartSchema,
   contextPartEnvelopeSchema,
   contextPartContentSchema,
+  contextMessagePartSchema,
+  contextReasoningPartSchema,
+  contextSourcePartSchema,
+  contextActionPartSchema,
+  contextEnginePartSchema,
+  createContextPartSchema,
+  parseContextPart,
   isContextPartEnvelope,
   parseContextPartEnvelope,
   normalizePartsForPersistence,
 } from "./context.parts.js"
 export type {
+  ReactorMetadata,
+  ContextEnginePart,
+  ContextActionPart,
+  ContextActionStartedPart,
+  ContextActionCompletedPart,
+  ContextActionFailedPart,
+  ContextPartActionMap,
   ContextPart,
   ContextPartEnvelope,
   ContextPartContent,
+  ContextInlineContent,
 } from "./context.parts.js"
 
 export {
@@ -174,9 +219,36 @@ export {
 export {
   CONTEXT_STEP_STREAM_VERSION,
   createContextStepStreamChunk,
+  validateContextStepStreamChunk,
   parseContextStepStreamChunk,
   encodeContextStepStreamChunk,
 } from "./context.step-stream.js"
+
+export type {
+  ContextStepStreamChunkValidationOptions,
+} from "./context.step-stream.js"
+
+export {
+  CONTEXT_PART_ID_NAMESPACE,
+  CONTEXT_PART_UUID_RE,
+  CONTEXT_STREAM_PART_TYPES,
+  assertValidContextPartChunkIdentity,
+  resolveContextPartChunkDescriptor,
+  resolveContextPartChunkIdentity,
+  resolveContextPartId,
+  resolveContextStreamPartSlot,
+  resolveContextStreamPartType,
+  uuidV5,
+} from "./context.part-identity.js"
+
+export type {
+  ContextPartChunkDescriptor,
+  ContextPartChunkIdentity,
+  ContextPartChunkIdentityInput,
+  ContextPartChunkValidationInput,
+  ContextStreamPartSlot,
+  ContextStreamPartType,
+} from "./context.part-identity.js"
 
 export type {
   ContextStreamEvent,

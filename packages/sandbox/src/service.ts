@@ -1,25 +1,45 @@
 import { Sandbox as VercelSandbox, Snapshot as VercelSnapshot, type NetworkPolicy } from "@vercel/sandbox"
-import { Daytona, Image, type DaytonaConfig, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
+import { Daytona, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk"
 import { id, init, type InstantAdminDatabase } from "@instantdb/admin"
-import { SchemaOf } from "@ekairos/domain"
+import type { InstaQLParams } from "@instantdb/core"
+import type { DomainInstantSchema } from "@ekairos/domain"
 import { resolveRuntime, type RuntimeDomainSource } from "@ekairos/domain/runtime"
 import { runCommandInSandbox, type CommandResult } from "./commands.js"
-import { sandboxDomain } from "./actions.js"
-import type { SandboxConfig, SandboxInstallableSkill, SandboxProvider } from "./types.js"
+import { sandboxSchemaDomain } from "./schema.js"
+import type { SandboxConfig, SandboxInstallableSkill } from "./types.js"
+import {
+  buildDeclarativeImage,
+  getDaytonaConfig,
+  resolveDaytonaLanguage,
+  resolveDaytonaVolumes,
+} from "./providers/daytona.js"
+import { resolveProvider } from "./providers/provider.js"
+import {
+  asSpritesSandbox,
+  getSpritesByName,
+  parseSpritesCheckpointIdFromNdjson,
+  provisionSpritesSandbox,
+  spritesExec,
+  spritesFetch,
+  spritesJson,
+} from "./providers/sprites.js"
+import {
+  isVercelSandbox,
+  type ProviderSandbox,
+  type SpritesSandbox,
+} from "./providers/types.js"
+import {
+  provisionVercelSandbox,
+  resolveVercelCredentials,
+} from "./providers/vercel.js"
 import {
   resolveVercelSandboxConfig,
   safeVercelConfigForRecord,
-  type ResolvedVercelSandboxConfig,
 } from "./vercel-options.js"
-import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { existsSync, promises as fs } from "node:fs"
-import os from "node:os"
 import path from "node:path"
-import { promisify } from "node:util"
 
-type SandboxSchemaType = SchemaOf<typeof sandboxDomain>
-const execFileAsync = promisify(execFile)
+type SandboxSchemaType = DomainInstantSchema<typeof sandboxSchemaDomain>
 
 export interface SandboxRecord {
   id: string
@@ -83,28 +103,6 @@ export type SandboxCommandRunData = {
   streamId: string
   streamClientId: string
   result?: CommandResult
-}
-
-type SpritesSandbox = {
-  __provider: "sprites"
-  name: string
-  id?: string
-  url?: string
-  getPreviewLink?: (port: number) => Promise<{ url: string }>
-  domain?: (port: number) => Promise<string>
-}
-
-type ProviderSandbox = VercelSandbox | DaytonaSandbox | SpritesSandbox
-
-function isVercelSandbox(sandbox: ProviderSandbox | any): sandbox is VercelSandbox {
-  return Boolean(
-    sandbox &&
-      typeof sandbox === "object" &&
-      typeof sandbox.runCommand === "function" &&
-      typeof sandbox.currentSession === "function" &&
-      typeof sandbox.name === "string" &&
-      sandbox.__provider !== "sprites",
-  )
 }
 
 const EKAIROS_ROOT_DIR = "/vercel/sandbox/.ekairos"
@@ -374,22 +372,10 @@ export class SandboxCommandRun implements PromiseLike<CommandResult> {
 }
 
 export class SandboxService {
-  private adminDb: InstantAdminDatabase<SandboxSchemaType>
+  private adminDb: InstantAdminDatabase<SandboxSchemaType, true>
 
-  constructor(db: InstantAdminDatabase<SandboxSchemaType>) {
+  constructor(db: InstantAdminDatabase<SandboxSchemaType, true>) {
     this.adminDb = db
-  }
-
-  private static getVercelCredentials() {
-    const teamId = String(process.env.SANDBOX_VERCEL_TEAM_ID ?? "").trim()
-    const projectId = String(process.env.SANDBOX_VERCEL_PROJECT_ID ?? "").trim()
-    const token = String(process.env.SANDBOX_VERCEL_TOKEN ?? "").trim()
-
-    if (!teamId || !projectId || !token) {
-      throw new Error("Missing required Vercel sandbox environment variables")
-    }
-
-    return { teamId, projectId, token }
   }
 
   private static getDomainName(domain: RuntimeDomainSource): string {
@@ -603,7 +589,7 @@ export class SandboxService {
       throw new Error("sandbox_runtime_requires_env_and_domain")
     }
 
-    const provider = SandboxService.resolveProvider(config)
+    const provider = resolveProvider(config)
     if (provider !== "vercel") {
       throw new Error("ekairos_runtime_requires_vercel_provider")
     }
@@ -727,512 +713,6 @@ export class SandboxService {
     }))
   }
 
-  private static resolveVercelWorkingDirectory(config: SandboxConfig): string {
-    const fromConfig = String(config.vercel?.cwd ?? "").trim()
-    if (fromConfig) return path.resolve(fromConfig)
-    const fromEnv = String(process.env.SANDBOX_VERCEL_CWD ?? "").trim()
-    if (fromEnv) return path.resolve(fromEnv)
-    return process.cwd()
-  }
-
-  private static findLinkedVercelProjectFile(startDir: string): string | null {
-    let current = path.resolve(startDir)
-    while (true) {
-      const candidate = path.join(current, ".vercel", "project.json")
-      if (existsSync(candidate)) return candidate
-      const parent = path.dirname(current)
-      if (parent === current) return null
-      current = parent
-    }
-  }
-
-  private static async readLinkedVercelProject(config: SandboxConfig): Promise<{
-    orgId?: string
-    projectId?: string
-    projectName?: string
-    cwd: string
-  }> {
-    const cwd = SandboxService.resolveVercelWorkingDirectory(config)
-    const file = SandboxService.findLinkedVercelProjectFile(cwd)
-    if (!file) {
-      return { cwd }
-    }
-    try {
-      const parsed = JSON.parse(await fs.readFile(file, "utf8"))
-      return {
-        cwd,
-        orgId: typeof parsed?.orgId === "string" ? parsed.orgId : undefined,
-        projectId: typeof parsed?.projectId === "string" ? parsed.projectId : undefined,
-        projectName: typeof parsed?.projectName === "string" ? parsed.projectName : undefined,
-      }
-    } catch {
-      return { cwd }
-    }
-  }
-
-  private static async pullVercelOidcToken(config: SandboxConfig): Promise<string> {
-    const cwd = SandboxService.resolveVercelWorkingDirectory(config)
-    const tmpPath = path.join(os.tmpdir(), `ekairos-vercel-env-${Date.now()}-${Math.random().toString(36).slice(2)}.env`)
-    const args = ["env", "pull", tmpPath, "--yes", "--environment", String(config.vercel?.environment ?? "development")]
-    const scope = String(config.vercel?.scope ?? process.env.SANDBOX_VERCEL_SCOPE ?? "").trim()
-    if (scope) {
-      args.push("--scope", scope)
-    }
-    const token = String(process.env.VERCEL_TOKEN ?? process.env.SANDBOX_VERCEL_TOKEN ?? "").trim()
-    if (token) {
-      args.push("--token", token)
-    }
-
-    const isWindows = process.platform === "win32"
-    const command = isWindows ? (process.env.COMSPEC || "cmd.exe") : "vercel"
-    const commandArgs = isWindows ? ["/c", "vercel", ...args] : args
-
-    try {
-      await execFileAsync(command, commandArgs, {
-        cwd,
-        windowsHide: true,
-        timeout: 120000,
-        maxBuffer: 1024 * 1024 * 10,
-      })
-      const content = await fs.readFile(tmpPath, "utf8")
-      const match = content.match(/VERCEL_OIDC_TOKEN=\"?([^\r\n\"]+)\"?/)
-      const oidc = String(match?.[1] ?? "").trim()
-      if (!oidc) {
-        throw new Error("VERCEL_OIDC_TOKEN missing from vercel env pull output")
-      }
-      return oidc
-    } finally {
-      await fs.rm(tmpPath, { force: true }).catch(() => {})
-    }
-  }
-
-  private static async resolveVercelCredentials(config: SandboxConfig) {
-    const explicitTeamId = String(config.vercel?.orgId ?? process.env.SANDBOX_VERCEL_TEAM_ID ?? "").trim()
-    const explicitProjectId = String(config.vercel?.projectId ?? process.env.SANDBOX_VERCEL_PROJECT_ID ?? "").trim()
-    const explicitToken = String(config.vercel?.token ?? process.env.SANDBOX_VERCEL_TOKEN ?? process.env.VERCEL_OIDC_TOKEN ?? "").trim()
-    if (explicitTeamId && explicitProjectId && explicitToken) {
-      return { teamId: explicitTeamId, projectId: explicitProjectId, token: explicitToken }
-    }
-
-    const linked = await SandboxService.readLinkedVercelProject(config)
-    const teamId = explicitTeamId || String(linked.orgId ?? "").trim()
-    const projectId = explicitProjectId || String(linked.projectId ?? "").trim()
-    let token = explicitToken
-    if (!token) {
-      token = await SandboxService.pullVercelOidcToken(config)
-    }
-
-    if (!teamId || !projectId || !token) {
-      throw new Error(
-        "Missing Vercel sandbox credentials. Link the project (`vercel link`) and ensure `vercel env pull` can resolve VERCEL_OIDC_TOKEN, or provide explicit SANDBOX_VERCEL_* env vars.",
-      )
-    }
-
-    return { teamId, projectId, token }
-  }
-
-  private static async provisionVercelSandbox(
-    config: SandboxConfig,
-    extra?: {
-      networkPolicy?: NetworkPolicy
-      env?: Record<string, string>
-      resolved?: ResolvedVercelSandboxConfig
-    },
-  ): Promise<VercelSandbox> {
-    const creds = await SandboxService.resolveVercelCredentials(config)
-    const resolved = extra?.resolved ?? resolveVercelSandboxConfig(config)
-
-    if (resolved.reuse && resolved.name) {
-      try {
-        return await VercelSandbox.get({
-          name: resolved.name,
-          teamId: creds.teamId,
-          projectId: creds.projectId,
-          token: creds.token,
-          resume: true,
-        } as any)
-      } catch (error: any) {
-        const status = Number(error?.response?.status ?? 0)
-        const message = formatSandboxError(error).toLowerCase()
-        if (status !== 404 && !message.includes("not found")) {
-          throw error
-        }
-      }
-    }
-
-    return await VercelSandbox.create({
-      teamId: creds.teamId,
-      projectId: creds.projectId,
-      token: creds.token,
-      ...(resolved.name ? { name: resolved.name } : {}),
-      timeout: resolved.timeoutMs,
-      ports: resolved.ports,
-      // IMPORTANT: pass runtime as-is (e.g. "python3.13") to match provider expectations.
-      // Don't normalize to "python3"/"node22" as that can cause provider-side 400s.
-      runtime: resolved.runtime as any,
-      resources: { vcpus: resolved.vcpus },
-      persistent: resolved.persistent,
-      ...(resolved.snapshotExpirationMs !== undefined
-        ? { snapshotExpiration: resolved.snapshotExpirationMs }
-        : {}),
-      ...(resolved.tags ? { tags: resolved.tags } : {}),
-      networkPolicy: extra?.networkPolicy,
-      env: extra?.env,
-    } as any)
-  }
-
-  private static getDaytonaConfig(): DaytonaConfig {
-    const apiKey = String(process.env.DAYTONA_API_KEY ?? "").trim()
-    const apiUrl =
-      String(process.env.DAYTONA_API_URL ?? "").trim() ||
-      String(process.env.DAYTONA_SERVER_URL ?? "").trim()
-    const jwtToken = String(process.env.DAYTONA_JWT_TOKEN ?? "").trim()
-    const organizationId = String(process.env.DAYTONA_ORGANIZATION_ID ?? "").trim()
-    const target = String(process.env.DAYTONA_TARGET ?? "").trim()
-
-    if (!apiUrl) {
-      throw new Error("Missing required Daytona env var: DAYTONA_API_URL (or DAYTONA_SERVER_URL)")
-    }
-    if (!apiKey && !(jwtToken && organizationId)) {
-      throw new Error("Missing required Daytona env vars: DAYTONA_API_KEY or DAYTONA_JWT_TOKEN + DAYTONA_ORGANIZATION_ID")
-    }
-
-    const config: DaytonaConfig = {
-      apiUrl,
-      target: target || undefined,
-      apiKey: apiKey || undefined,
-      jwtToken: jwtToken || undefined,
-      organizationId: organizationId || undefined,
-    }
-
-    return config
-  }
-
-  private static normalizeBaseUrl(raw: string): string {
-    const trimmed = String(raw ?? "").trim()
-    if (!trimmed) return ""
-    return trimmed.endsWith("/") ? trimmed.slice(0, -1) : trimmed
-  }
-
-  private static getSpritesConfig(): { baseUrl: string; token: string } {
-    const token = String(process.env.SPRITES_API_TOKEN ?? process.env.SPRITE_TOKEN ?? "").trim()
-    if (!token) {
-      throw new Error("Missing required Sprites token env var: SPRITES_API_TOKEN (or SPRITE_TOKEN)")
-    }
-
-    const baseUrl =
-      SandboxService.normalizeBaseUrl(
-        String(process.env.SPRITES_API_BASE_URL ?? process.env.SPRITES_API_URL ?? "").trim(),
-      ) || "https://api.sprites.dev"
-
-    return { baseUrl, token }
-  }
-
-  private static async spritesFetch(path: string, init?: any): Promise<any> {
-    const { baseUrl, token } = SandboxService.getSpritesConfig()
-    const fetchFn = (globalThis as any)?.fetch
-    if (typeof fetchFn !== "function") {
-      throw new Error("fetch_not_available")
-    }
-
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`
-    const url = `${baseUrl}${normalizedPath}`
-
-    return await fetchFn(url, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(init?.headers ?? {}),
-      },
-    })
-  }
-
-  private static async spritesJson<T = any>(path: string, init?: any): Promise<T> {
-    const res = await SandboxService.spritesFetch(path, {
-      ...init,
-      headers: {
-        Accept: "application/json",
-        ...(init?.headers ?? {}),
-      },
-    })
-
-    if (!res?.ok) {
-      const text = await res?.text?.().catch(() => "")
-      throw new Error(`sprites_http_${res?.status ?? "unknown"}: ${text || "request_failed"}`)
-    }
-
-    return (await res.json().catch(() => ({}))) as T
-  }
-
-  private static async spritesText(path: string, init?: any): Promise<{ status: number; ok: boolean; text: string }> {
-    const res = await SandboxService.spritesFetch(path, init)
-    const text = await res?.text?.().catch(() => "")
-    return { ok: Boolean(res?.ok), status: Number(res?.status ?? 0), text: String(text ?? "") }
-  }
-
-  private static toSpritesPreviewUrl(spriteUrl: string, port: number): string {
-    const base = String(spriteUrl ?? "").trim()
-    if (!base) return ""
-    try {
-      const u = new URL(base)
-      if (Number.isFinite(port) && port > 0) {
-        u.port = String(Math.floor(port))
-      }
-      const next = u.toString()
-      return next.endsWith("/") ? next.slice(0, -1) : next
-    } catch {
-      // Best effort fallback: append port if missing.
-      if (!port) return base
-      return base.replace(/\/+$/, "") + ":" + String(Math.floor(port))
-    }
-  }
-
-  private static asSpritesSandbox(sprite: { name: string; id?: string; url?: string }): SpritesSandbox {
-    const name = String(sprite?.name ?? "").trim()
-    const url = typeof sprite?.url === "string" ? sprite.url : undefined
-    return {
-      __provider: "sprites",
-      name,
-      id: sprite?.id ? String(sprite.id) : undefined,
-      url,
-      getPreviewLink: async (port: number) => {
-        const base = url ?? ""
-        const next = SandboxService.toSpritesPreviewUrl(base, port)
-        return { url: next }
-      },
-      domain: async (port: number) => {
-        const base = url ?? ""
-        return SandboxService.toSpritesPreviewUrl(base, port)
-      },
-    }
-  }
-
-  private static async getSpritesByName(name: string): Promise<{ ok: true; sprite: any } | { ok: false; status: number; error: string }> {
-    const safeName = String(name ?? "").trim()
-    if (!safeName) return { ok: false, status: 400, error: "sprites_name_required" }
-
-    const res = await SandboxService.spritesFetch(`/v1/sprites/${encodeURIComponent(safeName)}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    })
-    if (!res?.ok) {
-      const text = await res?.text?.().catch(() => "")
-      return { ok: false, status: Number(res?.status ?? 0), error: text || `sprites_http_${res?.status ?? "unknown"}` }
-    }
-    const json = await res.json().catch(() => ({}))
-    return { ok: true, sprite: json }
-  }
-
-  private static async provisionSpritesSandbox(params: { sandboxId: string; config: SandboxConfig }): Promise<SpritesSandbox> {
-    const requestedName = String(params.config?.sprites?.name ?? "").trim()
-    const name = requestedName || `ekairos-${params.sandboxId}`
-
-    // Idempotent: if already exists, reuse.
-    const existing = await SandboxService.getSpritesByName(name)
-    if (existing.ok) {
-      const sprite = existing.sprite ?? {}
-      return SandboxService.asSpritesSandbox({
-        name: String(sprite?.name ?? name),
-        id: sprite?.id ? String(sprite.id) : undefined,
-        url: typeof sprite?.url === "string" ? sprite.url : undefined,
-      })
-    }
-
-    const waitForCapacity = params.config?.sprites?.waitForCapacity ?? true
-    const auth = params.config?.sprites?.urlSettings?.auth ?? "public"
-    const body = {
-      name,
-      wait_for_capacity: Boolean(waitForCapacity),
-      url_settings: { auth },
-    }
-
-    const created = await SandboxService.spritesJson<any>("/v1/sprites", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-
-    return SandboxService.asSpritesSandbox({
-      name: String(created?.name ?? name),
-      id: created?.id ? String(created.id) : undefined,
-      url: typeof created?.url === "string" ? created.url : undefined,
-    })
-  }
-
-  private static normalizeSpritesExecResult(payload: any): { exitCode: number; stdout: string; stderr: string } {
-    const exitCodeRaw =
-      payload?.exit_code ??
-      payload?.exitCode ??
-      payload?.code ??
-      payload?.status ??
-      payload?.result?.exit_code ??
-      payload?.result?.exitCode
-
-    const exitCode = Number(exitCodeRaw ?? 0)
-    const stdout =
-      typeof payload?.stdout === "string"
-        ? payload.stdout
-        : typeof payload?.output === "string"
-          ? payload.output
-          : typeof payload?.out === "string"
-            ? payload.out
-            : typeof payload?.result?.stdout === "string"
-              ? payload.result.stdout
-              : ""
-
-    const stderr =
-      typeof payload?.stderr === "string"
-        ? payload.stderr
-        : typeof payload?.error === "string"
-          ? payload.error
-          : typeof payload?.err === "string"
-            ? payload.err
-            : typeof payload?.result?.stderr === "string"
-              ? payload.result.stderr
-              : ""
-
-    return {
-      exitCode: Number.isFinite(exitCode) ? exitCode : 0,
-      stdout: sanitizeInstantString(stdout),
-      stderr: sanitizeInstantString(stderr),
-    }
-  }
-
-  private static async spritesExec(params: {
-    spriteName: string
-    command: string
-    args?: string[]
-    stdin?: string | Buffer
-  }): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    const spriteName = String(params.spriteName ?? "").trim()
-    if (!spriteName) throw new Error("sprites_name_required")
-
-    const parts = [String(params.command ?? "").trim(), ...(Array.isArray(params.args) ? params.args : [])].filter(Boolean)
-    if (parts.length === 0) throw new Error("sprites_command_required")
-
-    const search = new URLSearchParams()
-    for (const part of parts) {
-      search.append("cmd", String(part))
-    }
-
-    const hasStdin = typeof params.stdin === "string" || Buffer.isBuffer(params.stdin)
-    if (hasStdin) {
-      search.set("stdin", "true")
-    }
-
-    const path = `/v1/sprites/${encodeURIComponent(spriteName)}/exec?${search.toString()}`
-    const init: any = {
-      method: "POST",
-    }
-    if (hasStdin) {
-      init.body = params.stdin
-    }
-
-    const res = await SandboxService.spritesFetch(path, init)
-    const text = await res?.text?.().catch(() => "")
-    const parsed = (() => {
-      try {
-        return text ? JSON.parse(text) : {}
-      } catch {
-        return { stdout: String(text ?? "") }
-      }
-    })()
-
-    if (!res?.ok) {
-      const err = typeof parsed?.error === "string" ? parsed.error : text
-      throw new Error(err || `sprites_exec_http_${res?.status ?? "unknown"}`)
-    }
-
-    return SandboxService.normalizeSpritesExecResult(parsed)
-  }
-
-  private static resolveProvider(config: SandboxConfig): SandboxProvider {
-    const explicit = String(config.provider ?? "").trim().toLowerCase()
-    if (explicit === "daytona") return "daytona"
-    if (explicit === "vercel") return "vercel"
-    if (explicit === "sprites") return "sprites"
-
-    const env = String(process.env.SANDBOX_PROVIDER ?? "").trim().toLowerCase()
-    if (env === "daytona") return "daytona"
-    if (env === "vercel") return "vercel"
-    if (env === "sprites") return "sprites"
-
-    return "sprites"
-  }
-
-  private static resolveDaytonaLanguage(config: SandboxConfig): "python" | "typescript" | "javascript" | undefined {
-    if (config.daytona?.language) return config.daytona.language
-    const runtime = String(config.runtime ?? "").toLowerCase()
-    if (runtime.startsWith("python")) return "python"
-    if (runtime.startsWith("node")) return "javascript"
-    if (runtime.startsWith("ts") || runtime.includes("typescript")) return "typescript"
-    return undefined
-  }
-
-  private static async resolveDaytonaVolumes(
-    daytona: Daytona,
-    volumes: Array<{ volumeId?: string; volumeName?: string; mountPath: string }>,
-  ): Promise<Array<{ volumeId: string; mountPath: string }>> {
-    if (!volumes || volumes.length === 0) return []
-
-    const resolved: Array<{ volumeId: string; mountPath: string }> = []
-    const shouldLog = SandboxService.parseOptionalBoolean(process.env.SANDBOX_DAYTONA_LOG_VOLUMES) ?? false
-    for (const volume of volumes) {
-      const mountPath = String(volume.mountPath ?? "").trim()
-      if (!mountPath) continue
-
-      const volumeId = String(volume.volumeId ?? "").trim()
-      if (volumeId) {
-        resolved.push({ volumeId, mountPath })
-        continue
-      }
-
-      const volumeName = String(volume.volumeName ?? "").trim()
-      if (!volumeName) {
-        throw new Error("Daytona volume requires volumeId or volumeName")
-      }
-
-      let resolvedVolume = await daytona.volume.get(volumeName, true)
-      const stateRaw = String((resolvedVolume as any)?.state ?? "").trim().toLowerCase()
-      const waitStates = new Set(["creating", "provisioning", "pending", "pending_create", "pending-create", "initializing"])
-      const readyStates = new Set(["available", "active", "ready"])
-
-      if (waitStates.has(stateRaw)) {
-        const maxAttempts = 12
-        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-          await new Promise((r) => setTimeout(r, 1000 * attempt))
-          resolvedVolume = await daytona.volume.get(volumeName, true)
-          const state = String((resolvedVolume as any)?.state ?? "").trim().toLowerCase()
-          if (shouldLog) {
-            console.log(`[daytona:volume] name=${volumeName} state=${state} attempt=${attempt}/${maxAttempts}`)
-          }
-          if (readyStates.has(state)) break
-        }
-      }
-
-      const finalState = String((resolvedVolume as any)?.state ?? "").trim().toLowerCase()
-      if (finalState && !readyStates.has(finalState)) {
-        if (shouldLog) {
-          console.log(
-            `[daytona:volume] name=${volumeName} state=${finalState} mountPath=${mountPath} (not ready)`,
-          )
-        }
-        throw new Error(`Daytona volume not ready: ${volumeName} (state=${finalState})`)
-      }
-
-      const resolvedId = String((resolvedVolume as any)?.id ?? "").trim()
-      if (!resolvedId) {
-        throw new Error(`Daytona volume not resolved: ${volumeName}`)
-      }
-      if (shouldLog) {
-        console.log(`[daytona:volume] name=${volumeName} id=${resolvedId} mountPath=${mountPath}`)
-      }
-      resolved.push({ volumeId: resolvedId, mountPath })
-    }
-
-    return resolved
-  }
-
   private static shellEscapeArg(value: string): string {
     if (value.length === 0) return "''"
     if (/^[a-zA-Z0-9_./:-]+$/.test(value)) return value
@@ -1247,63 +727,10 @@ export class SandboxService {
     return undefined
   }
 
-  private static parseCsvList(value?: string): string[] {
-    return String(value ?? "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-  }
-
-  private static resolvePythonVersion(runtime?: string): string {
-    const fromEnv =
-      String(process.env.SANDBOX_DAYTONA_DECLARATIVE_PYTHON ?? "").trim() ||
-      String(process.env.STRUCTURE_DAYTONA_DECLARATIVE_PYTHON ?? "").trim()
-    if (fromEnv) return fromEnv
-    const match = String(runtime ?? "").match(/python\s*([0-9]+\.[0-9]+)/i)
-    if (match?.[1]) return match[1]
-    return "3.12"
-  }
-
-  private static buildDeclarativeImage(config: SandboxConfig): Image | undefined {
-    const imageFlag = String(config.daytona?.image ?? "").trim()
-    const envFlag =
-      SandboxService.parseOptionalBoolean(process.env.SANDBOX_DAYTONA_DECLARATIVE_IMAGE) ??
-      SandboxService.parseOptionalBoolean(process.env.STRUCTURE_DAYTONA_DECLARATIVE_IMAGE) ??
-      false
-    const useDeclarative = envFlag || imageFlag.startsWith("declarative")
-    if (!useDeclarative) return undefined
-
-    const baseImage =
-      String(process.env.SANDBOX_DAYTONA_DECLARATIVE_BASE ?? "").trim() ||
-      String(process.env.STRUCTURE_DAYTONA_DECLARATIVE_BASE ?? "").trim()
-    const pythonVersion = SandboxService.resolvePythonVersion(config.runtime)
-    const isStructureDataset =
-      config.purpose === "structure.dataset" || typeof (config.params as any)?.datasetId === "string"
-    const defaultPackages = isStructureDataset ? ["pandas", "openpyxl"] : []
-    const packages = [
-      ...SandboxService.parseCsvList(process.env.SANDBOX_DAYTONA_DECLARATIVE_PIP),
-      ...SandboxService.parseCsvList(process.env.STRUCTURE_DAYTONA_DECLARATIVE_PIP),
-      ...defaultPackages,
-    ]
-    const uniquePackages = Array.from(new Set(packages))
-
-    let image: Image
-    if (baseImage) {
-      image = Image.base(baseImage)
-    } else {
-      image = Image.debianSlim(pythonVersion as any)
-    }
-    if (uniquePackages.length > 0) {
-      image = image.pipInstall(uniquePackages)
-    }
-    image = image.workdir("/home/daytona")
-    return image
-  }
-
   async createSandbox(config: SandboxConfig): Promise<ServiceResult<{ sandboxId: string }>> {
     const sandboxId = id()
     const now = Date.now()
-    const provider = SandboxService.resolveProvider(config)
+    const provider = resolveProvider(config)
     const resolvedVercel =
       provider === "vercel" ? resolveVercelSandboxConfig(config, { sandboxId }) : undefined
     let daytonaEphemeral: boolean | undefined = undefined
@@ -1362,10 +789,10 @@ export class SandboxService {
       let sandbox: ProviderSandbox | null = null
       try {
         if (provider === "daytona") {
-          const daytona = new Daytona(SandboxService.getDaytonaConfig())
-          const language = SandboxService.resolveDaytonaLanguage(config)
+          const daytona = new Daytona(getDaytonaConfig())
+          const language = resolveDaytonaLanguage(config)
           const requestedVolumes = config.daytona?.volumes ?? []
-          const volumes = await SandboxService.resolveDaytonaVolumes(daytona, requestedVolumes)
+          const volumes = await resolveDaytonaVolumes(daytona, requestedVolumes)
           const envVars = config.daytona?.envVars
           const isPublic = config.daytona?.public
           const envEphemeral = SandboxService.parseOptionalBoolean(process.env.SANDBOX_DAYTONA_EPHEMERAL)
@@ -1376,7 +803,7 @@ export class SandboxService {
           const autoArchiveInterval = config.daytona?.autoArchiveIntervalMin
           const autoDeleteInterval = config.daytona?.autoDeleteIntervalMin
           const resolvedAutoDeleteInterval = ephemeral ? undefined : autoDeleteInterval
-          const declarativeImage = SandboxService.buildDeclarativeImage(config)
+          const declarativeImage = buildDeclarativeImage(config)
           const image = declarativeImage ?? config.daytona?.image
           const snapshot = config.daytona?.snapshot
           const resources = config.resources?.vcpus ? { cpu: config.resources.vcpus } : undefined
@@ -1414,7 +841,7 @@ export class SandboxService {
             })
           }
         } else if (provider === "sprites") {
-          sandbox = await SandboxService.provisionSpritesSandbox({
+          sandbox = await provisionSpritesSandbox({
             sandboxId,
             config,
           })
@@ -1423,7 +850,7 @@ export class SandboxService {
             ...(Array.isArray(config.skills) && config.skills.length > 0 ? { CODEX_HOME: CODEX_HOME_DIR } : {}),
             ...(ekairos?.env ?? {}),
           }
-          sandbox = await SandboxService.provisionVercelSandbox(config, {
+          sandbox = await provisionVercelSandbox(config, {
             networkPolicy: ekairos?.networkPolicy,
             env: Object.keys(vercelEnv).length > 0 ? vercelEnv : undefined,
             resolved: resolvedVercel,
@@ -1546,7 +973,7 @@ export class SandboxService {
       }
 
       if (record.provider === "daytona") {
-        const daytona = new Daytona(SandboxService.getDaytonaConfig())
+        const daytona = new Daytona(getDaytonaConfig())
         try {
           const sandbox = await daytona.get(String(record.externalSandboxId))
           const state = String((sandbox as any).state ?? "").toLowerCase()
@@ -1572,7 +999,7 @@ export class SandboxService {
       if (record.provider === "sprites") {
         const name = String(record.externalSandboxId ?? "").trim()
         try {
-          const spriteRes = await SandboxService.getSpritesByName(name)
+          const spriteRes = await getSpritesByName(name)
           if (!spriteRes.ok) {
             if (record.status === "active") {
               await this.adminDb.transact(
@@ -1587,7 +1014,7 @@ export class SandboxService {
           }
 
           const sprite = spriteRes.sprite ?? {}
-          const spritesSandbox = SandboxService.asSpritesSandbox({
+          const spritesSandbox = asSpritesSandbox({
             name: String(sprite?.name ?? name),
             id: sprite?.id ? String(sprite.id) : undefined,
             url: typeof sprite?.url === "string" ? sprite.url : undefined,
@@ -1637,7 +1064,7 @@ export class SandboxService {
         return { ok: false, error: "Valid sandbox record not found" }
       }
 
-      const creds = await SandboxService.resolveVercelCredentials(record?.params ?? {})
+      const creds = await resolveVercelCredentials(record?.params ?? {})
 
       try {
         const maxAttempts = 20
@@ -1679,20 +1106,22 @@ export class SandboxService {
   }
 
   private async getSandboxRecord(sandboxId: string): Promise<any | null> {
-    const recordResult: any = await this.adminDb.query({
+    const query = {
       sandbox_sandboxes: { $: { where: { id: sandboxId } as any, limit: 1 }, user: {} },
-    })
+    } satisfies InstaQLParams<SandboxSchemaType>
+    const recordResult: any = await this.adminDb.query(query)
     return recordResult?.sandbox_sandboxes?.[0] ?? null
   }
 
   async getProcessSnapshot(processId: string): Promise<ServiceResult<any>> {
     try {
-      const processResult: any = await this.adminDb.query({
+      const query = {
         sandbox_processes: {
           $: { where: { id: processId } as any, limit: 1 },
           sandbox: {},
         },
-      })
+      } satisfies InstaQLParams<SandboxSchemaType>
+      const processResult: any = await this.adminDb.query(query)
       const processRow = processResult?.sandbox_processes?.[0]
       if (!processRow) return { ok: false, error: "sandbox_process_not_found" }
       return { ok: true, data: processRow }
@@ -1783,12 +1212,13 @@ export class SandboxService {
   }
 
   private async readProcessRow(processId: string): Promise<any | null> {
-    const result: any = await this.adminDb.query({
+    const query = {
       sandbox_processes: {
         $: { where: { id: processId } as any, limit: 1 },
         sandbox: {},
       },
-    })
+    } satisfies InstaQLParams<SandboxSchemaType>
+    const result: any = await this.adminDb.query(query)
     return result?.sandbox_processes?.[0] ?? null
   }
 
@@ -2013,14 +1443,14 @@ export class SandboxService {
           } else if (sandbox?.__provider === "sprites") {
             // Sprites does not have a reliable "stop" semantic; deleting is the durable cleanup primitive.
             try {
-              await SandboxService.spritesFetch(`/v1/sprites/${encodeURIComponent(String(sandbox.name))}`, {
+              await spritesFetch(`/v1/sprites/${encodeURIComponent(String(sandbox.name))}`, {
                 method: "DELETE",
               })
             } catch {
               // ignore delete errors
             }
           } else {
-            const daytona = new Daytona(SandboxService.getDaytonaConfig())
+            const daytona = new Daytona(getDaytonaConfig())
             await daytona.stop(sandbox as DaytonaSandbox)
             if (deleteOnStop) {
               try {
@@ -2104,7 +1534,7 @@ export class SandboxService {
 
       if ((sandbox as any).__provider === "sprites") {
         const fullCommand = args.length > 0 ? [command, ...args].join(" ") : command
-        const res = await SandboxService.spritesExec({
+        const res = await spritesExec({
           spriteName: String((sandbox as any).name ?? ""),
           command,
           args,
@@ -2462,7 +1892,7 @@ export class SandboxService {
           const dirCmd = dirPath ? `mkdir -p ${SandboxService.shellEscapeArg(dirPath)} && ` : ""
           const cmd = `${dirCmd}printf %s ${SandboxService.shellEscapeArg(String(f.contentBase64 ?? ""))} | base64 -d > ${SandboxService.shellEscapeArg(filePath)}`
 
-          await SandboxService.spritesExec({
+          await spritesExec({
             spriteName,
             command: "sh",
             args: ["-lc", cmd],
@@ -2520,7 +1950,7 @@ export class SandboxService {
           filePath,
         )} | tr -d '\\n'; fi`
 
-        const res = await SandboxService.spritesExec({
+        const res = await spritesExec({
           spriteName,
           command: "sh",
           args: ["-lc", cmd],
@@ -2566,32 +1996,6 @@ export class SandboxService {
     } catch (e) {
       return { ok: false, error: formatInstantSchemaError(e) }
     }
-  }
-
-  private static parseSpritesCheckpointIdFromNdjson(text: string): string | null {
-    const lines = String(text ?? "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean)
-
-    const candidates: string[] = []
-
-    for (const line of lines) {
-      try {
-        const evt = JSON.parse(line)
-        const data = typeof evt?.data === "string" ? evt.data : ""
-        if (!data) continue
-        const m = data.match(/\bID:\s*(v[0-9]+)\b/i) || data.match(/\bCheckpoint\s+(v[0-9]+)\b/i)
-        if (m?.[1]) {
-          candidates.push(String(m[1]))
-        }
-      } catch {
-        // ignore invalid ndjson lines
-      }
-    }
-
-    if (candidates.length === 0) return null
-    return candidates[candidates.length - 1] ?? null
   }
 
   async createCheckpoint(
@@ -2641,7 +2045,7 @@ export class SandboxService {
       const comment = String(params?.comment ?? "").trim()
       const body = comment ? { comment } : {}
 
-      const res = await SandboxService.spritesFetch(`/v1/sprites/${encodeURIComponent(name)}/checkpoint`, {
+      const res = await spritesFetch(`/v1/sprites/${encodeURIComponent(name)}/checkpoint`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -2652,7 +2056,7 @@ export class SandboxService {
         return { ok: false, error: text || `sprites_checkpoint_http_${res?.status ?? "unknown"}` }
       }
 
-      const checkpointId = SandboxService.parseSpritesCheckpointIdFromNdjson(text)
+      const checkpointId = parseSpritesCheckpointIdFromNdjson(text)
       if (!checkpointId) {
         return { ok: false, error: "sprites_checkpoint_id_missing" }
       }
@@ -2683,7 +2087,7 @@ export class SandboxService {
       })
       const record = recordResult?.sandbox_sandboxes?.[0]
       if (record?.externalSandboxId && record.provider === "vercel") {
-        const creds = await SandboxService.resolveVercelCredentials(record?.params ?? {})
+        const creds = await resolveVercelCredentials(record?.params ?? {})
         const listed = await VercelSnapshot.list({
           teamId: creds.teamId,
           projectId: creds.projectId,
@@ -2703,7 +2107,7 @@ export class SandboxService {
       }
 
       const name = String(record.externalSandboxId).trim()
-      const json = await SandboxService.spritesJson<any>(`/v1/sprites/${encodeURIComponent(name)}/checkpoints`, {
+      const json = await spritesJson<any>(`/v1/sprites/${encodeURIComponent(name)}/checkpoints`, {
         method: "GET",
         headers: { Accept: "application/json" },
       })
@@ -2733,7 +2137,7 @@ export class SandboxService {
       const cp = String(checkpointId ?? "").trim()
       if (!cp) return { ok: false, error: "checkpoint_id_required" }
 
-      const res = await SandboxService.spritesFetch(
+      const res = await spritesFetch(
         `/v1/sprites/${encodeURIComponent(name)}/checkpoints/${encodeURIComponent(cp)}/restore`,
         { method: "POST" },
       )

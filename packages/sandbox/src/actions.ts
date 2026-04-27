@@ -1,8 +1,7 @@
-import { i } from "@instantdb/core"
-import { defineDomainAction, domain, type DomainSchemaResult } from "@ekairos/domain"
+import { defineAction } from "@ekairos/domain"
 import type { CommandResult } from "./commands.js"
 import type { SandboxConfig } from "./types.js"
-import { sandboxDomain as publicSandboxDomain } from "./public.js"
+import { sandboxSchemaDomain } from "./schema.js"
 type ServiceResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string }
 type SandboxRuntime = { use: (domain: unknown) => Promise<{ db: unknown }> }
 type SandboxRunCommandInput = { sandboxId: string; command: string; args?: string[] }
@@ -349,181 +348,126 @@ export async function createEkairosAppExecute({
   })
 }
 
-export const sandboxDomain: DomainSchemaResult = domain("sandbox")
-  .includes(publicSandboxDomain)
-  .schema({
-    entities: {
-      sandbox_processes: i.entity({
-        kind: i.string().indexed(),
-        mode: i.string().indexed(),
-        status: i.string().indexed(),
-        provider: i.string().indexed(),
-        command: i.string(),
-        args: i.json().optional(),
-        cwd: i.string().optional(),
-        env: i.json().optional(),
-        exitCode: i.number().optional().indexed(),
-        signal: i.string().optional(),
-        externalProcessId: i.string().optional().indexed(),
-        streamId: i.string().optional().indexed(),
-        streamClientId: i.string().optional().indexed(),
-        streamStartedAt: i.number().optional().indexed(),
-        streamFinishedAt: i.number().optional().indexed(),
-        streamAbortReason: i.string().optional(),
-        startedAt: i.number().indexed(),
-        updatedAt: i.number().optional().indexed(),
-        exitedAt: i.number().optional().indexed(),
-        metadata: i.json().optional(),
-      }),
-    },
-    links: {
-      sandboxProcessSandbox: {
-        forward: {
-          on: "sandbox_processes",
-          has: "one",
-          label: "sandbox",
-        },
-        reverse: {
-          on: "sandbox_sandboxes",
-          has: "many",
-          label: "processes",
-        },
-      },
-      sandboxProcessStream: {
-        forward: {
-          on: "sandbox_processes",
-          has: "one",
-          label: "stream",
-        },
-        reverse: {
-          on: "$streams" as any,
-          has: "many",
-          label: "sandboxProcesses",
-        },
-      },
-    },
-    rooms: {},
+export const sandboxDomain = sandboxSchemaDomain
+  .withActions({
+    createSandbox: defineAction<Record<string, unknown>, SandboxConfig, ServiceResult<{ sandboxId: string }>, SandboxRuntime>({
+      name: "sandbox.createSandbox",
+      execute: createSandboxExecute,
+    }),
+    stopSandbox: defineAction<Record<string, unknown>, { sandboxId: string }, ServiceResult<void>, SandboxRuntime>({
+      name: "sandbox.stopSandbox",
+      execute: stopSandboxExecute,
+    }),
+    runCommand: defineAction<Record<string, unknown>, SandboxRunCommandInput, ServiceResult<CommandResult>, SandboxRuntime>({
+      name: "sandbox.runCommand",
+      execute: runCommandExecute,
+    }),
+    runCommandProcess: defineAction<
+      Record<string, unknown>,
+      SandboxRunCommandProcessInput,
+      ServiceResult<SandboxProcessRunResult>,
+      SandboxRuntime
+    >({
+      name: "sandbox.runCommandProcess",
+      execute: runCommandProcessExecute,
+    }),
+    readProcessStream: defineAction<
+      Record<string, unknown>,
+      { processId: string },
+      ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>,
+      SandboxRuntime
+    >({
+      name: "sandbox.readProcessStream",
+      execute: readProcessStreamExecute,
+    }),
+    startObservedProcess: defineAction<
+      Record<string, unknown>,
+      SandboxObservedProcessStartInput,
+      ServiceResult<SandboxProcessRunResult>,
+      SandboxRuntime
+    >({
+      name: "sandbox.startObservedProcess",
+      execute: startObservedProcessExecute,
+    }),
+    appendObservedProcessChunk: defineAction<
+      Record<string, unknown>,
+      SandboxObservedProcessAppendInput,
+      ServiceResult<void>,
+      SandboxRuntime
+    >({
+      name: "sandbox.appendObservedProcessChunk",
+      execute: appendObservedProcessChunkExecute,
+    }),
+    finishObservedProcess: defineAction<
+      Record<string, unknown>,
+      SandboxObservedProcessFinishInput,
+      ServiceResult<void>,
+      SandboxRuntime
+    >({
+      name: "sandbox.finishObservedProcess",
+      execute: finishObservedProcessExecute,
+    }),
+    writeFiles: defineAction<
+      Record<string, unknown>,
+      { sandboxId: string; files: SandboxFileInput[] },
+      ServiceResult<void>,
+      SandboxRuntime
+    >({
+      name: "sandbox.writeFiles",
+      execute: writeFilesExecute,
+    }),
+    readFile: defineAction<
+      Record<string, unknown>,
+      { sandboxId: string; path: string },
+      ServiceResult<{ contentBase64: string }>,
+      SandboxRuntime
+    >({
+      name: "sandbox.readFile",
+      execute: readFileExecute,
+    }),
+    installCodexAuth: defineAction<
+      Record<string, unknown>,
+      SandboxAuthInstallInput,
+      ServiceResult<{ authJson: boolean; credentialsJson: boolean; configToml: boolean }>,
+      SandboxRuntime
+    >({
+      name: "sandbox.installCodexAuth",
+      execute: installCodexAuthExecute,
+    }),
+    getSandbox: defineAction<
+      Record<string, unknown>,
+      { sandboxId: string },
+      ServiceResult<Record<string, unknown>>,
+      SandboxRuntime
+    >({
+      name: "sandbox.getSandbox",
+      execute: getSandboxExecute,
+    }),
+    createCheckpoint: defineAction<
+      Record<string, unknown>,
+      { sandboxId: string; comment?: string },
+      ServiceResult<{ checkpointId: string }>,
+      SandboxRuntime
+    >({
+      name: "sandbox.createCheckpoint",
+      execute: createCheckpointExecute,
+    }),
+    getPortUrl: defineAction<
+      Record<string, unknown>,
+      { sandboxId: string; port: number },
+      ServiceResult<{ url: string }>,
+      SandboxRuntime
+    >({
+      name: "sandbox.getPortUrl",
+      execute: getPortUrlExecute,
+    }),
+    createEkairosApp: defineAction<
+      Record<string, unknown>,
+      SandboxCreateEkairosAppInput,
+      ServiceResult<SandboxProcessRunResult>,
+      SandboxRuntime
+    >({
+      name: "sandbox.createEkairosApp",
+      execute: createEkairosAppExecute,
+    }),
   })
-  .actions({
-  createSandbox: defineDomainAction<Record<string, unknown>, SandboxConfig, ServiceResult<{ sandboxId: string }>, SandboxRuntime>({
-    name: "sandbox.createSandbox",
-    execute: createSandboxExecute,
-  }),
-  stopSandbox: defineDomainAction<Record<string, unknown>, { sandboxId: string }, ServiceResult<void>, SandboxRuntime>({
-    name: "sandbox.stopSandbox",
-    execute: stopSandboxExecute,
-  }),
-  runCommand: defineDomainAction<Record<string, unknown>, SandboxRunCommandInput, ServiceResult<CommandResult>, SandboxRuntime>({
-    name: "sandbox.runCommand",
-    execute: runCommandExecute,
-  }),
-  runCommandProcess: defineDomainAction<
-    Record<string, unknown>,
-    SandboxRunCommandProcessInput,
-    ServiceResult<SandboxProcessRunResult>,
-    SandboxRuntime
-  >({
-    name: "sandbox.runCommandProcess",
-    execute: runCommandProcessExecute,
-  }),
-  readProcessStream: defineDomainAction<
-    Record<string, unknown>,
-    { processId: string },
-    ServiceResult<{ chunks: SandboxProcessStreamChunk[]; byteOffset: number }>,
-    SandboxRuntime
-  >({
-    name: "sandbox.readProcessStream",
-    execute: readProcessStreamExecute,
-  }),
-  startObservedProcess: defineDomainAction<
-    Record<string, unknown>,
-    SandboxObservedProcessStartInput,
-    ServiceResult<SandboxProcessRunResult>,
-    SandboxRuntime
-  >({
-    name: "sandbox.startObservedProcess",
-    execute: startObservedProcessExecute,
-  }),
-  appendObservedProcessChunk: defineDomainAction<
-    Record<string, unknown>,
-    SandboxObservedProcessAppendInput,
-    ServiceResult<void>,
-    SandboxRuntime
-  >({
-    name: "sandbox.appendObservedProcessChunk",
-    execute: appendObservedProcessChunkExecute,
-  }),
-  finishObservedProcess: defineDomainAction<
-    Record<string, unknown>,
-    SandboxObservedProcessFinishInput,
-    ServiceResult<void>,
-    SandboxRuntime
-  >({
-    name: "sandbox.finishObservedProcess",
-    execute: finishObservedProcessExecute,
-  }),
-  writeFiles: defineDomainAction<
-    Record<string, unknown>,
-    { sandboxId: string; files: SandboxFileInput[] },
-    ServiceResult<void>,
-    SandboxRuntime
-  >({
-    name: "sandbox.writeFiles",
-    execute: writeFilesExecute,
-  }),
-  readFile: defineDomainAction<
-    Record<string, unknown>,
-    { sandboxId: string; path: string },
-    ServiceResult<{ contentBase64: string }>,
-    SandboxRuntime
-  >({
-    name: "sandbox.readFile",
-    execute: readFileExecute,
-  }),
-  installCodexAuth: defineDomainAction<
-    Record<string, unknown>,
-    SandboxAuthInstallInput,
-    ServiceResult<{ authJson: boolean; credentialsJson: boolean; configToml: boolean }>,
-    SandboxRuntime
-  >({
-    name: "sandbox.installCodexAuth",
-    execute: installCodexAuthExecute,
-  }),
-  getSandbox: defineDomainAction<
-    Record<string, unknown>,
-    { sandboxId: string },
-    ServiceResult<Record<string, unknown>>,
-    SandboxRuntime
-  >({
-    name: "sandbox.getSandbox",
-    execute: getSandboxExecute,
-  }),
-  createCheckpoint: defineDomainAction<
-    Record<string, unknown>,
-    { sandboxId: string; comment?: string },
-    ServiceResult<{ checkpointId: string }>,
-    SandboxRuntime
-  >({
-    name: "sandbox.createCheckpoint",
-    execute: createCheckpointExecute,
-  }),
-  getPortUrl: defineDomainAction<
-    Record<string, unknown>,
-    { sandboxId: string; port: number },
-    ServiceResult<{ url: string }>,
-    SandboxRuntime
-  >({
-    name: "sandbox.getPortUrl",
-    execute: getPortUrlExecute,
-  }),
-  createEkairosApp: defineDomainAction<
-    Record<string, unknown>,
-    SandboxCreateEkairosAppInput,
-    ServiceResult<SandboxProcessRunResult>,
-    SandboxRuntime
-  >({
-    name: "sandbox.createEkairosApp",
-    execute: createEkairosAppExecute,
-  }),
-})
-

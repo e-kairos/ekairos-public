@@ -96,14 +96,14 @@ export type PersistedContextStepStreamSession = {
   stepId: string
 }
 
-export async function createPersistedContextStepStream(params: {
-  runtime: ContextRuntime<ContextEnvironment>
-  executionId: string
-  stepId: string
-  clientId?: string
-}): Promise<PersistedContextStepStreamSession> {
-  "use step"
-  const runtime = await getContextRuntimeServices(params.runtime)
+export async function createPersistedContextStepStreamForRuntime(
+  runtime: { db?: any },
+  params: {
+    executionId: string
+    stepId: string
+    clientId?: string
+  },
+): Promise<PersistedContextStepStreamSession> {
   const db: any = (runtime as any)?.db
   if (!db?.streams?.createWriteStream) {
     throw new Error(
@@ -151,15 +151,24 @@ export async function createPersistedContextStepStream(params: {
   }
 }
 
-async function finalizePersistedContextStepStream(params: {
+export async function createPersistedContextStepStream(params: {
   runtime: ContextRuntime<ContextEnvironment>
+  executionId: string
+  stepId: string
+  clientId?: string
+}): Promise<PersistedContextStepStreamSession> {
+  "use step"
+  const runtime = await getContextRuntimeServices(params.runtime)
+  return await createPersistedContextStepStreamForRuntime(runtime, params)
+}
+
+export async function finalizePersistedContextStepStreamForRuntime(params: {
+  runtime: { db?: any }
   session: PersistedContextStepStreamSession
   mode: "close" | "abort"
   abortReason?: string | null
 }) {
-  "use step"
-  const runtime = await getContextRuntimeServices(params.runtime)
-  const db: any = (runtime as any)?.db
+  const db: any = (params.runtime as any)?.db
 
   const writer = params.session.stream.getWriter()
   try {
@@ -198,6 +207,22 @@ async function finalizePersistedContextStepStream(params: {
   )
   if (unsetActive) txs.push(unsetActive)
   await db.transact(txs as any)
+}
+
+async function finalizePersistedContextStepStream(params: {
+  runtime: ContextRuntime<ContextEnvironment>
+  session: PersistedContextStepStreamSession
+  mode: "close" | "abort"
+  abortReason?: string | null
+}) {
+  "use step"
+  const runtime = await getContextRuntimeServices(params.runtime)
+  return await finalizePersistedContextStepStreamForRuntime({
+    runtime,
+    session: params.session,
+    mode: params.mode,
+    abortReason: params.abortReason,
+  })
 }
 
 export async function closePersistedContextStepStream(params: {

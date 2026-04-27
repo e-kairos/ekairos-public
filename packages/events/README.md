@@ -49,10 +49,13 @@ const supportContext = createContext<{ orgId: string }>("support.agent")
 Run directly:
 
 ```ts
-await supportContext.react(triggerEvent, {
+const shell = await supportContext.react(triggerEvent, {
   runtime,
   context: { key: "support:org_123" },
+  durable: false,
 });
+
+const final = await shell.run!;
 ```
 
 Run durably:
@@ -61,10 +64,9 @@ Run durably:
 const shell = await supportContext.react(triggerEvent, {
   runtime,
   context: { key: "support:org_123" },
-  durable: true,
 });
 
-const final = await shell.run?.returnValue;
+const final = await shell.run!.returnValue;
 ```
 
 ## Tool execution model

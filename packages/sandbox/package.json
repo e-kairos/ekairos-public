@@ -37,6 +37,12 @@
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "import": "./dist/sandbox.js",
+      "require": "./dist/sandbox.js",
+      "default": "./dist/sandbox.js"
+    },
     "./public": {
       "types": "./dist/public.d.ts",
       "import": "./dist/public.js",
@@ -61,12 +67,14 @@
     "dev": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "test:workflow": "vitest run -c vitest.workflow.config.mts"
   },
   "dependencies": {
     "@daytonaio/sdk": "^0.134.0",
     "@ekairos/domain": "workspace:*",
+    "@ekairos/events": "workspace:*",
     "@instantdb/admin": "0.22.158",
     "@instantdb/core": "0.22.158",
     "@vercel/sandbox": "2.0.0-beta.13",

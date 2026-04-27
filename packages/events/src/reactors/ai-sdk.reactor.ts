@@ -1,21 +1,25 @@
 import type { ContextEnvironment } from "../context.config.js"
-import type { ContextRuntime } from "../context.runtime.js"
+import type { DomainSchemaResult } from "@ekairos/domain"
+import type { ContextRuntime, ContextRuntimeHandleForDomain } from "../context.runtime.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextIdentifier, StoredContext, ContextItem } from "../context.store.js"
 import { executeAiSdkReaction } from "./ai-sdk.step.js"
+import { eventsDomain } from "../schema.js"
 import type {
   ContextActionRequest,
   ContextReactor,
 } from "./types.js"
+import { actionsToActionSpecs } from "../tools-to-model-tools.js"
 
 export type CreateAiSdkReactorOptions<
   Context = unknown,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
   Config = unknown,
 > = {
   resolveConfig?: (params: {
-    runtime: ContextRuntime<Env>
-    env: Env
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
     context: StoredContext<Context>
     contextIdentifier: ContextIdentifier
     triggerEvent: ContextItem
@@ -27,16 +31,14 @@ export type CreateAiSdkReactorOptions<
     iteration: number
   }) => Promise<Config> | Config
   selectModel?: (params: {
-    runtime: ContextRuntime<Env>
-    env: Env
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
     context: StoredContext<Context>
     triggerEvent: ContextItem
     baseModel: ContextModelInit
     config: Config
   }) => Promise<ContextModelInit> | ContextModelInit
   selectMaxModelSteps?: (params: {
-    runtime: ContextRuntime<Env>
-    env: Env
+    runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
     context: StoredContext<Context>
     triggerEvent: ContextItem
     baseMaxModelSteps: number
@@ -47,16 +49,17 @@ export type CreateAiSdkReactorOptions<
 export function createAiSdkReactor<
   Context = unknown,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = ContextRuntime<Env>,
   Config = unknown,
 >(
-  options?: CreateAiSdkReactorOptions<Context, Env, Config>,
-): ContextReactor<Context, Env> {
+  options?: CreateAiSdkReactorOptions<Context, Env, RequiredDomain, Runtime, Config>,
+): ContextReactor<Context, Env, RequiredDomain, Runtime> {
   return async (params) => {
     let config: Config | undefined
     if (options?.resolveConfig) {
       config = await options.resolveConfig({
         runtime: params.runtime,
-        env: params.env,
         context: params.context,
         contextIdentifier: params.contextIdentifier,
         triggerEvent: params.triggerEvent,
@@ -73,7 +76,6 @@ export function createAiSdkReactor<
       options?.selectModel && config !== undefined
         ? await options.selectModel({
             runtime: params.runtime,
-            env: params.env,
             context: params.context,
             triggerEvent: params.triggerEvent,
             baseModel: params.model,
@@ -85,7 +87,6 @@ export function createAiSdkReactor<
       options?.selectMaxModelSteps && config !== undefined
         ? await options.selectMaxModelSteps({
             runtime: params.runtime,
-            env: params.env,
             context: params.context,
             triggerEvent: params.triggerEvent,
             baseMaxModelSteps: params.maxModelSteps,
@@ -95,12 +96,11 @@ export function createAiSdkReactor<
 
     const result = await executeAiSdkReaction({
       runtime: params.runtime,
-      env: params.env,
       contextIdentifier: params.contextIdentifier,
       events: params.events,
       model,
       system: params.systemPrompt,
-      tools: params.actionSpecs,
+      tools: actionsToActionSpecs(params.actions),
       eventId: params.eventId,
       iteration: params.iteration,
       maxSteps,

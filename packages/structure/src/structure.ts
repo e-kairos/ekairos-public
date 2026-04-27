@@ -661,11 +661,13 @@ export function structure<Env extends { orgId: string }>(
       }
 
       async function runStory(evt: any) {
-        await story.react(evt, {
+        const shell = await story.react(evt, {
           env,
           context: { key: contextKey },
+          durable: false,
           options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 40, maxModelSteps: 10 },
         })
+        await shell.run!
 
         // Tools are intentionally pure: persist completion outputs post-react by reading tool results from events.
         const commit = await structureCommitFromEventsStep({ env, structureId: datasetId })

@@ -1,4 +1,4 @@
-import { asSchema, type Tool } from "ai"
+import { z } from "zod"
 
 /**
  * Serializable "tool" shape to pass across the Workflow step boundary.
@@ -11,6 +11,7 @@ export type SerializableFunctionActionSpec = {
   type?: "function"
   description?: string
   inputSchema: unknown
+  outputSchema?: unknown
   providerOptions?: unknown
 }
 
@@ -25,6 +26,21 @@ export type SerializableActionSpec =
   | SerializableFunctionActionSpec
   | SerializableProviderDefinedActionSpec
 
+function toJsonSchema(schema: unknown): unknown {
+  if (!schema) return schema
+  const jsonSchema = (schema as { jsonSchema?: unknown })?.jsonSchema
+  if (jsonSchema) return jsonSchema
+  try {
+    return z.toJSONSchema(schema as never)
+  } catch {
+    return schema
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {}
+}
+
 /**
  * @deprecated Use SerializableActionSpec.
  */
@@ -36,12 +52,11 @@ function isProviderDefinedTool(tool: unknown): tool is {
   name?: string
   args?: Record<string, unknown>
 } {
+  const record = asRecord(tool)
   return (
-    Boolean(tool) &&
-    typeof tool === "object" &&
-    (tool as any).type === "provider-defined" &&
-    typeof (tool as any).id === "string" &&
-    (tool as any).id.trim().length > 0
+    record.type === "provider-defined" &&
+    typeof record.id === "string" &&
+    record.id.trim().length > 0
   )
 }
 
@@ -52,7 +67,7 @@ function isProviderDefinedTool(tool: unknown): tool is {
  * `inputSchema: asSchema(tool.inputSchema).jsonSchema`
  */
 export function actionsToActionSpecs(
-  tools: Record<string, Tool>,
+  tools: Record<string, unknown>,
 ): Record<string, SerializableActionSpec> {
   const out: Record<string, SerializableActionSpec> = {}
   for (const [name, tool] of Object.entries(tools)) {
@@ -66,17 +81,20 @@ export function actionsToActionSpecs(
       continue
     }
 
-    const inputSchema = (tool as any)?.inputSchema
+    const record = asRecord(tool)
+    const inputSchema = record.inputSchema ?? record.input
     if (!inputSchema) {
       throw new Error(
-        `Context: tool "${name}" is missing inputSchema (required for model tool calls)`,
+        `Context: action "${name}" is missing input/inputSchema (required for model action calls)`,
       )
     }
+    const outputSchema = record.outputSchema ?? record.output
     out[name] = {
       type: "function",
-      description: (tool as any)?.description,
-      inputSchema: asSchema(inputSchema).jsonSchema,
-      providerOptions: (tool as any)?.providerOptions,
+      description: typeof record.description === "string" ? record.description : undefined,
+      inputSchema: toJsonSchema(inputSchema),
+      outputSchema: outputSchema ? toJsonSchema(outputSchema) : undefined,
+      providerOptions: record.providerOptions,
     }
   }
   return out
@@ -100,6 +118,7 @@ export function actionSpecToAiSdkTool(
     type: "function" as const,
     description: spec.description,
     inputSchema: wrapJsonSchema(spec.inputSchema),
+    outputSchema: spec.outputSchema ? wrapJsonSchema(spec.outputSchema) : undefined,
     providerOptions: spec.providerOptions,
   }
 }

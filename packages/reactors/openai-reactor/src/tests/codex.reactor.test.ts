@@ -5,6 +5,7 @@ import { dirname } from "node:path"
 
 import type { ContextEnvironment } from "@ekairos/events/runtime"
 import type { ContextItem, ContextReactorParams, ContextSkillPackage } from "@ekairos/events"
+import { Sandbox } from "@ekairos/sandbox/sandbox"
 
 import {
   createCodexReactor,
@@ -240,7 +241,14 @@ function buildAudit(params: {
   const commandParts = (Array.isArray(params.result.assistantEvent.content?.parts)
     ? params.result.assistantEvent.content.parts
     : []
-  ).filter((part) => asString(asRecord(part).type) === "tool-commandExecution")
+  ).filter((part) => {
+    const record = asRecord(part)
+    const content = asRecord(record.content)
+    return (
+      asString(record.type) === "action" &&
+      asString(content.actionName) === Sandbox.runCommandActionName
+    )
+  })
   const assistantText = getAssistantTextPart(params.result.assistantEvent)
   const providerTimeline = params.providerChunks.map((chunk, index) => {
     const summary = summarizeProviderChunk(chunk)
@@ -602,8 +610,8 @@ describe("createCodexReactor", () => {
     const collected = collectWritableChunks()
     const providerChunks: Record<string, unknown>[] = [
       { type: "start" },
-      { type: "reasoning_delta", delta: "Inspecting repository context..." },
-      { type: "text_delta", text: "I inspected README.md." },
+      { type: "reasoning_delta", id: "reasoning_001", delta: "Inspecting repository context..." },
+      { type: "text_delta", id: "msg_001", text: "I inspected README.md." },
       {
         type: "action_input_available",
         actionName: "runCommand",
@@ -668,6 +676,25 @@ describe("createCodexReactor", () => {
       "chunk.action_output_available": 1,
       "chunk.finish": 1,
     })
+    const payloads = getChunkPayloads(collected.written)
+    const textDelta = payloads.find((payload) => asString(payload.chunkType) === "chunk.text_delta")
+    const actionInput = payloads.find(
+      (payload) => asString(payload.chunkType) === "chunk.action_input_available",
+    )
+    const actionOutput = payloads.find(
+      (payload) => asString(payload.chunkType) === "chunk.action_output_available",
+    )
+    expect(asString(textDelta?.providerPartId)).toBe("msg_001")
+    expect(asString(textDelta?.partType)).toBe("message")
+    expect(asString(textDelta?.partSlot)).toBe("message")
+    expect(asString(textDelta?.partId)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(asString(actionInput?.providerPartId)).toBe("call_001")
+    expect(asString(actionOutput?.providerPartId)).toBe("call_001")
+    expect(asString(actionInput?.partSlot)).toBe("action:started")
+    expect(asString(actionOutput?.partSlot)).toBe("action:completed")
+    expect(asString(actionInput?.partId)).not.toBe(asString(actionOutput?.partId))
     expect(audit.llm.promptTokens).toBe(120)
     expect(audit.llm.completionTokens).toBe(30)
     expect(audit.llm.totalTokens).toBe(150)
@@ -758,6 +785,12 @@ describe("createCodexReactor", () => {
       action_input_available: 1,
       finish: 1,
     })
+    const actionInput = getChunkPayloads(collected.written).find(
+      (payload) => asString(payload.chunkType) === "chunk.action_input_available",
+    )
+    expect(asString(actionInput?.providerPartId)).toBe("call_777")
+    expect(asString(actionInput?.actionRef)).toBe("call_777")
+    expect(asString(actionInput?.partSlot)).toBe("action:started")
     expect(audit.llm.promptTokens).toBe(80)
     expect(audit.llm.completionTokens).toBe(20)
     expect(audit.llm.totalTokens).toBe(100)
@@ -879,6 +912,21 @@ describe("createCodexReactor", () => {
       "turn/completed": 1,
     })
     expect((audit.stream.providerChunkTypes as Record<string, number>)["codex/event/agent_message_delta"]).toBeUndefined()
+    const payloads = getChunkPayloads(collected.written)
+    const textChunks = payloads.filter((payload) =>
+      ["chunk.text_start", "chunk.text_delta", "chunk.text_end"].includes(
+        asString(payload.chunkType),
+      ),
+    )
+    expect(textChunks).toHaveLength(3)
+    expect(textChunks.map((payload) => asString(payload.providerPartId))).toEqual([
+      "msg-typed-001",
+      "msg-typed-001",
+      "msg-typed-001",
+    ])
+    expect(new Set(textChunks.map((payload) => asString(payload.partId))).size).toBe(1)
+    expect(textChunks[0]?.partType).toBe("message")
+    expect(textChunks[0]?.partSlot).toBe("message")
   })
 
   it("typed userMessage notifications map to metadata, not action chunks", async () => {
@@ -962,6 +1010,133 @@ describe("createCodexReactor", () => {
     })
     expect((audit.stream.emittedChunkTypes as Record<string, number>)["chunk.action_input_available"]).toBeUndefined()
     expect((audit.stream.emittedChunkTypes as Record<string, number>)["chunk.action_output_available"]).toBeUndefined()
+  })
+
+  it("maps Codex commandExecution notifications to sandbox_run_command action parts", async () => {
+    const collected = collectWritableChunks()
+    const commandId = "cmd-001"
+    const providerChunks: Record<string, unknown>[] = [
+      {
+        method: "turn/started",
+        params: {
+          threadId: "thr-command",
+          turn: { id: "turn-command-001", status: "inProgress" },
+        },
+      },
+      {
+        method: "item/started",
+        params: {
+          threadId: "thr-command",
+          turnId: "turn-command-001",
+          item: {
+            type: "commandExecution",
+            id: commandId,
+            command: "git status --short",
+            cwd: "/workspace/repo",
+            commandActions: [],
+          },
+        },
+      },
+      {
+        method: "item/commandExecution/outputDelta",
+        params: {
+          threadId: "thr-command",
+          turnId: "turn-command-001",
+          itemId: commandId,
+          delta: "clean\n",
+        },
+      },
+      {
+        method: "item/completed",
+        params: {
+          threadId: "thr-command",
+          turnId: "turn-command-001",
+          item: {
+            type: "commandExecution",
+            id: commandId,
+            command: "git status --short",
+            cwd: "/workspace/repo",
+            status: "completed",
+            exitCode: 0,
+            aggregatedOutput: "clean\n",
+            durationMs: 12,
+          },
+        },
+      },
+      {
+        method: "turn/completed",
+        params: {
+          threadId: "thr-command",
+          turn: { id: "turn-command-001", status: "completed" },
+        },
+      },
+    ]
+
+    const reactor = createCodexReactor<TestContext, CodexConfig, TestEnv>({
+      resolveConfig: async () => ({
+        appServerUrl: "http://127.0.0.1:3436",
+        repoPath: "/workspace/repo",
+        providerContextId: "thr-command",
+        model: "openai/gpt-5.2-codex",
+      }),
+      executeTurn: async ({ emitChunk }) => {
+        for (const chunk of providerChunks) {
+          await emitChunk(chunk)
+        }
+        return {
+          providerContextId: "thr-command",
+          turnId: "turn-command-001",
+          assistantText: "",
+        }
+      },
+    })
+
+    const result = await reactor(
+      createParams({
+        writable: collected.writable,
+        contextId: "ctx-command",
+        eventId: "evt-command",
+        executionId: "exe-command",
+        stepId: "step-command",
+      }),
+    )
+
+    const parts = Array.isArray(result.assistantEvent.content?.parts)
+      ? result.assistantEvent.content.parts.map((part) => asRecord(part))
+      : []
+    const commandParts = parts.filter((part) => {
+      const content = asRecord(part.content)
+      return (
+        asString(part.type) === "action" &&
+        asString(content.actionName) === Sandbox.runCommandActionName
+      )
+    })
+    const started = commandParts.find(
+      (part) => asString(asRecord(part.content).status) === "started",
+    )
+    const completed = commandParts.find(
+      (part) => asString(asRecord(part.content).status) === "completed",
+    )
+    const input = asRecord(asRecord(started?.content).input)
+    const output = asRecord(asRecord(completed?.content).output)
+
+    expect(commandParts).toHaveLength(2)
+    expect(input).toMatchObject({
+      command: "git status --short",
+      cwd: "/workspace/repo",
+    })
+    expect(output).toMatchObject({
+      success: true,
+      exitCode: 0,
+      output: "clean",
+      command: "git status --short",
+      durationMs: 12,
+      status: "completed",
+    })
+    expect(asRecord(started?.reactorMetadata)).toMatchObject({
+      reactorKind: "codex",
+      source: "codex.timeline",
+    })
   })
 
   it("normalizes Codex dynamic tool input and output into canonical event parts", async () => {
@@ -1144,8 +1319,8 @@ describe("defaultMapCodexChunk", () => {
   it("maps canonical provider chunk types to context chunk types", () => {
     const mapped = [
       defaultMapCodexChunk({ type: "start" }),
-      defaultMapCodexChunk({ type: "reasoning_delta", delta: "thinking" }),
-      defaultMapCodexChunk({ type: "text_delta", text: "hello" }),
+      defaultMapCodexChunk({ type: "reasoning_delta", id: "reasoning-1", delta: "thinking" }),
+      defaultMapCodexChunk({ type: "text_delta", id: "message-1", text: "hello" }),
       defaultMapCodexChunk({ type: "action_input_available", toolCallId: "call-1" }),
       defaultMapCodexChunk({ type: "action_output_available", toolCallId: "call-1" }),
       defaultMapCodexChunk({ type: "finish", finishReason: "stop" }),
@@ -1159,5 +1334,15 @@ describe("defaultMapCodexChunk", () => {
       "chunk.action_output_available",
       "chunk.finish",
     ])
+    expect(mapped[0]?.providerPartId).toBeUndefined()
+    expect(mapped[1]?.providerPartId).toBe("reasoning-1")
+    expect(mapped[1]?.partType).toBe("reasoning")
+    expect(mapped[2]?.providerPartId).toBe("message-1")
+    expect(mapped[2]?.partType).toBe("message")
+    expect(mapped[3]?.providerPartId).toBe("call-1")
+    expect(mapped[3]?.partSlot).toBe("action:started")
+    expect(mapped[4]?.providerPartId).toBe("call-1")
+    expect(mapped[4]?.partSlot).toBe("action:completed")
+    expect(mapped[5]?.providerPartId).toBeUndefined()
   })
 })

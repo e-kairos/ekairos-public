@@ -37,13 +37,14 @@
     "dev": "tsc -p tsconfig.json --watch",
     "clean": "node -e \"require('fs').rmSync('dist', {recursive:true, force:true})\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run -c vitest.config.mts",
     "test:direct": "vitest run -c vitest.config.mts src/tests/dataset.builder.instant.test.ts",
     "test:tool": "vitest run -c vitest.config.mts src/tests/materializeDataset.tool.instant.test.ts",
     "test:ai-sdk:instant": "vitest run -c vitest.codex.config.mts src/tests/materializeDataset.ai-sdk.instant.test.ts"
   },
   "dependencies": {
-    "@ekairos/domain": "^1.22.0",
+    "@ekairos/domain": "workspace:*",
     "@ekairos/events": "workspace:*",
     "@ekairos/sandbox": "^1.22.0",
     "@instantdb/admin": "0.22.158",

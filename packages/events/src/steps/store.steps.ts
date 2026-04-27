@@ -18,6 +18,11 @@ import {
   toolApprovalHookToken,
   toolApprovalWebhookToken,
 } from "../context.hooks.js"
+import {
+  createPersistedContextStepStreamForRuntime,
+  finalizePersistedContextStepStreamForRuntime,
+  type PersistedContextStepStreamSession,
+} from "./stream.steps.js"
 
 type RuntimeParams<Env extends ContextEnvironment = ContextEnvironment> = {
   runtime: ContextRuntime<Env>
@@ -53,6 +58,19 @@ type WorkflowMeta = {
 export type ContextReviewRequest = {
   toolCallId: string
   toolName?: string
+}
+
+type ContextStepPatch = {
+  status?: "running" | "completed" | "failed"
+  kind?: "message" | "action_execute" | "action_result"
+  actionName?: string
+  actionInput?: unknown
+  actionOutput?: unknown
+  actionError?: string
+  actionRequests?: any
+  actionResults?: any
+  continueLoop?: boolean
+  errorText?: string
 }
 
 async function readWorkflowMetadata(): Promise<WorkflowMeta | null> {
@@ -677,6 +695,44 @@ export async function updateExecutionWorkflowRun(params: {
   }
 }
 
+export async function openReactionStep<C>(params: {
+  runtime: ContextRuntime<ContextEnvironment>
+  contextIdentifier: ContextIdentifier
+  content: C
+  executionId: string
+  iteration: number
+}): Promise<{
+  stepId: string
+  stream: PersistedContextStepStreamSession
+  context: StoredContext<C>
+  events: ContextItem[]
+}> {
+  "use step"
+  const { runtime } = await getRuntimeAndEnv(params)
+  const { store } = runtime
+
+  const step = await store.createStep({
+    executionId: params.executionId,
+    iteration: params.iteration,
+  })
+  const stream = await createPersistedContextStepStreamForRuntime(runtime, {
+    executionId: params.executionId,
+    stepId: step.id,
+  })
+  const context = await store.updateContextContent<C>(
+    params.contextIdentifier,
+    params.content,
+  )
+  const events = await store.getItems(params.contextIdentifier)
+
+  return {
+    stepId: step.id,
+    stream,
+    context,
+    events,
+  }
+}
+
 export async function createContextStep(params: {
   runtime: ContextRuntime<ContextEnvironment>
   executionId: string
@@ -698,18 +754,7 @@ export async function updateContextStep(params: {
   executionId?: string
   contextId?: string
   iteration?: number
-  patch: {
-    status?: "running" | "completed" | "failed"
-    kind?: "message" | "action_execute" | "action_result"
-    actionName?: string
-    actionInput?: unknown
-    actionOutput?: unknown
-    actionError?: string
-    actionRequests?: any
-    actionResults?: any
-    continueLoop?: boolean
-    errorText?: string
-  }
+  patch: ContextStepPatch
 }): Promise<void> {
   "use step"
   const { runtime, env } = await getRuntimeAndEnv(params)
@@ -750,6 +795,93 @@ export async function updateContextStep(params: {
       },
     ])
   }
+}
+
+export async function finalizeReactionStep(params: {
+  runtime: ContextRuntime<ContextEnvironment>
+  session?: PersistedContextStepStreamSession | null
+  stepId: string
+  executionId?: string
+  contextId?: string
+  iteration?: number
+  patch: ContextStepPatch
+  reactionEventId?: string
+  reactionEvent?: ContextItem
+}): Promise<{ reactionEvent?: ContextItem }> {
+  "use step"
+  const { runtime, env } = await getRuntimeAndEnv(params)
+  const { store, db } = runtime
+
+  if (params.session) {
+    await finalizePersistedContextStepStreamForRuntime({
+      runtime,
+      session: params.session,
+      mode: "close",
+    })
+  }
+
+  await store.updateStep(params.stepId, {
+    ...(params.patch as any),
+    updatedAt: new Date(),
+  })
+
+  let savedReaction: ContextItem | undefined
+  if (params.reactionEventId && params.reactionEvent) {
+    savedReaction = await store.updateItem(params.reactionEventId, params.reactionEvent)
+  }
+
+  const { runId } = await resolveWorkflowRunId({
+    env,
+    db,
+    executionId: params.executionId,
+  })
+
+  if (runId) {
+    const events: ContextTraceEventWrite[] = [
+      {
+        workflowRunId: runId,
+        eventId: `context_step:${String(params.stepId)}`,
+        eventKind: "context.step",
+        eventAt: new Date().toISOString(),
+        contextId: params.contextId,
+        executionId: params.executionId,
+        stepId: String(params.stepId),
+        payload: {
+          status: params.patch.status,
+          kind: params.patch.kind,
+          actionName: params.patch.actionName,
+          actionInput: params.patch.actionInput,
+          actionOutput: params.patch.actionOutput,
+          actionError: params.patch.actionError,
+          iteration: params.iteration,
+          actionRequests: params.patch.actionRequests,
+          actionResults: params.patch.actionResults,
+          continueLoop: params.patch.continueLoop,
+          errorText: params.patch.errorText,
+        },
+      },
+    ]
+
+    if (savedReaction) {
+      events.push({
+        workflowRunId: runId,
+        eventId: `context_item:${String(savedReaction.id)}`,
+        eventKind: "context.item",
+        eventAt: new Date().toISOString(),
+        contextId: params.contextId,
+        executionId: params.executionId,
+        contextEventId: String(savedReaction.id),
+        payload: {
+          ...savedReaction,
+          direction: inferDirection(savedReaction),
+        },
+      })
+    }
+
+    await maybeWriteTraceEvents(env, events)
+  }
+
+  return { reactionEvent: savedReaction }
 }
 
 export async function linkItemToExecutionStep(params: {
@@ -800,6 +932,68 @@ export async function saveContextPartsStep(params: {
     }
     await maybeWriteTraceEvents(env, events)
   }
+}
+
+export async function saveContextPartsAndUpdateReaction(params: {
+  runtime: ContextRuntime<ContextEnvironment>
+  stepId: string
+  executionId?: string
+  contextId?: string
+  iteration?: number
+  parts: any[]
+  reactionEventId: string
+  reactionEvent: ContextItem
+}): Promise<{ reactionEvent: ContextItem }> {
+  "use step"
+  const { runtime, env } = await getRuntimeAndEnv(params)
+  const { store, db } = runtime
+
+  await store.saveStepParts({ stepId: params.stepId, parts: params.parts })
+  const savedReaction = await store.updateItem(params.reactionEventId, params.reactionEvent)
+
+  const { runId } = await resolveWorkflowRunId({
+    env,
+    db,
+    executionId: params.executionId,
+  })
+  if (runId) {
+    const events: ContextTraceEventWrite[] = []
+    if (params.parts?.length) {
+      for (let idx = 0; idx < params.parts.length; idx += 1) {
+        const part = params.parts[idx]
+        events.push({
+          workflowRunId: runId,
+          eventId: `context_part:${String(params.stepId)}:${idx}`,
+          eventKind: "context.part",
+          eventAt: new Date().toISOString(),
+          contextId: params.contextId,
+          executionId: params.executionId,
+          stepId: String(params.stepId),
+          partKey: `${String(params.stepId)}:${idx}`,
+          partIdx: idx,
+          payload: part,
+        })
+      }
+    }
+
+    events.push({
+      workflowRunId: runId,
+      eventId: `context_item:${String(savedReaction.id)}`,
+      eventKind: "context.item",
+      eventAt: new Date().toISOString(),
+      contextId: params.contextId,
+      executionId: params.executionId,
+      contextEventId: String(savedReaction.id),
+      payload: {
+        ...savedReaction,
+        direction: inferDirection(savedReaction),
+      },
+    })
+
+    await maybeWriteTraceEvents(env, events)
+  }
+
+  return { reactionEvent: savedReaction }
 }
 
 

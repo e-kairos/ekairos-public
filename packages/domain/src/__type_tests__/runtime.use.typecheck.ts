@@ -1,8 +1,8 @@
 import { i } from "@instantdb/core";
 
 import {
-  type CompatibleRuntimeForDomain,
   EkairosRuntime,
+  type RuntimeForDomain,
   domain,
 } from "../index";
 
@@ -45,6 +45,10 @@ class AppRuntime extends EkairosRuntime<Env, typeof appDomain, { runtimeCall: nu
   protected async resolveDb() {
     return { runtimeCall: 1 };
   }
+
+  appRuntimeOnly() {
+    return "app-runtime" as const;
+  }
 }
 
 class BillingRuntime extends EkairosRuntime<Env, typeof billingDomain, { runtimeCall: number }> {
@@ -58,16 +62,27 @@ class BillingRuntime extends EkairosRuntime<Env, typeof billingDomain, { runtime
 }
 
 function taskMethod<Runtime extends EkairosRuntime<any, any, any>>(
-  runtime: CompatibleRuntimeForDomain<Runtime, typeof taskDomain>,
+  runtime: RuntimeForDomain<Runtime, typeof taskDomain>,
 ) {
   return runtime;
 }
 
 const appRuntime = new AppRuntime({ orgId: "org_1", actorId: "user_1" });
-taskMethod(appRuntime);
+
+// given: AppRuntime is rooted at appDomain, which includes taskDomain.
+// when: a method requires RuntimeForDomain<typeof taskDomain> and appRuntime is
+// passed to it.
+// then: the runtime remains assignable and keeps AppRuntime-specific methods.
+const compatibleRuntime = taskMethod(appRuntime);
+compatibleRuntime.appRuntimeOnly();
 appRuntime.use(taskDomain);
 
 const billingRuntime = new BillingRuntime({ orgId: "org_1", actorId: "user_1" });
+
+// given: BillingRuntime is rooted at billingDomain, which does not include
+// taskDomain.
+// when: code asks BillingRuntime to satisfy a task-domain runtime requirement.
+// then: both RuntimeForDomain and runtime.use reject it at compile time.
 // @ts-expect-error billing runtime does not include taskDomain
 taskMethod(billingRuntime);
 // @ts-expect-error billing runtime does not include taskDomain

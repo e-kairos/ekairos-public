@@ -434,7 +434,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "complete_build"))
       .build()
 
-    const run = await pipelineContext.react(
+    const runShell = await pipelineContext.react(
       createUserEvent(
         [
           "Build a verified dataset for weekly paid sales by region.",
@@ -454,6 +454,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
         env: { ...runtime.env, runtime } as any,
       } as any,
     )
+    const run = await runShell.run!
 
     const finalRows = await readDatasetRowsFromRecords(db, `${pipelineId}_weekly_sales_by_region`)
     expect(finalRows).toHaveLength(12)
@@ -546,7 +547,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "complete_research"))
       .build()
 
-    const research = await researchContext.react(
+    const researchShell = await researchContext.react(
       createUserEvent(
         [
           "Research source datasets for weekly paid sales by region.",
@@ -564,6 +565,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
         env: { ...runtime.env, runtime } as any,
       } as any,
     )
+    const research = await researchShell.run!
 
     const resolveContext = createContext<TestEnv>("dataset.pipeline.resolve")
       .context((stored) => ({ ...(stored.content ?? {}), pipelineId }))
@@ -639,7 +641,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "complete_resolution"))
       .build()
 
-    const resolveRun = await resolveContext.react(
+    const resolveShell = await resolveContext.react(
       createUserEvent(
         [
           `Use source datasets ${pipelineId}_orders_paid and ${pipelineId}_regions.`,
@@ -655,6 +657,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
         env: { ...runtime.env, runtime } as any,
       } as any,
     )
+    const resolveRun = await resolveShell.run!
 
     const buildContext = createContext<TestEnv>("dataset.pipeline.build")
       .context((stored) => ({ ...(stored.content ?? {}), pipelineId }))
@@ -695,7 +698,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "complete_build"))
       .build()
 
-    const buildRun = await buildContext.react(
+    const buildShell = await buildContext.react(
       createUserEvent(
         [
           `Build an MDX report for dataset ${pipelineId}_weekly_sales_by_region.`,
@@ -711,6 +714,7 @@ describeReal("dataset semantic pipeline with Codex contexts", () => {
         env: { ...runtime.env, runtime } as any,
       } as any,
     )
+    const buildRun = await buildShell.run!
 
     const finalRows = await service.readRows({ datasetId: `${pipelineId}_weekly_sales_by_region`, limit: 100 })
     if (!finalRows.ok) throw new Error(finalRows.error)

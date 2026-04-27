@@ -245,11 +245,13 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
         } as any
 
         const runtime = createEventsReactRuntime(env)
-        await story.react(triggerEvent, {
+        const shell = await story.react(triggerEvent, {
                 runtime,
                 context: { key: `dataset:${datasetId}` },
+                durable: false,
             options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 20, maxModelSteps: 5 },
         })
+        await shell.run!
 
             return { datasetId }
         },

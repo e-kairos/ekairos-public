@@ -1,6 +1,7 @@
 import type { UIMessageChunk } from "ai"
 
 import type { ContextStreamChunkType } from "../context.contract.js"
+import { resolveContextPartChunkIdentity } from "../context.part-identity.js"
 import type { ChunkEmittedEvent } from "../context.stream.js"
 
 const REDACT_KEY = /token|authorization|cookie|secret|api[_-]?key|password/i
@@ -137,12 +138,35 @@ export type MapAiSdkChunkToContextEventParams = {
   sequence: number
 }
 
+function readProviderPartId(chunk: Record<string, unknown>, chunkType: ContextStreamChunkType) {
+  if (chunkType.startsWith("chunk.action_")) {
+    return readString(chunk, "toolCallId") ?? readString(chunk, "id")
+  }
+  if (chunkType.startsWith("chunk.text_") || chunkType.startsWith("chunk.reasoning_")) {
+    return readString(chunk, "id")
+  }
+  if (chunkType.startsWith("chunk.source_")) {
+    return readString(chunk, "sourceId")
+  }
+  if (chunkType === "chunk.file") {
+    return readString(chunk, "id") ?? readString(chunk, "url")
+  }
+  return undefined
+}
+
 export function mapAiSdkChunkToContextEvent(
   params: MapAiSdkChunkToContextEventParams,
 ): ChunkEmittedEvent {
   const chunk = asRecord(params.chunk)
   const providerChunkType = readString(chunk, "type") ?? "unknown"
   const chunkType = mapAiSdkChunkType(providerChunkType)
+  const providerPartId = readProviderPartId(chunk, chunkType)
+  const identity = resolveContextPartChunkIdentity({
+    stepId: params.stepId,
+    provider: params.provider ?? "ai-sdk",
+    providerPartId,
+    chunkType,
+  })
 
   const actionRef =
     readString(chunk, "toolCallId") ??
@@ -156,6 +180,10 @@ export function mapAiSdkChunkToContextEvent(
     executionId: params.executionId,
     stepId: params.stepId,
     itemId: params.itemId,
+    partId: identity?.partId,
+    providerPartId: identity?.providerPartId,
+    partType: identity?.partType,
+    partSlot: identity?.partSlot,
     actionRef: chunkType.startsWith("chunk.action_") ? actionRef : undefined,
     provider: params.provider,
     providerChunkType,

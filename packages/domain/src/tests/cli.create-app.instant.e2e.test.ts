@@ -89,12 +89,15 @@ describeCreateAppE2E("domain cli create-app", () => {
   })
 
   it("scaffolds a Next app, provisions Instant, and serves the CLI loop end-to-end", async () => {
+    // given: a temporary project directory and an Instant provisioning token.
     const workspaceRoot = resolve(process.cwd(), "../..")
     const projectDir = await mkdtemp(join(tmpdir(), "ekairos-domain-create-app-"))
     cleanup.push(async () => {
       await rm(projectDir, { recursive: true, force: true }).catch(() => {})
     })
 
+    // when: create-app scaffolds a Next app with install and Instant
+    // provisioning enabled.
     const createIoState = createIo()
     const createCode = await runCli(
       [
@@ -111,6 +114,8 @@ describeCreateAppE2E("domain cli create-app", () => {
       createIoState.io as any,
     )
 
+    // then: the command reports a provisioned app without leaking the admin
+    // token into JSON output.
     expect(createCode, JSON.stringify(createIoState.read())).toBe(0)
     const createPayload = JSON.parse(createIoState.read().stdout)
     expect(createPayload.ok).toBe(true)
@@ -133,6 +138,7 @@ describeCreateAppE2E("domain cli create-app", () => {
     expect(envFile).toContain("NEXT_PUBLIC_INSTANT_APP_ID=")
     expect(envFile).toContain("INSTANT_ADMIN_TOKEN=")
 
+    // when: the generated app starts its Next dev server.
     const port = await reservePort()
     const baseUrl = `http://127.0.0.1:${port}`
     const serverEnv = { ...process.env }
@@ -173,6 +179,7 @@ describeCreateAppE2E("domain cli create-app", () => {
       )
     })
 
+    // when: the generated CLI route executes the seeded supply-chain action.
     const launchIo = createIo()
     const launchCode = await runCli(
       [
@@ -184,11 +191,15 @@ describeCreateAppE2E("domain cli create-app", () => {
       ],
       launchIo.io as any,
     )
+
+    // then: the action returns a successful domain action response.
     expect(launchCode, JSON.stringify(launchIo.read())).toBe(0)
     const launchPayload = JSON.parse(launchIo.read().stdout)
     expect(launchPayload.ok).toBe(true)
     expect(launchPayload.data.action).toBe("supplyChain.order.launch")
 
+    // when: the CLI queries the generated nested procurement graph through the
+    // server route.
     const queryIo = createIo()
     const queryCode = await runCli(
       [
@@ -201,6 +212,9 @@ describeCreateAppE2E("domain cli create-app", () => {
       ],
       queryIo.io as any,
     )
+
+    // then: the generated app returns linked order, stock item, shipment, and
+    // inspection data.
     expect(queryCode, JSON.stringify(queryIo.read())).toBe(0)
     const queryPayload = JSON.parse(queryIo.read().stdout)
     expect(queryPayload.ok).toBe(true)

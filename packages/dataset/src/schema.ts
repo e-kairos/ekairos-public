@@ -23,17 +23,6 @@ const entities = {
     order: i.number().indexed(),
     createdAt: i.number(),
   }),
-  // Keep $files compatible with Instant's base file fields used by dataset agents/tools.
-  // (path/url are required by file download + dataset output linking)
-  $files: i.entity({
-    path: i.string().optional().indexed(),
-    url: i.string().optional(),
-    name: i.string().optional(),
-    contentType: i.string().optional(),
-    size: i.number().optional(),
-    createdAt: i.number().optional().indexed(),
-    updatedAt: i.number().optional().indexed(),
-  }),
 } as const
 
 const links = {
@@ -49,7 +38,14 @@ const links = {
 
 const rooms = {} as const
 
-export const datasetDomain: DomainSchemaResult<typeof entities, typeof links, typeof rooms> = domain("dataset").schema({
+export const datasetDomain: DomainSchemaResult<
+  typeof entities,
+  typeof links,
+  typeof rooms,
+  {},
+  "dataset",
+  "dataset"
+> = domain("dataset").withSchema({
   entities,
   links,
   rooms,

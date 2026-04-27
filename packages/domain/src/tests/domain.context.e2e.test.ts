@@ -114,6 +114,8 @@ describe("domain e2e", () => {
     "builds domain context and queries a temp Instant app",
     { timeout: TEST_TIMEOUT_MS },
     async () => {
+      // given: a temporary domain documentation tree and matching domain
+      // schemas for procurement and inventory.
       const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ekairos-domain-e2e-"));
       const docsDir = path.join(tempDir, "docs");
       const procurementDir = path.join(docsDir, "procurement");
@@ -220,6 +222,7 @@ Inventory holds catalog items referenced by procurement requests.
         .includes(procurementDomain)
         .schema({ entities: {}, links: {}, rooms: {} });
 
+      // when: the domain context is generated from the docs root.
       const originalCwd = process.cwd();
       let context: ReturnType<typeof appDomain.context> | undefined;
       let contextString = "";
@@ -236,6 +239,8 @@ Inventory holds catalog items referenced by procurement requests.
         throw new Error("domain context was not generated");
       }
 
+      // then: the generated context includes the composed registry and the
+      // entity names that downstream prompt/context consumers need.
       expect(context.name).toBe("ekairos-domain-e2e");
       expect(context.registry.map((entry) => entry.name).sort()).toEqual([
         "inventory",
@@ -293,6 +298,8 @@ Inventory holds catalog items referenced by procurement requests.
       await fs.writeFile(schemaPath, schemaSource, "utf-8");
 
       try {
+        // when: the same composed schema is pushed to a temporary Instant app
+        // and linked rows are written through the typed admin client.
         const { appId, adminToken } = await createTempInstantApp(
           `ekairos-domain-e2e-${Date.now()}`
         );
@@ -321,6 +328,8 @@ Inventory holds catalog items referenced by procurement requests.
           db.tx.procurement_requests[requestId].link({ items: [itemId] }),
         ]);
 
+        // then: both forward and reverse queries resolve the cross-domain link
+        // data that came from the composed domain schema.
         const requestQuery = await db.query({
           procurement_requests: {
             $: { where: { id: requestId }, limit: 1 },

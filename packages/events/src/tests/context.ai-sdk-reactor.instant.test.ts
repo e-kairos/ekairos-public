@@ -13,6 +13,7 @@ import {
   eventsDomain,
   type ContextItem,
 } from "../index.ts"
+import { readPersistedContextStepStream } from "../runtime.ts"
 import { describeInstant, itInstant, destroyContextTestApp, provisionContextTestApp } from "./_env.ts"
 import { createStageTimer, writeBenchmarkReport } from "./_benchmark.ts"
 import { EventsTestRuntime } from "./context.test-runtime.ts"
@@ -183,7 +184,7 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
       .shouldContinue(({ reactionEvent }) => !didToolExecute(reactionEvent, "set_status"))
       .build()
 
-    const result = await timer.measure("reactMs", async () =>
+    const shell = await timer.measure("reactShellMs", async () =>
       await aiSdkContext.react(createTriggerEvent("set status to ready"), {
         runtime,
         context: { key: contextKey },
@@ -197,6 +198,13 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
         },
       }),
     )
+
+    expect(shell.context.status).toBe("open_streaming")
+    expect(shell.reaction.status).toBe("pending")
+    expect(shell.execution.status).toBe("executing")
+    expect(shell.run).toBeInstanceOf(Promise)
+
+    const result = await timer.measure("reactRunMs", async () => await shell.run!)
 
     expect(result.context.status).toBe("closed")
     expect(result.execution.status).toBe("completed")
@@ -230,6 +238,42 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
     expect(readString(executionRow, "status")).toBe("completed")
     expect(readString(executionRow, "workflowRunId")).toBe(null)
     expect(stepRows.length).toBeGreaterThan(0)
+
+    // Given a non-durable reaction that still creates a persisted step stream,
+    // when we replay the raw Instant stream, then reconstructable part chunks
+    // must carry the same deterministic part identity that live clients receive.
+    const streamStep = stepRows.find(
+      (row) => readString(row, "streamClientId") || readString(row, "streamId"),
+    )
+    expect(streamStep).toBeTruthy()
+    const persistedStream = await timer.measure("persistedStreamReadMs", async () =>
+      await readPersistedContextStepStream({
+        db: currentDb(),
+        clientId: readString(streamStep, "streamClientId") ?? undefined,
+        streamId: readString(streamStep, "streamId") ?? undefined,
+      }),
+    )
+    const partChunks = persistedStream.chunks.filter((chunk) => chunk.partId)
+    expect(partChunks.length).toBeGreaterThan(0)
+
+    const textChunks = partChunks.filter(
+      (chunk) => chunk.providerPartId === "text_1",
+    )
+    expect(textChunks.length).toBeGreaterThan(0)
+    expect(new Set(textChunks.map((chunk) => chunk.partId)).size).toBe(1)
+    for (const chunk of textChunks) {
+      expect(chunk.partType).toBe("message")
+      expect(chunk.partSlot).toBe("message")
+    }
+
+    const actionChunks = partChunks.filter(
+      (chunk) => chunk.providerPartId === "tc_set_status_1",
+    )
+    expect(actionChunks.length).toBeGreaterThan(0)
+    expect(actionChunks.some((chunk) => chunk.partType === "action")).toBe(true)
+    expect(
+      actionChunks.every((chunk) => chunk.actionRef === "tc_set_status_1"),
+    ).toBe(true)
 
     const reactionItem = itemRows.find((row) => readString(row, "id") === result.reaction.id)
     expect(readString(reactionItem, "status")).toBe("completed")
@@ -274,7 +318,7 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
       .shouldContinue(() => false)
       .build()
 
-    const result = await timer.measure("reactMs", async () =>
+    const shell = await timer.measure("reactShellMs", async () =>
       await failingToolContext.react(createTriggerEvent("set status to ready"), {
         runtime,
         context: { key: contextKey },
@@ -287,6 +331,7 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
         },
       }),
     )
+    const result = await timer.measure("reactRunMs", async () => await shell.run!)
 
     expect(result.execution.status).toBe("completed")
     expect(result.reaction.status).toBe("completed")
@@ -320,7 +365,13 @@ describeInstant("context ai sdk reactor + ai/test mock model", () => {
     const hasToolErrorOutput = partRows.some((row) => {
       const part = asRecord(row.part)
       if (!part) return false
-      return part.type === "tool-result" && part.state === "output-error"
+      const content = asRecord(part.content)
+      return (
+        (part.type === "tool-result" && part.state === "output-error") ||
+        (part.type === "action" &&
+          content?.status === "failed" &&
+          content?.actionName === "set_status")
+      )
     })
     expect(hasToolErrorOutput).toBe(true)
 

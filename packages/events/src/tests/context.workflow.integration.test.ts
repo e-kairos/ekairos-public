@@ -8,6 +8,7 @@ import {
 } from "../index.ts"
 import { configureContextDurableWorkflow } from "../runtime.ts"
 import {
+  asRecord,
   buildTriggerEvent,
   contextEngineDurableWorkflow,
   readRows,
@@ -22,6 +23,13 @@ import {
   hasInstantProvisionToken,
   provisionContextTestApp,
 } from "./_env.js"
+import {
+  createStageTimer,
+  readWorkflowBenchmarkSnapshot,
+  summarizeContextBenchmarkComponents,
+  summarizeInstantDbCounts,
+  writeBenchmarkReport,
+} from "./_benchmark.ts"
 import { EventsTestRuntime } from "./workflow/context.test-runtime.ts"
 
 let appId: string | null = null
@@ -33,6 +41,59 @@ function currentDb() {
     throw new Error("Workflow integration DB is not initialized.")
   }
   return db
+}
+
+function findPersistedActionPart(
+  partRows: Record<string, unknown>[],
+  actionName: string,
+  expectedToolState: "output-available" | "output-error",
+): Record<string, unknown> | null {
+  const expectedStatus = expectedToolState === "output-available" ? "completed" : "failed"
+
+  for (const row of partRows) {
+    const part = asRecord(row.part)
+    if (!part) continue
+
+    const content = asRecord(part.content)
+    if (
+      part.type === "action" &&
+      content?.status === expectedStatus &&
+      content?.actionName === actionName
+    ) {
+      return part
+    }
+
+    if (
+      readString(part, "type") === "tool-result" &&
+      readString(part, "toolName") === actionName &&
+      readString(part, "state") === expectedToolState
+    ) {
+      return part
+    }
+  }
+
+  return null
+}
+
+function readPersistedActionOutput(
+  part: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!part) return null
+  if (part.type === "action") {
+    return asRecord(asRecord(part.content)?.output)
+  }
+
+  const output = asRecord(part.output)
+  if (output) return output
+
+  if (Array.isArray(part.content)) {
+    return {
+      type: "content",
+      value: part.content,
+    }
+  }
+
+  return null
 }
 
 const describeWorkflowInstant = hasInstantProvisionToken() ? describe : describe.skip
@@ -103,33 +164,16 @@ describeWorkflowInstant("context durable workflow integration", () => {
     })
 
     const partRows = readRows(partsSnapshot, "event_parts")
-    const hasToolResult = partRows.some((row) => {
-      const part = row.part as Record<string, unknown> | undefined
-      if (!part) return false
-      return (
-        readString(part, "type") === "tool-result" &&
-        readString(part, "toolName") === "echo" &&
-        readString(part, "state") === params.expectedToolState
-      )
-    })
-    expect(hasToolResult).toBe(true)
+    const toolResultPart = findPersistedActionPart(partRows, "echo", params.expectedToolState)
+    expect(toolResultPart).toBeTruthy()
 
     if (params.expectedToolState === "output-available" && params.expectedMode) {
-      const toolResultPart = partRows
-        .map((row) => row.part as Record<string, unknown> | undefined)
-        .find((part) => {
-          if (!part) return false
-          return (
-            readString(part, "type") === "tool-result" &&
-            readString(part, "toolName") === "echo" &&
-            readString(part, "state") === "output-available"
-          )
-        })
-      const content = Array.isArray(toolResultPart?.content) ? toolResultPart.content : []
+      const toolOutput = readPersistedActionOutput(toolResultPart)
+      const content = Array.isArray(toolOutput?.value) ? toolOutput.value : []
       const jsonPart = content.find((entry) => readString(entry as Record<string, unknown>, "type") === "json") as
         | Record<string, unknown>
         | undefined
-      const jsonValue = (jsonPart?.value ?? null) as Record<string, unknown> | null
+      const jsonValue = (jsonPart?.value ?? toolOutput?.value ?? null) as Record<string, unknown> | null
       expect(readString(jsonValue ?? undefined, "mode")).toBe(params.expectedMode)
       expect(readString(jsonValue ?? undefined, "runtimeMode")).toBe(params.expectedMode)
       expect(readString(jsonValue ?? undefined, "contextId")).toBe(params.contextId)
@@ -142,20 +186,23 @@ describeWorkflowInstant("context durable workflow integration", () => {
   }
 
   it("scripted durable react returns a run handle and persists completed state", async () => {
+    const timer = createStageTimer()
     const runtime = new EventsTestRuntime({
       appId: String(appId),
       adminToken: String(adminToken),
       mode: "scripted",
     })
-    const shell = await storySmokeScripted.react(buildTriggerEvent(), {
-      runtime,
-      context: null,
-      durable: true,
-      options: {
-        maxIterations: 1,
-        maxModelSteps: 1,
-      },
-    })
+    const shell = await timer.measure("reactShellMs", async () =>
+      await storySmokeScripted.react(buildTriggerEvent(), {
+        runtime,
+        context: null,
+        __benchmark: timer,
+        options: {
+          maxIterations: 1,
+          maxModelSteps: 1,
+        },
+      }),
+    )
 
     expect(shell.context.id).toBeTruthy()
     expect(shell.context.status).toBe("open_streaming")
@@ -163,18 +210,67 @@ describeWorkflowInstant("context durable workflow integration", () => {
     expect(shell.execution.status).toBe("executing")
     expect(shell.run?.runId).toMatch(/^wrun_/)
 
-    const finalResult = await shell.run!.returnValue
+    const runAwaitStartedAt = Date.now()
+    const finalResult = await timer.measure(
+      "reactRunMs",
+      async () => await shell.run!.returnValue,
+    )
+    const runAwaitEndedAt = Date.now()
 
     expect(finalResult.context.id).toBe(shell.context.id)
     expect(finalResult.execution.id).toBe(shell.execution.id)
     expect(finalResult.execution.status).toBe("completed")
     expect(finalResult.reaction.status).toBe("completed")
 
-    await verifyPersistedExecution({
-      executionId: shell.execution.id,
-      contextId: shell.context.id,
-      expectedToolState: "output-available",
-      expectedMode: "scripted",
+    const workflowSnapshot = await timer.measure(
+      "readWorkflowSnapshotMs",
+      async () => await readWorkflowBenchmarkSnapshot(shell.run!.runId),
+    )
+
+    await timer.measure(
+      "verifyPersistedExecutionMs",
+      async () =>
+        await verifyPersistedExecution({
+          executionId: shell.execution.id,
+          contextId: shell.context.id,
+          expectedToolState: "output-available",
+          expectedMode: "scripted",
+        }),
+    )
+
+    const timings = timer.snapshot()
+    const workflowCompletedAtMs = workflowSnapshot.run.completedAt
+      ? Date.parse(workflowSnapshot.run.completedAt)
+      : null
+    writeBenchmarkReport("context-scripted-durable-report", {
+      test: "context durable workflow integration > scripted durable react returns a run handle and persists completed state",
+      mode: "durable",
+      totalMs: timings.totalMs,
+      componentTimingsMs: {
+        totalWallMs: timings.totalMs,
+        ...summarizeContextBenchmarkComponents(timings.stageTimingsMs),
+        workflowQueueMs: workflowSnapshot.run.queueMs,
+        workflowExecutionMs: workflowSnapshot.run.executionMs,
+        workflowLifecycleMs: workflowSnapshot.run.lifecycleMs,
+        workflowStepRunMs: workflowSnapshot.steps.totalRunMs,
+        workflowStepQueueMs: workflowSnapshot.steps.totalQueueMs,
+        workflowNonStepMs: workflowSnapshot.run.nonStepWorkflowMs,
+        workflowReturnValueResolveLagMs:
+          workflowCompletedAtMs && Number.isFinite(workflowCompletedAtMs)
+            ? Math.max(0, runAwaitEndedAt - workflowCompletedAtMs)
+            : null,
+      },
+      instantDbCounts: summarizeInstantDbCounts(timings.stageTimingsMs),
+      workflowTimings: workflowSnapshot,
+      runAwaitWindow: {
+        startedAt: new Date(runAwaitStartedAt).toISOString(),
+        endedAt: new Date(runAwaitEndedAt).toISOString(),
+        observedMs: runAwaitEndedAt - runAwaitStartedAt,
+      },
+      stageTimingsMs: timings.stageTimingsMs,
+      workflowRunId: shell.run!.runId,
+      contextId: finalResult.context.id,
+      executionId: finalResult.execution.id,
     })
   }, 10 * 60 * 1000)
 

@@ -1,13 +1,12 @@
 /**
  * ## context.toolcalls.ts
  *
- * This module isolates the **tool-call plumbing** used by `context.engine.ts`.
+ * This module isolates the **action-call plumbing** used by `context.engine.ts`.
  *
- * In our runtime, tool calls are represented as **event parts** produced by the AI SDK.
+ * In our runtime, model tool calls are normalized into semantic `action` event parts.
  * The engine needs to:
- * - extract a normalized list of tool calls from `event.content.parts`, and
- * - merge tool execution outcomes back into those parts (so the persisted event reflects
- *   `output-available` / `output-error`, etc.).
+ * - extract a normalized list of action requests from `event.content.parts`, and
+ * - merge action execution outcomes back into those parts.
  *
  * Keeping this logic here helps `context.engine.ts` read like orchestration, and keeps
  * these transformations testable and reusable.
@@ -17,8 +16,6 @@ import type { ContextItem } from "./context.store.js"
 import {
   isContextPartEnvelope,
   normalizePartsForPersistence,
-  normalizeToolResultContentToBlocks,
-  type ContextInlineContent,
   type ContextPartEnvelope,
 } from "./context.parts.js"
 
@@ -29,26 +26,18 @@ export type ToolCall = {
 }
 
 /**
- * Extracts tool calls from an event's `parts` array.
+ * Extracts action requests from an event's `parts` array.
  *
- * Expected part shape (loosely):
- * - `type`: string like `"tool-<toolName>"`
- * - `toolCallId`: string
- * - `input`: any (tool args)
- *
- * We intentionally treat the input as `any` because the part schema is produced by the AI SDK.
+ * Also accepts raw AI SDK tool UI parts before persistence normalization.
  */
 export function extractToolCallsFromParts(parts: any[] | undefined | null): ToolCall[] {
   const safeParts = parts ?? []
   return safeParts.reduce((acc: ToolCall[], p: any) => {
-    if (isContextPartEnvelope(p) && p.type === "tool-call") {
-      const firstContent = Array.isArray(p.content) ? p.content[0] : undefined
-      const args =
-        firstContent && firstContent.type === "json" ? firstContent.value : p.content
+    if (isContextPartEnvelope(p) && p.type === "action" && p.content.status === "started") {
       acc.push({
-        toolCallId: p.toolCallId,
-        toolName: p.toolName,
-        args,
+        toolCallId: p.content.actionCallId,
+        toolName: p.content.actionName,
+        args: p.content.input,
       })
       return acc
     }
@@ -62,17 +51,11 @@ export function extractToolCallsFromParts(parts: any[] | undefined | null): Tool
 }
 
 /**
- * Applies a tool execution outcome to the matching tool part.
+ * Applies an action execution outcome to the matching action part.
  *
  * This does not mutate `parts` — it returns a new array.
  *
- * We match the tool part by:
- * - `type === "tool-<toolName>"` and
- * - `toolCallId` equality
- *
- * Then we set:
- * - on success: `{ state: "output-available", output: <result> }`
- * - on failure: `{ state: "output-error", errorText: <message> }`
+ * We match by action name and action call id.
  */
 export function applyToolExecutionResultToParts(
   parts: any[],
@@ -82,47 +65,71 @@ export function applyToolExecutionResultToParts(
   const normalized = normalizePartsForPersistence(parts)
   const next: ContextPartEnvelope[] = []
   let insertedResult = false
-  const resultContent: ContextInlineContent[] = execution.success
-    ? normalizeToolResultContentToBlocks(execution.result)
-    : [
-        {
-          type: "text" as const,
-          text: String(execution.message || "Error"),
-        },
-      ]
 
   for (const part of normalized) {
     next.push(part)
-    if (part.type !== "tool-call") {
+    if (part.type !== "action" || part.content.status !== "started") {
       continue
     }
 
     if (
-      part.toolCallId !== toolCall.toolCallId ||
-      part.toolName !== toolCall.toolName
+      part.content.actionCallId !== toolCall.toolCallId ||
+      part.content.actionName !== toolCall.toolName
     ) {
       continue
     }
 
-    next.push({
-      type: "tool-result",
-      toolCallId: toolCall.toolCallId,
-      toolName: toolCall.toolName,
-      state: execution.success ? "output-available" : "output-error",
-      content: resultContent,
-    })
+    next.push(
+      execution.success
+        ? {
+            type: "action",
+            content: {
+              status: "completed",
+              actionCallId: toolCall.toolCallId,
+              actionName: toolCall.toolName,
+              output: execution.result,
+            },
+          }
+        : {
+            type: "action",
+            content: {
+              status: "failed",
+              actionCallId: toolCall.toolCallId,
+              actionName: toolCall.toolName,
+              error: {
+                message: String(execution.message || "Error"),
+              },
+            },
+          },
+    )
 
     insertedResult = true
   }
 
   if (!insertedResult) {
-    next.push({
-      type: "tool-result",
-      toolCallId: toolCall.toolCallId,
-      toolName: toolCall.toolName,
-      state: execution.success ? "output-available" : "output-error",
-      content: resultContent,
-    })
+    next.push(
+      execution.success
+        ? {
+            type: "action",
+            content: {
+              status: "completed",
+              actionCallId: toolCall.toolCallId,
+              actionName: toolCall.toolName,
+              output: execution.result,
+            },
+          }
+        : {
+            type: "action",
+            content: {
+              status: "failed",
+              actionCallId: toolCall.toolCallId,
+              actionName: toolCall.toolName,
+              error: {
+                message: String(execution.message || "Error"),
+              },
+            },
+          },
+    )
   }
 
   return next
@@ -144,9 +151,9 @@ export function didToolExecute(event: Pick<ContextItem, "content">, toolName: st
   )
   return parts.some(
     (p) =>
-      (p.type === "tool-result" &&
-        p.toolName === toolName &&
-        (p.state === "output-available" || p.state === "output-error")) ||
+      (p.type === "action" &&
+        p.content.actionName === toolName &&
+        (p.content.status === "completed" || p.content.status === "failed")) ||
       ((p as any).type === `tool-${toolName}` &&
         ((p as any).state === "output-available" || (p as any).state === "output-error")),
   )

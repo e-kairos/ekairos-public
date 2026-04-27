@@ -1,8 +1,8 @@
 import { i } from "@instantdb/core"
-import { domain, type DomainSchemaResult } from "@ekairos/domain"
+import { domain } from "@ekairos/domain"
 
 // Browser-safe public sandbox schema. The full runtime domain imports and extends this.
-export const sandboxSchemaDomain: DomainSchemaResult = domain("sandbox").schema({
+export const sandboxSchemaDomain = domain("sandbox").withSchema({
   entities: {
     sandbox_sandboxes: i.entity({
       externalSandboxId: i.string().optional().indexed(),
@@ -38,4 +38,4 @@ export const sandboxSchemaDomain: DomainSchemaResult = domain("sandbox").schema(
   rooms: {},
 })
 
-export const sandboxDomain: DomainSchemaResult = sandboxSchemaDomain
+export const sandboxDomain = sandboxSchemaDomain

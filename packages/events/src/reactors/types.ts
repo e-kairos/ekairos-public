@@ -1,11 +1,13 @@
 import type { ModelMessage, UIMessageChunk } from "ai"
+import type { DomainSchemaResult } from "@ekairos/domain"
 
 import type { ContextEnvironment } from "../context.config.js"
-import type { ContextRuntime } from "../context.runtime.js"
+import type { ContextTool } from "../context.action.js"
+import type { ContextRuntime, ContextRuntimeHandleForDomain } from "../context.runtime.js"
 import type { ContextModelInit } from "../context.engine.js"
 import type { ContextIdentifier, StoredContext, ContextItem } from "../context.store.js"
 import type { ContextSkillPackage } from "../context.skill.js"
-import type { SerializableActionSpec } from "../tools-to-model-tools.js"
+import { eventsDomain } from "../schema.js"
 
 export type ContextActionRequest = {
   actionRef: string
@@ -40,9 +42,10 @@ export type ContextReactionResult = {
 export type ContextReactorParams<
   Context = unknown,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = any,
 > = {
-  runtime: ContextRuntime<Env>
-  env: Env
+  runtime: ContextRuntimeHandleForDomain<Env, RequiredDomain>
   context: StoredContext<Context>
   contextIdentifier: ContextIdentifier
   /**
@@ -57,8 +60,7 @@ export type ContextReactorParams<
   triggerEvent: ContextItem
   model: ContextModelInit
   systemPrompt: string
-  actions: Record<string, unknown>
-  actionSpecs: Record<string, SerializableActionSpec>
+  actions: Record<string, ContextTool<Context, Env, RequiredDomain, Runtime>>
   skills: ContextSkillPackage[]
   eventId: string
   executionId: string
@@ -76,6 +78,8 @@ export type ContextReactorParams<
 export type ContextReactor<
   Context = unknown,
   Env extends ContextEnvironment = ContextEnvironment,
+  RequiredDomain extends DomainSchemaResult = typeof eventsDomain,
+  Runtime extends ContextRuntime<Env> = any,
 > = (
-  params: ContextReactorParams<Context, Env>,
+  params: ContextReactorParams<Context, Env, RequiredDomain, Runtime>,
 ) => Promise<ContextReactionResult>
