@@ -37,6 +37,11 @@ import {
   type PersistedContextStepStreamSession,
 } from "./steps/stream.steps.js"
 import {
+  createContextStepStreamChunk,
+  encodeContextStepStreamChunk,
+} from "./context.step-stream.js"
+import { resolveContextPartChunkIdentity } from "./context.part-identity.js"
+import {
   completeExecution,
   createContextStep,
   finalizeReactionStep,
@@ -434,6 +439,133 @@ async function emitContextEvents(params: {
   events: ContextStreamEvent[]
 }) {
   void params
+}
+
+function toJsonSafeRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "undefined") return undefined
+  try {
+    const json = JSON.parse(JSON.stringify(value)) as unknown
+    return json && typeof json === "object"
+      ? (json as Record<string, unknown>)
+      : { value: json }
+  } catch {
+    return undefined
+  }
+}
+
+async function writeActionResultPartChunks(params: {
+  session?: PersistedContextStepStreamSession | null
+  writable?: WritableStream<UIMessageChunk>
+  silent?: boolean
+  contextId: string
+  executionId: string
+  itemId: string
+  actionResults: Array<{
+    actionRequest: {
+      actionRef: string
+      actionName: string
+      input: unknown
+    }
+    success: boolean
+    output: unknown
+    errorText?: string
+  }>
+}) {
+  if (!params.session || params.actionResults.length === 0) return
+
+  const writer = params.session.stream.getWriter()
+  const events: ContextStreamEvent[] = []
+  const sequenceBase = Date.now()
+
+  try {
+    for (let index = 0; index < params.actionResults.length; index += 1) {
+      const result = params.actionResults[index]!
+      const actionRef = String(result.actionRequest.actionRef || "")
+      const actionName = String(result.actionRequest.actionName || "")
+      if (!actionRef || !actionName) continue
+
+      const chunkType = result.success
+        ? "chunk.action_output_available"
+        : "chunk.action_output_error"
+      const identity = resolveContextPartChunkIdentity({
+        stepId: params.session.stepId,
+        provider: "ekairos",
+        providerPartId: actionRef,
+        chunkType,
+      })
+      if (!identity) continue
+
+      const data = result.success
+        ? {
+            toolCallId: actionRef,
+            toolName: actionName,
+            output: toJsonSafeRecord(result.output),
+          }
+        : {
+            toolCallId: actionRef,
+            toolName: actionName,
+            error: {
+              message: String(result.errorText || "Action failed."),
+            },
+          }
+
+      const at = nowIso()
+      const sequence = sequenceBase + index
+      const persistedChunk = createContextStepStreamChunk({
+        at,
+        sequence,
+        chunkType,
+        stepId: params.session.stepId,
+        partId: identity.partId,
+        providerPartId: identity.providerPartId,
+        partType: identity.partType,
+        partSlot: identity.partSlot,
+        provider: "ekairos",
+        providerChunkType: result.success
+          ? "action_output_available"
+          : "action_output_error",
+        actionRef,
+        data,
+      })
+
+      await writer.write(encodeContextStepStreamChunk(persistedChunk, {
+        stepId: params.session.stepId,
+      }))
+
+      events.push({
+        type: "chunk.emitted",
+        at,
+        chunkType,
+        contextId: params.contextId,
+        executionId: params.executionId,
+        stepId: params.session.stepId,
+        itemId: params.itemId,
+        sequence,
+        provider: "ekairos",
+        providerChunkType: result.success
+          ? "action_output_available"
+          : "action_output_error",
+        actionRef,
+        partId: identity.partId,
+        providerPartId: identity.providerPartId,
+        partType: identity.partType,
+        partSlot: identity.partSlot,
+        data,
+      })
+    }
+  } finally {
+    if (typeof (writer as any)?.releaseLock === "function") {
+      writer.releaseLock()
+    }
+  }
+
+  if (events.length > 0) {
+    await emitContextEvents({
+      silent: params.silent ?? false,
+      writable: params.writable,
+      events,
+    })
+  }
 }
 
 async function measureBenchmark<T>(
@@ -1724,6 +1856,21 @@ export abstract class ContextEngine<
             }
               }),
             ),
+        )
+
+        await measureBenchmark(
+          params.__benchmark,
+          `${stagePrefix}.writeActionResultPartChunksMs`,
+          async () =>
+            await writeActionResultPartChunks({
+              session: currentStepStream,
+              writable,
+              silent,
+              contextId: String(currentContext.id),
+              executionId,
+              itemId: reactionEventId,
+              actionResults: actionResults as any,
+            }),
         )
 
         // Merge action results into persisted parts (so next LLM call can see them)
