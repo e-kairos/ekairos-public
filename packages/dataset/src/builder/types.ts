@@ -3,7 +3,7 @@ import type { DomainInstantSchema, DomainSchemaResult } from "@ekairos/domain"
 import type { EkairosRuntime, RuntimeForDomain } from "@ekairos/domain/runtime"
 import type { ContextReactor } from "@ekairos/events"
 
-import { datasetDomain } from "../schema"
+import { datasetDomain } from "../schema.js"
 
 export type DatasetQuerySourceInput<D extends DomainSchemaResult = DomainSchemaResult> = {
   query: InstaQLParams<DomainInstantSchema<D>>

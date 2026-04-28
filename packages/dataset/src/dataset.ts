@@ -3,13 +3,13 @@ import type { DomainInstantSchema, DomainSchemaResult } from "@ekairos/domain"
 import type { ContextReactor } from "@ekairos/events"
 import type { ValidQuery } from "@instantdb/core"
 
-import { buildObjectOutputInstructions } from "./builder/instructions"
+import { buildObjectOutputInstructions } from "./builder/instructions.js"
 import {
   materializeDerivedDataset,
   materializeQuerySource,
   materializeSingleFileLikeSource,
-} from "./builder/materialize"
-import { finalizeBuildResult } from "./builder/persistence"
+} from "./builder/materialize.js"
+import { finalizeBuildResult } from "./builder/persistence.js"
 import type {
   AnyDatasetRuntime,
   CompatibleSourceDomain,
@@ -28,7 +28,7 @@ import type {
   DatasetSourceInput,
   DatasetTextSourceInput,
   InternalSource,
-} from "./builder/types"
+} from "./builder/types.js"
 
 export type {
   AnyDatasetRuntime,
@@ -52,7 +52,7 @@ export type {
   DatasetTextSource,
   DatasetSourceInput,
   DatasetTextSourceInput,
-} from "./builder/types"
+} from "./builder/types.js"
 
 export function dataset<Runtime extends AnyDatasetRuntime>(
   runtime: Runtime & DatasetRuntimeHandle<Runtime>,

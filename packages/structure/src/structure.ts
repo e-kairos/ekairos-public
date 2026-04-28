@@ -1,4 +1,5 @@
 import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, OUTPUT_ITEM_TYPE, WEB_CHANNEL } from "@ekairos/events"
+import type { ContextModelInit } from "@ekairos/events"
 import {
   getDatasetOutputPath,
   getDatasetOutputSchemaPath,
@@ -142,7 +143,7 @@ type StructureStoryConfig = {
   output: StructureOutput
   outputSchema?: any
   sandboxId?: string
-  model?: string
+  model?: ContextModelInit
   sandboxConfig?: SandboxConfig
 }
 
@@ -561,9 +562,47 @@ function createStructureStoryDefinition<Env extends { orgId: string }>(config: S
   return { datasetId, story }
 }
 
+export async function structureRunStoryStep<Env extends { orgId: string }>(params: {
+  env: Env
+  contextKey: string
+  config: StructureStoryConfig
+  event: any
+}) {
+  "use step"
+
+  const { story, datasetId } = createStructureStoryDefinition<Env>(params.config)
+  const { getContextRuntime } = await import("@ekairos/events/runtime")
+  const runtime = await getContextRuntime(params.env)
+  const shell = await story.react(params.event, {
+    env: params.env,
+    runtime,
+    context: { key: params.contextKey },
+    durable: false,
+    options: {
+      silent: true,
+      preventClose: true,
+      sendFinish: false,
+      maxIterations: 40,
+      maxModelSteps: 10,
+    },
+  })
+  await shell.run!
+
+  // Tools are intentionally pure: persist completion outputs post-react by reading tool results from events.
+  const commit = await structureCommitFromEventsStep({
+    env: params.env,
+    structureId: datasetId,
+  })
+  if (!commit.ok) {
+    throw new Error(commit.error)
+  }
+
+  return { ok: true }
+}
+
 export function structure<Env extends { orgId: string }>(
   env: Env,
-  opts?: { datasetId?: string; sandboxConfig?: SandboxConfig },
+  opts?: { datasetId?: string; model?: ContextModelInit; sandboxConfig?: SandboxConfig },
 ) {
   const datasetId = opts?.datasetId ?? createUuidV4()
   const sources: StructureSource[] = []
@@ -571,6 +610,7 @@ export function structure<Env extends { orgId: string }>(
   let mode: StructureMode = "auto"
   let output: StructureOutput = "rows"
   let outputSchema: any | undefined
+  let model = opts?.model
   const sandboxConfig = opts?.sandboxConfig
 
   const api = {
@@ -608,6 +648,11 @@ export function structure<Env extends { orgId: string }>(
       return api
     },
 
+    model(nextModel: ContextModelInit) {
+      model = nextModel
+      return api
+    },
+
     async build(userPrompt?: string): Promise<StructureBuildResult> {
       // Guardrail: structure build MUST run inside workflow runtime ("use workflow").
       const workflowMeta = assertRunningInsideWorkflow({ datasetId })
@@ -621,6 +666,7 @@ export function structure<Env extends { orgId: string }>(
         mode,
         output,
         outputSchema,
+        model,
         sandboxConfig,
       }
 
@@ -661,19 +707,12 @@ export function structure<Env extends { orgId: string }>(
       }
 
       async function runStory(evt: any) {
-        const shell = await story.react(evt, {
+        await structureRunStoryStep({
           env,
-          context: { key: contextKey },
-          durable: false,
-          options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 40, maxModelSteps: 10 },
+          contextKey,
+          config: storyConfig,
+          event: evt,
         })
-        await shell.run!
-
-        // Tools are intentionally pure: persist completion outputs post-react by reading tool results from events.
-        const commit = await structureCommitFromEventsStep({ env, structureId: datasetId })
-        if (!commit.ok) {
-          throw new Error(commit.error)
-        }
       }
 
       async function getContextOrThrow() {

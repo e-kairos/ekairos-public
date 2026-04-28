@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import path from "node:path"
+import { fileURLToPath } from "node:url"
 
 export type DatasetSkillPackageFile = {
   path: string
@@ -29,9 +30,10 @@ function walkFiles(rootDir: string, currentDir = rootDir): string[] {
 }
 
 function resolveDatasetSkillRoot(): string {
-  const fromDist = path.resolve(__dirname, "..", "skill")
+  const currentDir = path.dirname(fileURLToPath(import.meta.url))
+  const fromDist = path.resolve(currentDir, "..", "skill")
   if (statExists(fromDist)) return fromDist
-  const fromSrc = path.resolve(__dirname, "..", "..", "skill")
+  const fromSrc = path.resolve(currentDir, "..", "..", "skill")
   if (statExists(fromSrc)) return fromSrc
   throw new Error("dataset_skill_root_not_found")
 }

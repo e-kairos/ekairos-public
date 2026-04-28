@@ -1,14 +1,14 @@
-import { DatasetService } from "../service"
-import { datasetDomain } from "../schema"
-import { inferDatasetSchema, validateRows } from "./schemaInference"
-import { rowsToJsonl } from "./sourceRows"
+import { DatasetService } from "../service.js"
+import { datasetDomain } from "../schema.js"
+import { inferDatasetSchema, validateRows } from "./schemaInference.js"
+import { rowsToJsonl } from "./sourceRows.js"
 import type {
   AnyDatasetRuntime,
   DatasetBuildResult,
   DatasetReader,
   DatasetTextSourceInput,
   MaterializeRowsParams,
-} from "./types"
+} from "./types.js"
 
 export function defaultTextSourceName(source: DatasetTextSourceInput): string {
   if (source.name?.trim()) return source.name.trim()

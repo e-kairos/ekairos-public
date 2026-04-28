@@ -1,6 +1,6 @@
 import { init, id as newId, InstantAdminDatabase } from "@instantdb/admin"
 import { SchemaOf } from "@ekairos/domain";
-import { datasetDomain } from "./schema";
+import { datasetDomain } from "./schema.js";
 
 
 export type ServiceResult<T = any> = { ok: true; data: T } | { ok: false; error: string }

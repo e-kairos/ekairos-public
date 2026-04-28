@@ -1,26 +1,6 @@
 import { getContextRuntime } from "../runtime.js"
 import { linkStructureOutputFileToContextByKey } from "../contextPersistence.js"
-
-type ToolCompletePart = { type: "tool-complete"; state: "output-available"; output?: unknown }
-
-function isToolCompletePart(value: unknown): value is ToolCompletePart {
-  if (!value || typeof value !== "object") return false
-  const v = value as { type?: unknown; state?: unknown }
-  return v.type === "tool-complete" && v.state === "output-available"
-}
-
-function findLatestCompleteToolOutput(events: unknown[]) {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const parts = (events[i] as { content?: { parts?: unknown } })?.content?.parts
-    if (!Array.isArray(parts)) continue
-    for (let j = parts.length - 1; j >= 0; j--) {
-      const p = parts[j]
-      if (!isToolCompletePart(p)) continue
-      return p.output
-    }
-  }
-  return null
-}
+import { findLatestCompleteToolOutput } from "./completeOutput.js"
 
 export async function structureCommitFromEventsStep(params: {
   env: any

@@ -9,10 +9,11 @@ export type ContextRuntime<
   Env extends ContextEnvironment = ContextEnvironment,
 > = EkairosRuntime<Env, any, any>
 
-export type ContextRuntimeServiceHandle = Pick<
-  ContextRuntime<any>,
-  "db" | "resolve" | "meta"
->
+export type ContextRuntimeServiceHandle = {
+  db: any | ((...args: any[]) => Promise<any> | any)
+  resolve?: (...args: any[]) => Promise<any> | any
+  meta?: (...args: any[]) => Record<string, unknown> | undefined
+}
 
 export type ContextRuntimeHandleForDomain<
   Env extends ContextEnvironment = ContextEnvironment,
@@ -46,7 +47,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 export async function getContextRuntimeServices(
   runtime: ContextRuntimeServiceHandle,
 ): Promise<ContextRuntimeServices> {
-  const db = await runtime.db()
+  const runtimeRecord = asRecord(runtime)
+  const dbMember = runtimeRecord.db
+  const db =
+    typeof dbMember === "function"
+      ? await (dbMember as () => Promise<any>).call(runtime)
+      : dbMember
   if (!db) {
     throw new Error("Context runtime did not provide a database instance.")
   }
@@ -60,9 +66,19 @@ export async function getContextRuntimeServices(
     }
   }
 
-  const resolved = await runtime.resolve()
+  const resolveMember = runtimeRecord.resolve
+  const resolved =
+    typeof resolveMember === "function"
+      ? await (resolveMember as () => Promise<unknown>).call(runtime)
+      : runtime
   const resolvedMeta = asRecord(resolved).meta
-  const meta = typeof resolvedMeta === "function" ? resolvedMeta() : undefined
+  const ownMeta = runtimeRecord.meta
+  const meta =
+    typeof resolvedMeta === "function"
+      ? resolvedMeta.call(resolved)
+      : typeof ownMeta === "function"
+        ? ownMeta.call(runtime)
+        : undefined
   const domain = asRecord(meta).domain
   return {
     db,

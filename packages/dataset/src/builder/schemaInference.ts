@@ -1,6 +1,6 @@
 import Ajv from "ajv"
 
-import type { DatasetSchemaInput } from "./types"
+import type { DatasetSchemaInput } from "./types.js"
 
 const ajv = new Ajv({ allErrors: true, strict: false })
 

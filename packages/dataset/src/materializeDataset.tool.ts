@@ -3,8 +3,8 @@ import { z } from "zod"
 import type { DomainSchemaResult } from "@ekairos/domain"
 import type { EkairosRuntime, RuntimeForDomain } from "@ekairos/domain/runtime"
 import type { ContextReactor } from "@ekairos/events"
-import { dataset, type DatasetSchemaInput } from "./dataset"
-import { datasetDomain } from "./schema"
+import { dataset, type DatasetSchemaInput } from "./dataset.js"
+import { datasetDomain } from "./schema.js"
 
 const fileSourceSchema = z.object({
   kind: z.literal("file"),

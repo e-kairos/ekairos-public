@@ -1,4 +1,4 @@
-export { datasetDomain } from "./schema"
+export { datasetDomain } from "./schema.js"
 
 
 

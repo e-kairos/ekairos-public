@@ -1,25 +1,25 @@
-import { createFileParseStory } from "../file/file-dataset.agent"
-import { DatasetService } from "../service"
-import { createTransformDatasetStory } from "../transform/transform-dataset.agent"
+import { createFileParseStory } from "../file/file-dataset.agent.js"
+import { DatasetService } from "../service.js"
+import { createTransformDatasetStory } from "../transform/transform-dataset.agent.js"
 import {
   buildFileDefaultInstructions,
   buildRawSourceInstructions,
   buildTransformInstructions,
-} from "./instructions"
+} from "./instructions.js"
 import {
   createOrUpdateDatasetMetadata,
   getDatasetDb,
   materializeRowsToDataset,
   uploadInlineTextSource,
-} from "./persistence"
-import { inferDatasetSchema } from "./schemaInference"
-import { getDomainDescriptor, normalizeQueryRows } from "./sourceRows"
+} from "./persistence.js"
+import { inferDatasetSchema } from "./schemaInference.js"
+import { getDomainDescriptor, normalizeQueryRows } from "./sourceRows.js"
 import type {
   AnyDatasetRuntime,
   DatasetBuilderState,
   DatasetSchemaInput,
   InternalSource,
-} from "./types"
+} from "./types.js"
 
 function makeIntermediateDatasetId(targetDatasetId: string, sourceKind: string, index: number) {
   return `${targetDatasetId}__${sourceKind}_${index}`

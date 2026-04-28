@@ -1,6 +1,6 @@
 import { tool } from "ai"
 import { z } from "zod"
-import { datasetUpdateSchemaStep } from "../dataset/steps"
+import { datasetUpdateSchemaStep } from "../dataset/steps.js"
 
 
 interface GenerateSchemaToolParams {

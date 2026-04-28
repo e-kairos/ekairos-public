@@ -1,8 +1,8 @@
 import { tool } from "ai"
 import { z } from "zod"
-import { runDatasetSandboxCommandStep } from "./sandbox/steps"
-import { getDatasetOutputPath } from "./datasetFiles"
-import { datasetClearStep } from "./dataset/steps"
+import { runDatasetSandboxCommandStep } from "./sandbox/steps.js"
+import { getDatasetOutputPath } from "./datasetFiles.js"
+import { datasetClearStep } from "./dataset/steps.js"
 
 interface ClearDatasetToolParams {
     datasetId: string

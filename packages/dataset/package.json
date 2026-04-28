@@ -2,7 +2,7 @@
   "name": "@ekairos/dataset",
   "version": "1.22.0",
   "description": "Pulzar Dataset Tools",
-  "type": "commonjs",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -22,13 +22,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./domain": {
       "types": "./dist/domain.d.ts",
-      "require": "./dist/domain.js",
+      "import": "./dist/domain.js",
       "default": "./dist/domain.js"
+    },
+    "./query": {
+      "types": "./dist/query/index.d.ts",
+      "import": "./dist/query/index.js",
+      "default": "./dist/query/index.js"
     },
     "./file/scripts": {
       "default": "./dist/file/scripts"

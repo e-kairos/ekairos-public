@@ -1,7 +1,7 @@
 import { tool } from "ai"
 import { z } from "zod"
-import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "./sandbox/steps"
-import { getDatasetWorkstation } from "./datasetFiles"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "./sandbox/steps.js"
+import { getDatasetWorkstation } from "./datasetFiles.js"
 
 // To keep responses predictable for big data scenarios, we cap stdout/stderr.
 // The tool's return payload exposes stdout (capped) plus the on-disk script path.

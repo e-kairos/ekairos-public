@@ -1,6 +1,6 @@
 import { id as newId } from "@instantdb/admin"
 import { getContextRuntime, getContextEnv } from "@ekairos/events/runtime"
-import { DatasetService } from "../service"
+import { DatasetService } from "../service.js"
 
 export type QueryDomainStepInput = {
   query: Record<string, any>

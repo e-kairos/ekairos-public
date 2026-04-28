@@ -351,6 +351,25 @@ type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
 export type DomainActionMap = Record<string, DomainActionRegistration<any, any, any, any, any, any>>;
 
+export type DomainDefinitionOf<D> =
+  D extends DomainSchemaResult<
+    infer E,
+    infer L,
+    infer R,
+    infer Actions,
+    infer Name,
+    infer IncludedNames
+  >
+    ? DomainSchemaResult<
+        Simplify<E>,
+        Simplify<L>,
+        R,
+        Simplify<Actions>,
+        Name,
+        IncludedNames
+      >
+    : never;
+
 type InferActionRegistrationFromLike<Value, Key extends string> =
   Value extends DomainActionDefinition<
     infer Env,
@@ -507,6 +526,10 @@ export type DomainSchemaResult<
      * @deprecated Use instantSchema().
      */
     toInstantSchema: () => ReturnType<typeof i.schema<WithBase<E>, L, R>>;
+    // Return this domain as a materialized type, flattening composition history.
+    definition: () => DomainDefinitionOf<
+      DomainSchemaResult<E, L, R, Actions, Name, IncludedNames>
+    >;
     // Build full domain context (schema + registry + docs) for AI/system prompts.
     context: (options?: DomainContextOptions) => DomainContext;
     // Render a prompt-friendly context string for AI system prompts.
@@ -1581,6 +1604,7 @@ export function domain(arg?: unknown): any {
           };
           (result as any).getActions = () => [...getStoredActions(result as any)];
           (result as any).getActionMap = () => ({ ...getStoredActionMap(result as any) });
+          (result as any).definition = () => result;
 
           return Object.freeze(result as any);
         };

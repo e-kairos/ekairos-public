@@ -1,4 +1,4 @@
-import type { DatasetSchemaInput } from "./types"
+import type { DatasetSchemaInput } from "./types.js"
 
 export function buildFileDefaultInstructions(schema?: DatasetSchemaInput) {
   if (schema) {

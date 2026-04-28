@@ -1,6 +1,7 @@
-import { readFileSync } from "fs"
-import { join } from "path"
-import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
+import { readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
 
 export type FilePreviewContext = {
     totalRows: number
@@ -59,7 +60,7 @@ const PYTHON_SCRIPT_FILES = [
 function resolveScriptPath(scriptName: string): string {
     // Prefer local scripts in src/ (tests/dev), and after build the scripts are copied to dist/
     // at the same relative path, so this works in both environments.
-    return join(__dirname, "scripts", scriptName)
+    return join(dirname(fileURLToPath(import.meta.url)), "scripts", scriptName)
 }
 
 const preparedSandboxIds = new Set<string>()

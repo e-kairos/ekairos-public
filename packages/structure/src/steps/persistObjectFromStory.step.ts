@@ -1,3 +1,5 @@
+import { findLatestCompleteToolOutput } from "./completeOutput.js"
+
 function extractJsonObject(text: string): any | null {
   const trimmed = text.trim()
   if (!trimmed) return null
@@ -39,11 +41,42 @@ export async function persistObjectResultFromStoryStep(params: { env: any; datas
   const runtime = (await getContextRuntime(params.env)) as any
   const store = runtime.store
   const contextKey = `structure:${params.datasetId}`
-  const events = await store.getEvents({ key: contextKey })
+  const events =
+    typeof store.getItems === "function"
+      ? await store.getItems({ key: contextKey })
+      : await store.getEvents({ key: contextKey })
 
   const { structurePatchContextContentStep, structureGetContextStep } = await import("../dataset/steps.js")
   const ctxResult = await structureGetContextStep({ env: params.env, contextKey })
   const existingContent = ctxResult.ok ? ((ctxResult.data?.content ?? {}) as any) : ({} as any)
+  const completedOutput = findLatestCompleteToolOutput(events ?? []) as
+    | { success?: boolean; result?: unknown }
+    | null
+
+  if (completedOutput?.success === true && "result" in completedOutput) {
+    const patchResult = await structurePatchContextContentStep({
+      env: params.env,
+      contextKey,
+      patch: {
+        structure: {
+          kind: "ekairos.structure",
+          version: 1,
+          structureId: params.datasetId,
+          updatedAt: Date.now(),
+          state: "completed",
+          outputs: {
+            ...(existingContent?.structure?.outputs ?? {}),
+            object: { value: completedOutput.result },
+          },
+        },
+      } as any,
+    })
+    if (!(patchResult as any)?.ok) {
+      const err = (patchResult as any)?.error ?? "Failed to persist object result"
+      throw new Error(err)
+    }
+    return { ok: true }
+  }
 
   for (let i = events.length - 1; i >= 0; i--) {
     const e: any = events[i]

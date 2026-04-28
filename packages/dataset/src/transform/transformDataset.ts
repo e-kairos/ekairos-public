@@ -1,6 +1,6 @@
 import { getContextEnv } from "@ekairos/events/runtime"
-import { datasetPreviewRowsStep } from "../dataset/steps"
-import { createTransformDatasetStory } from "./transform-dataset.agent"
+import { datasetPreviewRowsStep } from "../dataset/steps.js"
+import { createTransformDatasetStory } from "./transform-dataset.agent.js"
 
 export type TransformDatasetInput = {
   datasets: Array<{ id: string; description?: string }>

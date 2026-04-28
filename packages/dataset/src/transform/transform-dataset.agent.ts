@@ -1,14 +1,14 @@
 import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
-import { createCompleteDatasetTool } from "../completeDataset.tool"
-import { createExecuteCommandTool } from "../executeCommand.tool"
-import { createClearDatasetTool } from "../clearDataset.tool"
-import { buildTransformDatasetPrompt, TransformPromptContext } from "./prompts"
-import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles"
+import { createCompleteDatasetTool } from "../completeDataset.tool.js"
+import { createExecuteCommandTool } from "../executeCommand.tool.js"
+import { createClearDatasetTool } from "../clearDataset.tool.js"
+import { buildTransformDatasetPrompt, TransformPromptContext } from "./prompts.js"
+import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles.js"
 import { id } from "@instantdb/admin"
-import { generateSourcePreview, TransformSourcePreviewContext } from "./filepreview"
-import { datasetReadOutputJsonlStep, datasetUpdateSchemaStep } from "../dataset/steps"
-import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
-import { createEventsReactRuntime } from "../eventsReactRuntime"
+import { generateSourcePreview, TransformSourcePreviewContext } from "./filepreview.js"
+import { datasetReadOutputJsonlStep, datasetUpdateSchemaStep } from "../dataset/steps.js"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
+import { createEventsReactRuntime } from "../eventsReactRuntime.js"
 
 export type TransformDatasetContext = {
     datasetId: string

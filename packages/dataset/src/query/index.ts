@@ -1,1 +1,1 @@
-export * from "./queryDomain"
+export * from "./queryDomain.js"

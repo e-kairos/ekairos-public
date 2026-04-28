@@ -1,11 +1,11 @@
 import { tool } from "ai"
 import { z } from "zod"
-import { readDatasetSandboxFileStep, runDatasetSandboxCommandStep } from "./sandbox/steps"
+import { readDatasetSandboxFileStep, runDatasetSandboxCommandStep } from "./sandbox/steps.js"
 import Ajv, { ValidateFunction } from "ajv"
 import {
     getDatasetOutputPath,
-} from "./datasetFiles"
-import { datasetGetByIdStep, datasetUpdateStatusStep, datasetUploadOutputFileStep } from "./dataset/steps"
+} from "./datasetFiles.js"
+import { datasetGetByIdStep, datasetUpdateStatusStep, datasetUploadOutputFileStep } from "./dataset/steps.js"
 
 let ajvInstance: Ajv | null = null
 

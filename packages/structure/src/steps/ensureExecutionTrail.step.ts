@@ -112,6 +112,11 @@ export async function ensureExecutionTrailStep(
   )
   if (!outputItem?.id) return
 
+  const context = await store.getContext?.({ key: params.contextKey })
+  if (context?.status === "closed" && store?.updateContextStatus) {
+    await store.updateContextStatus({ key: params.contextKey }, "open_idle")
+  }
+
   const execution = await store.createExecution(
     { key: params.contextKey },
     requestItemId,

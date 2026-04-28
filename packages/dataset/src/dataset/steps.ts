@@ -1,5 +1,5 @@
 import { getContextRuntime, getContextEnv } from "@ekairos/events/runtime"
-import { DatasetService } from "../service"
+import { DatasetService } from "../service.js"
 
 async function resolveEnv(env?: any) {
   return env ?? (await getContextEnv())

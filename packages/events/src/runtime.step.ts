@@ -12,5 +12,5 @@ import { eventsDomain } from "./schema.js"
 export async function getContextRuntime(env: ContextEnvironment): Promise<ContextRuntime> {
   const { resolveRuntime } = await import("@ekairos/domain/runtime")
   const resolved = await resolveRuntime(eventsDomain, env)
-  return await coerceContextRuntime(resolved)
+  return await coerceContextRuntime(resolved, env)
 }

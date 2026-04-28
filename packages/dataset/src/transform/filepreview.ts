@@ -1,5 +1,5 @@
-import { getDatasetWorkstation } from "../datasetFiles"
-import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps"
+import { getDatasetWorkstation } from "../datasetFiles.js"
+import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
 
 export type TransformSourcePreviewContext = {
     totalRows: number

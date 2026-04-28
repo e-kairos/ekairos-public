@@ -1,9 +1,9 @@
 // Plain build API using template literals and XML
 
 import { create } from "xmlbuilder2"
-import { FileParseStoryContext } from "./file-dataset.agent"
-import { FilePreviewContext } from "./filepreview"
-import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles"
+import { FileParseStoryContext } from "./file-dataset.agent.js"
+import { FilePreviewContext } from "./filepreview.js"
+import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles.js"
 
 function buildRole(): string {
     let xml = create()

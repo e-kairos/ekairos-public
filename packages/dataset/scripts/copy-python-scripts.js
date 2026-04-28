@@ -1,28 +1,24 @@
-const fs = require('fs');
-const path = require('path');
+import fs from "node:fs"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 
-const sourceDir = path.join(__dirname, '..', 'src', 'file', 'scripts');
-const destDir = path.join(__dirname, '..', 'dist', 'file', 'scripts');
+const currentDir = path.dirname(fileURLToPath(import.meta.url))
+const sourceDir = path.join(currentDir, "..", "src", "file", "scripts")
+const destDir = path.join(currentDir, "..", "dist", "file", "scripts")
 
-// Create destination directory if it doesn't exist
-fs.mkdirSync(destDir, { recursive: true });
+fs.mkdirSync(destDir, { recursive: true })
 
-// Copy all .py files
-const files = fs.readdirSync(sourceDir);
-let copiedCount = 0;
+const files = fs.readdirSync(sourceDir)
+let copiedCount = 0
 
-files.forEach(file => {
-    if (file.endsWith('.py')) {
-        const sourcePath = path.join(sourceDir, file);
-        const destPath = path.join(destDir, file);
-        fs.copyFileSync(sourcePath, destPath);
-        copiedCount++;
-        console.log(`Copied: ${file}`);
-    }
-});
+files.forEach((file) => {
+  if (!file.endsWith(".py")) return
 
-console.log(`✓ Copied ${copiedCount} Python script(s) to dist/`);
+  const sourcePath = path.join(sourceDir, file)
+  const destPath = path.join(destDir, file)
+  fs.copyFileSync(sourcePath, destPath)
+  copiedCount++
+  console.log(`Copied: ${file}`)
+})
 
-
-
-
+console.log(`Copied ${copiedCount} Python script(s) to dist/`)

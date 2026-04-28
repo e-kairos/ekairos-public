@@ -1,2 +1,2 @@
-export * from "./file-dataset.agent"
+export * from "./file-dataset.agent.js"
 
