@@ -1,35 +1,5 @@
 import { create } from "xmlbuilder2"
-
-export type TransformPromptContext = {
-    datasetId: string
-    sourceDatasetIds: string[]
-    outputSchema: any
-    sandboxConfig: {
-        sourcePaths: Array<{ datasetId: string; path: string }>
-        outputPath: string
-    }
-    sourcePreviews?: Array<{
-        datasetId: string
-        preview: {
-            totalRows: number
-            metadata?: {
-                description: string
-                script: string
-                command: string
-                stdout: string
-                stderr: string
-            }
-            head?: {
-                description: string
-                script: string
-                command: string
-                stdout: string
-                stderr: string
-            }
-        }
-    }>
-    errors: string[]
-}
+import type { TransformPromptContext } from "./transform-dataset.types.js"
 
 function buildRole(): string {
     let xml = create()

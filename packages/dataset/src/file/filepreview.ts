@@ -3,38 +3,9 @@ import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
+import type { FilePreviewContext } from "./filepreview.types.js"
 
-export type FilePreviewContext = {
-    totalRows: number
-    metadata?: {
-        description: string
-        script: string
-        command: string
-        stdout: string
-        stderr: string
-    }
-    head?: {
-        description: string
-        script: string
-        command: string
-        stdout: string
-        stderr: string
-    }
-    tail?: {
-        description: string
-        script: string
-        command: string
-        stdout: string
-        stderr: string
-    }
-    mid?: {
-        description: string
-        script: string
-        command: string
-        stdout: string
-        stderr: string
-    }
-}
+export type { FilePreviewContext } from "./filepreview.types.js"
 
 interface PreviewOptions {
     headLines?: number
