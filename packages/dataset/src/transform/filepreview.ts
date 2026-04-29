@@ -26,7 +26,7 @@ interface PreviewOptions {
 const DEFAULT_HEAD_LINES = 50
 
 async function runPythonSnippet(
-    env: any,
+    runtime: any,
     sandboxId: string,
     datasetId: string,
     scriptName: string,
@@ -44,7 +44,7 @@ async function runPythonSnippet(
     const scriptPath = `${workstation}/${scriptName}.py`
 
     await writeDatasetSandboxFilesStep({
-        env,
+        runtime,
         sandboxId,
         files: [
             {
@@ -55,7 +55,7 @@ async function runPythonSnippet(
     })
 
     const result = await runDatasetSandboxCommandStep({
-        env,
+        runtime,
         sandboxId,
         cmd: "python",
         args: [scriptPath, ...args],
@@ -74,7 +74,7 @@ async function runPythonSnippet(
 }
 
 export async function generateSourcePreview(
-    env: any,
+    runtime: any,
     sandboxId: string,
     sourcePath: string,
     datasetId: string,
@@ -106,7 +106,7 @@ except Exception as e:
 `
 
     const meta = await runPythonSnippet(
-        env,
+        runtime,
         sandboxId,
         datasetId,
         "jsonl_count",
@@ -152,7 +152,7 @@ except Exception as e:
 `
 
     const head = await runPythonSnippet(
-        env,
+        runtime,
         sandboxId,
         datasetId,
         "jsonl_head",

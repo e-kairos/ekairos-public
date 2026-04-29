@@ -75,6 +75,10 @@ packages/events/.workflow-data/
 packages/events/.workflow-vitest/
 packages/domain/.workflow-data/
 packages/domain/.workflow-vitest/
+packages/dataset/.workflow-data/
+packages/dataset/.workflow-vitest/
+packages/reactors/openai-reactor/.workflow-data/
+packages/reactors/openai-reactor/.workflow-vitest/
 
 # local codex reactor audit artifacts
 packages/reactors/openai-reactor/.tmp-audit-*.json

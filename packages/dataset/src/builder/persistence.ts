@@ -1,5 +1,11 @@
 import { DatasetService } from "../service.js"
 import { datasetDomain } from "../schema.js"
+import {
+  datasetGetByIdStep,
+  datasetPreviewRowsStep,
+  datasetReadOneStep,
+  datasetReadRowsStep,
+} from "../dataset/steps.js"
 import { inferDatasetSchema, validateRows } from "./schemaInference.js"
 import { rowsToJsonl } from "./sourceRows.js"
 import type {
@@ -40,6 +46,7 @@ export async function createOrUpdateDatasetMetadata<Runtime extends AnyDatasetRu
     status?: string
   },
 ) {
+  "use step"
   const db = await getDatasetDb(runtime)
   const service = new DatasetService(db)
   const result = await service.createDataset({
@@ -63,6 +70,8 @@ export async function materializeRowsToDataset<Runtime extends AnyDatasetRuntime
   runtime: Runtime,
   params: MaterializeRowsParams,
 ): Promise<string> {
+  "use step"
+
   if (params.first && params.rows.length > 1) {
     throw new Error("dataset_first_expected_zero_or_one_row")
   }
@@ -117,6 +126,8 @@ export async function uploadInlineTextSource<Runtime extends AnyDatasetRuntime>(
   datasetId: string,
   source: DatasetTextSourceInput,
 ) {
+  "use step"
+
   const db = await getDatasetDb(runtime)
   const fileName = defaultTextSourceName(source)
   const storagePath = `/dataset/source/${datasetId}/${Date.now()}-${fileName}`
@@ -136,16 +147,9 @@ export async function finalizeBuildResult<Runtime extends AnyDatasetRuntime>(
   datasetId: string,
   withFirst: boolean,
 ): Promise<DatasetBuildResult> {
-  const db = await getDatasetDb(runtime)
-  const service = new DatasetService(db)
-  const datasetResult = await service.getDatasetById(datasetId)
-  if (!datasetResult.ok) {
-    throw new Error(datasetResult.error)
-  }
-  const previewResult = await service.previewRows(datasetId, 20)
-  if (!previewResult.ok) {
-    throw new Error(previewResult.error)
-  }
+  const datasetResult = await datasetGetByIdStep({ runtime, datasetId })
+  if (!datasetResult.ok) throw new Error(datasetResult.error)
+  const previewResult = await datasetPreviewRowsStep({ runtime, datasetId, limit: 20 })
 
   const reader: DatasetReader = {
     async read(cursorOrParams?: number | { cursor?: number; limit?: number }, limit?: number) {
@@ -153,15 +157,12 @@ export async function finalizeBuildResult<Runtime extends AnyDatasetRuntime>(
         typeof cursorOrParams === "object" && cursorOrParams !== null
           ? cursorOrParams
           : { cursor: cursorOrParams as number | undefined, limit }
-      const rowsResult = await service.readRows({
+      return await datasetReadRowsStep({
+        runtime,
         datasetId,
         cursor: params.cursor,
         limit: params.limit,
       })
-      if (!rowsResult.ok) {
-        throw new Error(rowsResult.error)
-      }
-      return rowsResult.data
     },
   }
 
@@ -169,21 +170,18 @@ export async function finalizeBuildResult<Runtime extends AnyDatasetRuntime>(
     return {
       datasetId,
       dataset: datasetResult.data,
-      previewRows: previewResult.data,
+      previewRows: previewResult.rows,
       reader,
     }
   }
 
-  const firstResult = await service.readOne(datasetId)
-  if (!firstResult.ok) {
-    throw new Error(firstResult.error)
-  }
+  const firstResult = await datasetReadOneStep({ runtime, datasetId })
 
   return {
     datasetId,
     dataset: datasetResult.data,
-    previewRows: previewResult.data,
+    previewRows: previewResult.rows,
     reader,
-    firstRow: firstResult.data,
+    firstRow: firstResult.row,
   }
 }

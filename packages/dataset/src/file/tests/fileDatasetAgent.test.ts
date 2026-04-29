@@ -6,7 +6,7 @@ import * as path from "path"
 import { promises as fs } from "fs"
 import { init } from "@instantdb/admin"
 import { datasetDomain } from "../../schema"
-import { FileParseStory } from "../file-dataset.agent"
+import { createFileParseContext } from "../file-dataset.agent"
 import { generateObject } from "ai"
 import { z } from "zod"
 import { hasInstantAdmin } from "../../tests/_env"
@@ -78,8 +78,7 @@ describe.skip("DatasetAgent (moved to src/tests)", () => {
             throw new Error("CSV file upload failed")
         }
 
-        const fileAgent = new FileParseStory({
-            fileId: csvFileId,
+        const fileAgent = createFileParseContext(csvFileId, {
             instructions: "Create a dataset representing the raw file structure without transformations",
         })
 
@@ -112,8 +111,7 @@ describe.skip("DatasetAgent (moved to src/tests)", () => {
             throw new Error("XLSX file upload failed")
         }
 
-        const fileAgent = new FileParseStory({
-            fileId: xlsxFileId,
+        const fileAgent = createFileParseContext(xlsxFileId, {
             instructions: "Create a dataset representing the raw file structure without transformations. Use only the first sheet of the workbook.",
         })
 
@@ -146,8 +144,7 @@ describe.skip("DatasetAgent (moved to src/tests)", () => {
             throw new Error("XLSX file upload failed (complex)")
         }
 
-        const fileAgent = new FileParseStory({
-            fileId: xlsxFileId,
+        const fileAgent = createFileParseContext(xlsxFileId, {
             instructions: "Create a dataset representing the raw file structure without transformations. Use only the first sheet of the workbook.",
         })
 
@@ -182,8 +179,7 @@ describe.skip("DatasetAgent (moved to src/tests)", () => {
             throw new Error("CSV file upload failed")
         }
 
-        const fileAgent = new FileParseStory({
-            fileId: csvFileId,
+        const fileAgent = createFileParseContext(csvFileId, {
             instructions: "Create a dataset representing the raw file structure without transformations",
         })
 

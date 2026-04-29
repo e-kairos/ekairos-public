@@ -52,7 +52,15 @@ import {
   updateContextStatus,
   updateItem,
   updateContextStep,
+  updateExecutionWorkflowRun,
 } from "./steps/store.steps.js"
+import {
+  readContextDurableWorkflowReturnValue,
+  readContextDurableWorkflowStatus,
+  resumeContextReturnValueHook,
+  startContextDurableWorkflow,
+  type ContextReturnValueHookPayload,
+} from "./steps/durable.steps.js"
 import {
   getClientResumeHookUrl,
   toolApprovalHookToken,
@@ -181,6 +189,7 @@ export type ContextReactParams<
     trigger: ContextItem
     reaction: ContextItem
     execution: ContextExecution
+    returnValueHookToken?: string | null
   }
   __benchmark?: ContextBenchmarkRecorder
 }
@@ -227,6 +236,10 @@ export type ContextWorkflowRun<Context = any> = {
   runId: string
   status: Promise<"pending" | "running" | "completed" | "failed" | "cancelled">
   returnValue: Promise<ContextReactFinalResult<Context>>
+  returnValueHook?: {
+    token: string
+    parentWorkflowRunId: string
+  } | null
 }
 
 export type ContextReactRun<Context = any> =
@@ -454,6 +467,33 @@ async function readActiveWorkflowRunId() {
   } catch {
     return null
   }
+}
+
+function serializeContextReturnValueError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    }
+  }
+  return {
+    message: String(error),
+  }
+}
+
+function unwrapContextReturnValueHookPayload<Context>(
+  payload: ContextReturnValueHookPayload<Context>,
+): ContextReactFinalResult<Context> {
+  if (payload.ok) return payload.result
+  const error = new Error(payload.error.message)
+  if (payload.error.name) {
+    error.name = payload.error.name
+  }
+  if (payload.error.stack) {
+    error.stack = payload.error.stack
+  }
+  throw error
 }
 
 type ContextStepPatch = {
@@ -1068,8 +1108,14 @@ export abstract class ContextEngine<
       | undefined
 
     if (typeof workflow !== "function") {
+      const contextKeyLabel = contextKey || "(missing)"
       throw new Error(
-        "ContextEngine.react: durable workflow is not configured. Call configureContextDurableWorkflow(...) in runtime bootstrap.",
+        [
+          "ContextEngine.react(..., { durable: true }) needs a registered durable context workflow.",
+          "Call configureContextDurableWorkflow(contextDurableWorkflow) during server/workflow bootstrap.",
+          "If you want inline execution inside the current workflow step, pass durable: false.",
+          `Context key: ${contextKeyLabel}.`,
+        ].join(" "),
       )
     }
 
@@ -1080,69 +1126,88 @@ export abstract class ContextEngine<
           runId: string
           status: Promise<"pending" | "running" | "completed" | "failed" | "cancelled">
           returnValue: Promise<ContextReactFinalResult<Context>>
+          returnValueHook?: {
+            token: string
+            parentWorkflowRunId: string
+          } | null
         }
       | undefined
 
     try {
-      const [{ start }] = await measureBenchmark(
-        params.__benchmark,
-        "react.durable.importWorkflowApiMs",
-        async () =>
-          await Promise.all([
-            import("workflow/api"),
-          ]),
-      )
+      const parentWorkflowRunId = await readActiveWorkflowRunId()
+      let returnValueHook:
+        | {
+            token: string
+            parentWorkflowRunId: string
+          }
+        | null = null
+      let returnValueHookPromise: Promise<ContextReturnValueHookPayload<Context>> | null = null
+
+      if (parentWorkflowRunId) {
+        const { createHook } = await import("workflow")
+        const hook = createHook<ContextReturnValueHookPayload<Context>>({
+          token: `context:return:${shell.execution.id}`,
+          metadata: {
+            kind: "context.returnValue",
+            contextId: shell.currentContext.id,
+            executionId: shell.execution.id,
+            parentWorkflowRunId,
+          },
+        })
+        returnValueHook = {
+          token: hook.token,
+          parentWorkflowRunId,
+        }
+        returnValueHookPromise = Promise.resolve(hook)
+      }
+
+      const payload = {
+        contextKey,
+        runtime: runtimeHandle,
+        context: params.context ?? null,
+        triggerEvent,
+        options: {
+          maxIterations: params.options?.maxIterations,
+          maxModelSteps: params.options?.maxModelSteps,
+          preventClose: params.options?.preventClose,
+          sendFinish: params.options?.sendFinish,
+          silent: params.options?.silent,
+        },
+        bootstrap: {
+          contextId: shell.currentContext.id,
+          trigger: shell.trigger,
+          reaction: shell.reaction,
+          execution: shell.execution,
+          returnValueHookToken: returnValueHook?.token ?? null,
+        },
+      } satisfies ContextDurableWorkflowPayload<Env, RequiredDomain, Runtime>
 
       const startedRun = await measureBenchmark(
         params.__benchmark,
         "react.durable.startWorkflowMs",
-        async () =>
-          await start(workflow, [
-            {
-              contextKey,
-              runtime: runtimeHandle,
-              context: params.context ?? null,
-              triggerEvent,
-              options: {
-                maxIterations: params.options?.maxIterations,
-                maxModelSteps: params.options?.maxModelSteps,
-                preventClose: params.options?.preventClose,
-                sendFinish: params.options?.sendFinish,
-                silent: params.options?.silent,
-              },
-              bootstrap: {
-                contextId: shell.currentContext.id,
-                trigger: shell.trigger,
-                reaction: shell.reaction,
-                execution: shell.execution,
-              },
-            } satisfies ContextDurableWorkflowPayload<Env, RequiredDomain, Runtime>,
-          ]),
+        async () => await startContextDurableWorkflow({ payload }),
       )
 
       run = {
         runId: String(startedRun.runId),
-        status: startedRun.status as Promise<
-          "pending" | "running" | "completed" | "failed" | "cancelled"
-        >,
-        returnValue: startedRun.returnValue as Promise<ContextReactFinalResult<Context>>,
+        status: readContextDurableWorkflowStatus({ runId: String(startedRun.runId) }),
+        returnValue: returnValueHookPromise
+          ? returnValueHookPromise.then(unwrapContextReturnValueHookPayload)
+          : (readContextDurableWorkflowReturnValue({
+              runId: String(startedRun.runId),
+            }) as Promise<ContextReactFinalResult<Context>>),
+        returnValueHook,
       }
 
-      const runtime = await measureBenchmark(
-        params.__benchmark,
-        "react.durable.resolveRuntimeOpsMs",
-        async () => await createRuntimeOps<Context>(runtimeHandle as Runtime, params.__benchmark),
-      )
       await measureBenchmark(
         params.__benchmark,
         "react.durable.persistWorkflowRunIdMs",
         async () =>
-          await runtime.db.transact([
-            runtime.db.tx.event_executions[shell.execution.id].update({
-              workflowRunId: startedRun.runId,
-              updatedAt: new Date(),
-            }),
-          ]),
+          await updateExecutionWorkflowRun({
+            runtime: runtimeHandle as Runtime,
+            executionId: shell.execution.id,
+            workflowRunId: String(startedRun.runId),
+          }),
       )
     } catch (error) {
       const ops = await getContextEngineOps<Context>(runtimeHandle as Runtime, params.__benchmark)
@@ -1207,6 +1272,16 @@ export abstract class ContextEngine<
     const writable = params.options?.writable
 
     const bootstrapped = params.__bootstrap
+    const returnValueHookToken = bootstrapped?.returnValueHookToken ?? null
+    const resumeReturnValueHook = async (
+      payload: ContextReturnValueHookPayload<Context>,
+    ) => {
+      if (!returnValueHookToken) return
+      await resumeContextReturnValueHook({
+        token: returnValueHookToken,
+        payload,
+      })
+    }
     const shell = bootstrapped
       ? {
           contextSelector: { id: String(bootstrapped.contextId) } as ContextIdentifier,
@@ -1618,12 +1693,14 @@ export abstract class ContextEngine<
             if (!silent) {
               await closeContextStream({ preventClose, sendFinish, writable })
             }
-            return {
+            const result = {
               context: updatedContext,
               trigger,
               reaction: reactionEvent,
               execution,
             }
+            await resumeReturnValueHook({ ok: true, result })
+            return result
           }
         }
 
@@ -1904,12 +1981,14 @@ export abstract class ContextEngine<
           if (!silent) {
             await closeContextStream({ preventClose, sendFinish, writable })
           }
-          return {
+          const result = {
             context: updatedContext,
             trigger,
             reaction: reactionEvent,
             execution,
           }
+          await resumeReturnValueHook({ ok: true, result })
+          return result
         }
       }
 
@@ -1965,6 +2044,10 @@ export abstract class ContextEngine<
         }
       }
       await failExecution()
+      await resumeReturnValueHook({
+        ok: false,
+        error: serializeContextReturnValueError(error),
+      }).catch(() => null)
       throw error
     }
   }

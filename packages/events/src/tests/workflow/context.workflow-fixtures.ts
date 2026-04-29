@@ -10,6 +10,8 @@ import {
   type ContextDurableWorkflowPayload,
   type ContextItem,
 } from "../../index.ts"
+import { configureContextDurableWorkflow } from "../../runtime.ts"
+import { EventsTestRuntime } from "./context.test-runtime.ts"
 
 export type WorkflowSmokeEnv = {
   mode: "success" | "tool-error" | "scripted"
@@ -130,6 +132,7 @@ async function executeEchoTool(
       ok: true,
       message,
       mode,
+      runtimeMode: mode,
       contextId: String(ctx.context.id),
       stepId: String(ctx.stepId),
       hasDb: Boolean(db),
@@ -270,6 +273,66 @@ export const storySmokeExpandedEvents = createContext<WorkflowSmokeEnv>("story.s
   .shouldContinue(() => false)
   .build()
 
+export type ContextReactMatrixWorkflowInput = {
+  runtime: EventsTestRuntime<WorkflowSmokeEnv>
+  durable: boolean
+  triggerText?: string
+}
+
+export type ContextReactMatrixWorkflowResult = {
+  parentWorkflowRunId: string | null
+  durable: boolean
+  childRunId: string | null
+  returnValueHookToken: string | null
+  contextId: string
+  executionId: string
+  shellExecutionStatus: string | null
+  finalExecutionStatus: string | null
+  finalReactionStatus: string | null
+}
+
+export async function contextReactMatrixParentWorkflow(
+  input: ContextReactMatrixWorkflowInput,
+): Promise<ContextReactMatrixWorkflowResult> {
+  "use workflow";
+
+  const { getWorkflowMetadata } = await import("workflow")
+  const parentWorkflowRunId = getWorkflowMetadata?.()?.workflowRunId
+  const shell = await storySmokeScripted.react(
+    buildTriggerEvent(input.triggerText ?? "matrix parent trigger"),
+    {
+      runtime: input.runtime,
+      context: null,
+      durable: input.durable,
+      options: {
+        maxIterations: 1,
+        maxModelSteps: 1,
+      },
+    },
+  )
+
+  const finalResult = input.durable
+    ? await shell.run!.returnValue
+    : await shell.run!
+
+  return {
+    parentWorkflowRunId:
+      parentWorkflowRunId === undefined || parentWorkflowRunId === null
+        ? null
+        : String(parentWorkflowRunId),
+    durable: input.durable,
+    childRunId: input.durable ? String((shell.run as any)?.runId ?? "") : null,
+    returnValueHookToken: input.durable
+      ? String((shell.run as any)?.returnValueHook?.token ?? "")
+      : null,
+    contextId: String(shell.context.id),
+    executionId: String(shell.execution.id),
+    shellExecutionStatus: readString(shell.execution as any, "status"),
+    finalExecutionStatus: readString(finalResult.execution as any, "status"),
+    finalReactionStatus: readString(finalResult.reaction as any, "status"),
+  }
+}
+
 export async function contextEngineDurableWorkflow(
   payload: ContextDurableWorkflowPayload<WorkflowSmokeEnv>,
 ) {
@@ -302,3 +365,5 @@ export async function contextEngineDurableWorkflow(
     __bootstrap: payload.bootstrap,
   })
 }
+
+configureContextDurableWorkflow(contextEngineDurableWorkflow)

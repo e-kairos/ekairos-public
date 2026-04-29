@@ -1,12 +1,19 @@
-import { getContextRuntime } from "@ekairos/events/runtime"
+async function getRuntimeDb(runtime: any) {
+  if (!runtime) {
+    throw new Error("Dataset file step requires runtime.")
+  }
 
-export async function readInstantFileStep(params: { env: any; fileId: string }): Promise<{
+  const db = runtime.db
+  return typeof db === "function" ? await db.call(runtime) : db
+}
+
+export async function readInstantFileStep(params: { runtime: any; fileId: string }): Promise<{
   url: string
   contentDisposition?: string
   contentBase64: string
 }> {
   "use step"
-  const db = (await getContextRuntime(params.env) as any).db
+  const db = await getRuntimeDb(params.runtime)
 
   const fileQuery: any = await db.query({
     $files: { $: { where: { id: params.fileId } as any, limit: 1 } },

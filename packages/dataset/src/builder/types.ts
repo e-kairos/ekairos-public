@@ -52,10 +52,12 @@ export type DatasetMode = "auto" | "schema"
 
 export type DatasetBuilderOptions = {
   datasetId?: string
+  durable?: boolean
 }
 
 export type DatasetBuildOptions = {
   datasetId?: string
+  durable?: boolean
 }
 
 export type InternalSource =
@@ -115,6 +117,7 @@ export type DatasetBuilderState<Runtime extends AnyDatasetRuntime> = {
   inferSchema: boolean
   instructions?: string
   reactor?: ContextReactor<any, any>
+  durable?: boolean
   first: boolean
 }
 

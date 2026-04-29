@@ -93,7 +93,7 @@ function validateScriptResult(result: { stderr: string; stdout: string }, contex
     }
 }
 
-export async function ensurePreviewScriptsAvailable(env: any, sandboxId: string): Promise<void> {
+export async function ensurePreviewScriptsAvailable(runtime: any, sandboxId: string): Promise<void> {
     if (preparedSandboxIds.has(sandboxId)) {
         return
     }
@@ -107,7 +107,7 @@ export async function ensurePreviewScriptsAvailable(env: any, sandboxId: string)
     const setupPromise = (async () => {
         try {
             await runDatasetSandboxCommandStep({
-                env,
+                runtime,
                 sandboxId,
                 cmd: "mkdir",
                 args: ["-p", SANDBOX_SCRIPT_DIRECTORY],
@@ -136,7 +136,7 @@ export async function ensurePreviewScriptsAvailable(env: any, sandboxId: string)
 
         if (filesToWrite.length > 0) {
             await writeDatasetSandboxFilesStep({
-                env,
+                runtime,
                 sandboxId,
                 files: filesToWrite,
             })
@@ -156,7 +156,7 @@ export async function ensurePreviewScriptsAvailable(env: any, sandboxId: string)
 }
 
 export async function generateFilePreview(
-    env: any,
+    runtime: any,
     sandboxId: string,
     sandboxFilePath: string,
     datasetId: string,
@@ -167,10 +167,10 @@ export async function generateFilePreview(
     }
 
     try {
-        await ensurePreviewScriptsAvailable(env, sandboxId)
+        await ensurePreviewScriptsAvailable(runtime, sandboxId)
 
         const metadataResult = await runScript(
-            env,
+            runtime,
             sandboxId,
             "file_metadata.py",
             [sandboxFilePath],
@@ -207,7 +207,7 @@ export async function generateFilePreview(
         if (totalRows <= headLines) {
             console.log(`[Dataset ${datasetId}] File has ${totalRows} rows, reading all with head only`)
             const headResult = await runScript(
-                env,
+                runtime,
                 sandboxId,
                 headScript,
                 [sandboxFilePath, String(totalRows)],
@@ -221,7 +221,7 @@ export async function generateFilePreview(
         if (headLines + tailLines >= totalRows) {
             console.log(`[Dataset ${datasetId}] Head + tail would cover entire file (${totalRows} rows), reading all with head only`)
             const headResult = await runScript(
-                env,
+                runtime,
                 sandboxId,
                 headScript,
                 [sandboxFilePath, String(totalRows)],
@@ -234,7 +234,7 @@ export async function generateFilePreview(
 
         console.log(`[Dataset ${datasetId}] Reading head (${headLines} rows) and tail (${tailLines} rows) from ${totalRows} total rows`)
         const headResult = await runScript(
-            env,
+            runtime,
             sandboxId,
             headScript,
             [sandboxFilePath, String(headLines)],
@@ -244,7 +244,7 @@ export async function generateFilePreview(
         context.head = headResult
 
         const tailResult = await runScript(
-            env,
+            runtime,
             sandboxId,
             tailScript,
             [sandboxFilePath, String(tailLines)],
@@ -261,7 +261,7 @@ export async function generateFilePreview(
             const midEnd = totalRows - tailLines
             console.log(`[Dataset ${datasetId}] Large gap (${gapSize} rows), adding mid sample (${midLines} rows)`)
             const midResult = await runScript(
-                env,
+                runtime,
                 sandboxId,
                 midScript,
                 [sandboxFilePath, String(midStart), String(midEnd), String(midLines)],
@@ -280,7 +280,7 @@ export async function generateFilePreview(
 }
 
 async function runScript(
-    env: any,
+    runtime: any,
     sandboxId: string,
     scriptName: string,
     args: string[],
@@ -307,7 +307,7 @@ async function runScript(
 
     try {
         const result = await runDatasetSandboxCommandStep({
-            env,
+            runtime,
             sandboxId,
             cmd: "python",
             args: [scriptPath, ...args],

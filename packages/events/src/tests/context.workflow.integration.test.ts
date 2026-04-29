@@ -2,6 +2,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { init } from "@instantdb/admin"
+import { start } from "workflow/api"
 
 import {
   eventsDomain,
@@ -11,6 +12,7 @@ import {
   asRecord,
   buildTriggerEvent,
   contextEngineDurableWorkflow,
+  contextReactMatrixParentWorkflow,
   readRows,
   readString,
   storySmoke,
@@ -184,6 +186,172 @@ describeWorkflowInstant("context durable workflow integration", () => {
     const reactionItem = itemRows.find((row) => readString(row, "type") === "output")
     expect(readString(reactionItem, "status")).toBe("completed")
   }
+
+  async function readExecutionWorkflowRunId(executionId: string) {
+    const snapshot = await currentDb().query({
+      event_executions: {
+        $: { where: { id: executionId }, limit: 1 },
+      },
+    })
+    return readString(readRows(snapshot, "event_executions")[0], "workflowRunId")
+  }
+
+  it("context react execution matrix covers runtime and workflow callers", async () => {
+    const runtime = new EventsTestRuntime({
+      appId: String(appId),
+      adminToken: String(adminToken),
+      mode: "scripted",
+    })
+
+    const noWorkflowDirectShell = await storySmokeScripted.react(
+      buildTriggerEvent("matrix runtime direct"),
+      {
+        runtime,
+        context: null,
+        durable: false,
+        options: {
+          maxIterations: 1,
+          maxModelSteps: 1,
+        },
+      },
+    )
+    const noWorkflowDirectFinal = await noWorkflowDirectShell.run!
+    const noWorkflowDirectRunId = await readExecutionWorkflowRunId(
+      noWorkflowDirectShell.execution.id,
+    )
+
+    const noWorkflowDurableShell = await storySmokeScripted.react(
+      buildTriggerEvent("matrix runtime durable"),
+      {
+        runtime,
+        context: null,
+        durable: true,
+        options: {
+          maxIterations: 1,
+          maxModelSteps: 1,
+        },
+      },
+    )
+    const noWorkflowDurableFinal = await noWorkflowDurableShell.run!.returnValue
+    const noWorkflowDurableRunId = await readExecutionWorkflowRunId(
+      noWorkflowDurableShell.execution.id,
+    )
+
+    const workflowDirectRun = await start(contextReactMatrixParentWorkflow, [
+      {
+        runtime,
+        durable: false,
+        triggerText: "matrix workflow direct",
+      },
+    ])
+    const workflowDirectFinal = await workflowDirectRun.returnValue
+    const workflowDirectExecutionRunId = await readExecutionWorkflowRunId(
+      workflowDirectFinal.executionId,
+    )
+
+    const workflowDurableRun = await start(contextReactMatrixParentWorkflow, [
+      {
+        runtime,
+        durable: true,
+        triggerText: "matrix workflow durable",
+      },
+    ])
+    const workflowDurableFinal = await workflowDurableRun.returnValue
+    const workflowDurableExecutionRunId = await readExecutionWorkflowRunId(
+      workflowDurableFinal.executionId,
+    )
+
+    const matrix = [
+      {
+        caller: "runtime",
+        durable: false,
+        parentWorkflowRunId: null,
+        childRunId: null,
+        returnValueHookToken: null,
+        executionWorkflowRunId: noWorkflowDirectRunId,
+        finalExecutionStatus: noWorkflowDirectFinal.execution.status,
+        finalReactionStatus: noWorkflowDirectFinal.reaction.status,
+      },
+      {
+        caller: "runtime",
+        durable: true,
+        parentWorkflowRunId: null,
+        childRunId: noWorkflowDurableShell.run!.runId,
+        returnValueHookToken: noWorkflowDurableShell.run!.returnValueHook?.token ?? null,
+        executionWorkflowRunId: noWorkflowDurableRunId,
+        finalExecutionStatus: noWorkflowDurableFinal.execution.status,
+        finalReactionStatus: noWorkflowDurableFinal.reaction.status,
+      },
+      {
+        caller: "workflow",
+        durable: false,
+        parentWorkflowRunId: workflowDirectFinal.parentWorkflowRunId,
+        childRunId: workflowDirectFinal.childRunId,
+        returnValueHookToken: workflowDirectFinal.returnValueHookToken,
+        executionWorkflowRunId: workflowDirectExecutionRunId,
+        finalExecutionStatus: workflowDirectFinal.finalExecutionStatus,
+        finalReactionStatus: workflowDirectFinal.finalReactionStatus,
+      },
+      {
+        caller: "workflow",
+        durable: true,
+        parentWorkflowRunId: workflowDurableFinal.parentWorkflowRunId,
+        childRunId: workflowDurableFinal.childRunId,
+        returnValueHookToken: workflowDurableFinal.returnValueHookToken,
+        executionWorkflowRunId: workflowDurableExecutionRunId,
+        finalExecutionStatus: workflowDurableFinal.finalExecutionStatus,
+        finalReactionStatus: workflowDurableFinal.finalReactionStatus,
+      },
+    ]
+
+    expect(matrix).toEqual([
+      expect.objectContaining({
+        caller: "runtime",
+        durable: false,
+        parentWorkflowRunId: null,
+        childRunId: null,
+        returnValueHookToken: null,
+        executionWorkflowRunId: null,
+        finalExecutionStatus: "completed",
+        finalReactionStatus: "completed",
+      }),
+      expect.objectContaining({
+        caller: "runtime",
+        durable: true,
+        parentWorkflowRunId: null,
+        childRunId: expect.stringMatching(/^wrun_/),
+        returnValueHookToken: null,
+        executionWorkflowRunId: noWorkflowDurableShell.run!.runId,
+        finalExecutionStatus: "completed",
+        finalReactionStatus: "completed",
+      }),
+      expect.objectContaining({
+        caller: "workflow",
+        durable: false,
+        parentWorkflowRunId: workflowDirectRun.runId,
+        childRunId: null,
+        returnValueHookToken: null,
+        executionWorkflowRunId: workflowDirectRun.runId,
+        finalExecutionStatus: "completed",
+        finalReactionStatus: "completed",
+      }),
+      expect.objectContaining({
+        caller: "workflow",
+        durable: true,
+        parentWorkflowRunId: workflowDurableRun.runId,
+        childRunId: expect.stringMatching(/^wrun_/),
+        returnValueHookToken: expect.stringMatching(/^context:return:/),
+        executionWorkflowRunId: workflowDurableFinal.childRunId,
+        finalExecutionStatus: "completed",
+        finalReactionStatus: "completed",
+      }),
+    ])
+
+    writeBenchmarkReport("context-react-execution-matrix", {
+      test: "context durable workflow integration > context react execution matrix covers runtime and workflow callers",
+      matrix,
+    })
+  }, 10 * 60 * 1000)
 
   it("scripted durable react returns a run handle and persists completed state", async () => {
     const timer = createStageTimer()

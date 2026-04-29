@@ -9,8 +9,8 @@ import { domain } from "@ekairos/domain"
 import { eventsDomain } from "@ekairos/events"
 import { sandboxDomain } from "@ekairos/sandbox"
 import { datasetDomain } from "../../schema"
-import { createFileParseStory } from "../../file/file-dataset.agent"
-import { createTransformDatasetStory } from "../transform-dataset.agent"
+import { createFileParseContext } from "../../file/file-dataset.agent"
+import { createTransformDatasetContext } from "../transform-dataset.agent"
 import { DatasetService } from "../../service"
 import { describeInstant, hasInstantAdmin, setupInstantTestEnv } from "../../tests/_env"
 import { attachMockInstantStreams } from "../../tests/_streams"
@@ -258,7 +258,7 @@ describeInstant("Multi Group RFQ Dataset", () => {
         const sandbox = await createSandbox()
 
         try {
-            const fileParse = createFileParseStory(uploadedFileId, {
+            const fileParse = createFileParseContext(uploadedFileId, {
                 instructions: "Ingest the multi-group RFQ workbook and produce the raw dataset output without transformations",
                 sandboxId: sandbox.sandboxId,
             })
@@ -285,7 +285,7 @@ describeInstant("Multi Group RFQ Dataset", () => {
             expect(sourceDataset.schema).toBeTruthy()
             expect(sourceDataset.calculatedTotalRows).toBeGreaterThan(0)
 
-            const groupTransform = createTransformDatasetStory({
+            const groupTransform = createTransformDatasetContext({
                 sourceDatasetIds: sourceDataset.id,
                 outputSchema: buildGroupTransformSchema(),
                 sandboxId: sandbox.sandboxId,
@@ -310,7 +310,7 @@ describeInstant("Multi Group RFQ Dataset", () => {
             expect(groupsDataset.schema).toBeTruthy()
             expect(groupsDataset.schema?.schema?.properties?.groups).toBeTruthy()
 
-            const itemTransform = createTransformDatasetStory({
+            const itemTransform = createTransformDatasetContext({
                 sourceDatasetIds: [sourceDataset.id, groupsDataset.id],
                 outputSchema: buildItemTransformSchema(),
                 sandboxId: sandbox.sandboxId,

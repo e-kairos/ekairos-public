@@ -7,10 +7,10 @@ interface GenerateSchemaToolParams {
     datasetId: string
     isNested?: boolean
     fileId?: string
-    env: any
+    runtime: any
 }
 
-export function createGenerateSchemaTool({ datasetId, isNested, fileId, env }: GenerateSchemaToolParams) {
+export function createGenerateSchemaTool({ datasetId, isNested, fileId, runtime }: GenerateSchemaToolParams) {
     return tool({
         description: `Generate a formal JSON schema for a SINGLE RECORD (row) from the file. This schema describes the structure of ONE record, not the entire dataset or array of records. Requirements:
 1. Schema describes ONE RECORD structure only (no array wrappers)
@@ -100,7 +100,7 @@ export function createGenerateSchemaTool({ datasetId, isNested, fileId, env }: G
                 console.log(JSON.stringify(parsedSchema, null, 2))
 
                 const updateResult = await datasetUpdateSchemaStep({
-                    env,
+                    runtime,
                     datasetId,
                     schema: schemaData,
                     status: "schema_complete",

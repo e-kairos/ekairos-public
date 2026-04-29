@@ -1,7 +1,7 @@
 // Plain build API using template literals and XML
 
 import { create } from "xmlbuilder2"
-import { FileParseStoryContext } from "./file-dataset.agent.js"
+import { FileParseContext } from "./file-dataset.agent.js"
 import { FilePreviewContext } from "./filepreview.js"
 import { getDatasetWorkstation, getDatasetOutputPath } from "../datasetFiles.js"
 
@@ -23,7 +23,7 @@ function buildGoal(): string {
     return xml.end({ prettyPrint: true, headless: true })
 }
 
-function buildSourceInfo(context: FileParseStoryContext): any {
+function buildSourceInfo(context: FileParseContext): any {
     let xml = create()
         .ele("Source")
         .ele("Type").txt("file").up()
@@ -132,7 +132,7 @@ function buildErrorsSection(errors: string[]): any | null {
     return xml
 }
 
-function buildContextSection(context: FileParseStoryContext): string {
+function buildContextSection(context: FileParseContext): string {
     let xml = create()
         .ele("Context")
 
@@ -156,7 +156,7 @@ function buildContextSection(context: FileParseStoryContext): string {
     return xml.end({ prettyPrint: true, headless: true })
 }
 
-function buildSchemaSection(context: FileParseStoryContext): string {
+function buildSchemaSection(context: FileParseContext): string {
     if (!context.schema) {
         return ""
     }
@@ -172,7 +172,7 @@ function buildSchemaSection(context: FileParseStoryContext): string {
     return xml.end({ prettyPrint: true, headless: true })
 }
 
-function buildInstructions(context: FileParseStoryContext): string {
+function buildInstructions(context: FileParseContext): string {
     const datasetWorkstation = getDatasetWorkstation(context.datasetId)
     const outputPath = getDatasetOutputPath(context.datasetId)
     const hasProvidedSchema = Boolean(context.schema?.schema)
@@ -193,6 +193,8 @@ function buildInstructions(context: FileParseStoryContext): string {
             .ele("Action").txt("Use the provided schema as the output contract for every row in output.jsonl").up()
             .ele("Requirements")
             .ele("Requirement").txt("Every output row must conform exactly to the provided schema").up()
+            .ele("Requirement").txt("Every data object MUST use the exact property names from the provided JSON Schema required/properties keys").up()
+            .ele("Requirement").txt("Do not translate, localize, rename, camelize differently, or infer alternative field names. Field names are a technical contract; only field values may preserve the source language").up()
             .ele("Requirement").txt("Do not call generateSchema when a schema is already provided").up()
             .up()
             .up()
@@ -216,6 +218,7 @@ function buildInstructions(context: FileParseStoryContext): string {
         .ele("Requirements")
         .ele("Requirement").txt("Parse ALL data rows/records from the file (exclude header sections and metadata)").up()
         .ele("Requirement").txt("Output JSONL format: each line is {\"type\": \"row\", \"data\": {...record...}}").up()
+        .ele("Requirement").txt("When a schema is provided, each data object must contain the exact required schema keys and must not use translated or synonymous keys").up()
         .ele("Requirement").txt("Extract ONLY data records; skip any header lines, summary sections, or file metadata").up()
         .ele("Requirement").txt(`Save output to: ${outputPath}`).up()
         .ele("Requirement").txt("Use descriptive scriptName in snake_case (e.g., 'parse_csv_to_jsonl')").up()
@@ -223,11 +226,13 @@ function buildInstructions(context: FileParseStoryContext): string {
         .up()
         .ele("Step", { number: "4", name: "Complete and Validate" })
         .ele("Action").txt("Call completeDataset to validate the dataset").up()
-        .ele("Behavior").txt("Validates that output.jsonl exists and all records conform to the schema stored in database. Returns error details if validation fails.").up()
+        .ele("Behavior").txt("Validates that output.jsonl exists and all records conform to the schema stored in database. Returns success:false with validation details if validation fails. If validation fails, inspect validation errors, rewrite output.jsonl, and call completeDataset again. Do not stop until completeDataset returns success:true.").up()
         .up()
         .up()
         .ele("Rules")
         .ele("Rule").txt("Schema defines ONE DATA RECORD structure (not array, not header)").up()
+        .ele("Rule").txt("Schema property names are authoritative. Never translate or rename keys such as itemName, quantity, or unit into the source language").up()
+        .ele("Rule").txt("Original/source language applies to extracted values only, not to JSON object keys").up()
         .ele("Rule").txt("Datasets contain ONLY data records; exclude all header sections and file metadata").up()
         .ele("Rule").txt("JSONL format: each line = separate JSON object representing one data record").up()
         .ele("Rule").txt("FilePreview shows raw file content - use Script to understand data extraction").up()
@@ -242,7 +247,7 @@ function buildInstructions(context: FileParseStoryContext): string {
     return xml.end({ prettyPrint: true, headless: true })
 }
 
-export function buildFileDatasetPrompt(context: FileParseStoryContext): string {
+export function buildFileDatasetPrompt(context: FileParseContext): string {
     const sections: string[] = []
 
     sections.push(buildRole())

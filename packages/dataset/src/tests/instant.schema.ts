@@ -22,7 +22,7 @@ import { eventsDomain } from "@ekairos/events"
 import { datasetDomain } from "../schema"
 
 // Compose what tests need:
-// - dataset + sandbox (for FileParseStory + sandbox steps)
+// - dataset + sandbox (for FileParseContext + sandbox steps)
 // - story (InstantStore persistence used by @ekairos/events)
 const appDomain = domain("dataset-tests")
   .includes(datasetDomain)

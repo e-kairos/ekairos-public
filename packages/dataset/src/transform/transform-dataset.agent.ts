@@ -1,5 +1,5 @@
-import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
-import { createCompleteDatasetTool } from "../completeDataset.tool.js"
+import { createContext, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
+import { createCompleteDatasetTool, didCompleteDatasetSucceed } from "../completeDataset.tool.js"
 import { createExecuteCommandTool } from "../executeCommand.tool.js"
 import { createClearDatasetTool } from "../clearDataset.tool.js"
 import { buildTransformDatasetPrompt, TransformPromptContext } from "./prompts.js"
@@ -8,7 +8,6 @@ import { id } from "@instantdb/admin"
 import { generateSourcePreview, TransformSourcePreviewContext } from "./filepreview.js"
 import { datasetReadOutputJsonlStep, datasetUpdateSchemaStep } from "../dataset/steps.js"
 import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
-import { createEventsReactRuntime } from "../eventsReactRuntime.js"
 
 export type TransformDatasetContext = {
     datasetId: string
@@ -34,6 +33,20 @@ export type TransformDatasetAgentParams = {
     reactor?: ContextReactor<any, any>
 }
 
+export type TransformDatasetRunOptions = {
+    prompt?: string
+    durable?: boolean
+}
+
+async function awaitContextRun(run: any) {
+    if (!run) return
+    if (run.returnValue) {
+        await run.returnValue
+        return
+    }
+    await run
+}
+
 // Sandbox initialization state (closure-based)
 type TransformSandboxState = {
     initialized: boolean
@@ -41,7 +54,7 @@ type TransformSandboxState = {
 }
 
 async function ensureSourcesInSandbox(
-    env: any,
+    runtime: any,
     sandboxId: string,
     datasetId: string,
     sourceDatasetIds: string[],
@@ -53,16 +66,16 @@ async function ensureSourcesInSandbox(
 
     const workstation = getDatasetWorkstation(datasetId)
 
-    await runDatasetSandboxCommandStep({ env, sandboxId, cmd: "mkdir", args: ["-p", workstation] })
+    await runDatasetSandboxCommandStep({ runtime, sandboxId, cmd: "mkdir", args: ["-p", workstation] })
 
     const sourcePaths: Array<{ datasetId: string; path: string }> = []
 
     for (const sourceDatasetId of sourceDatasetIds) {
         const sourcePath = `${workstation}/source_${sourceDatasetId}.jsonl`
 
-        const source = await datasetReadOutputJsonlStep({ env, datasetId: sourceDatasetId })
+        const source = await datasetReadOutputJsonlStep({ runtime, datasetId: sourceDatasetId })
         await writeDatasetSandboxFilesStep({
-            env,
+            runtime,
             sandboxId,
             files: [{ path: sourcePath, contentBase64: source.contentBase64 }],
         })
@@ -88,14 +101,14 @@ export type TransformDatasetResult = {
     updatedAt?: number
 }
 
-function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
+function createTransformDatasetContextDefinition<Env extends { orgId: string }>(
     params: TransformDatasetAgentParams,
-): { datasetId: string; story: any } {
+): { datasetId: string; context: any } {
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    let storyBuilder = createContext<Env>("dataset.transform")
-        .context(async (stored: any, env: Env) => {
+    let contextBuilder = createContext<Env>("dataset.transform")
+        .context(async (stored: any, _env: Env, runtime: any) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: TransformSandboxState = previous?.sandboxState ?? { initialized: false, sourcePaths: [] }
             const sandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
@@ -104,7 +117,7 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
             }
 
         const { sourcePaths, outputPath } = await ensureSourcesInSandbox(
-                env,
+                runtime,
                 sandboxId,
             datasetId,
                 params.sourceDatasetIds,
@@ -114,7 +127,7 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
         const sourcePreviews: Array<{ datasetId: string; preview: TransformSourcePreviewContext }> = []
             for (const sp of sourcePaths) {
             try {
-                    const preview = await generateSourcePreview(env, sandboxId, sp.path, datasetId)
+                    const preview = await generateSourcePreview(runtime, sandboxId, sp.path, datasetId)
                     sourcePreviews.push({ datasetId: sp.datasetId, preview })
             } catch {
                 // optional
@@ -123,7 +136,7 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
 
             // Persist output schema on the dataset record (so completeDataset validates against it)
             await datasetUpdateSchemaStep({
-                env,
+                runtime,
                 datasetId,
                 schema: params.outputSchema,
                 status: "schema_complete",
@@ -163,42 +176,42 @@ function createTransformDatasetStoryDefinition<Env extends { orgId: string }>(
         .narrative(async (stored: any) => {
             return String(stored?.content?.system ?? "")
         })
-        .actions(async (stored: any, env: Env) => {
+        .actions(async (stored: any, _env: Env, runtime: any) => {
             const sandboxId = (stored?.content?.sandboxId as string) ?? params.sandboxId ?? ""
             return {
             executeCommand: createExecuteCommandTool({
                     datasetId,
                     sandboxId,
-                    env,
+                    runtime,
             }),
             completeDataset: createCompleteDatasetTool({
                     datasetId,
                     sandboxId,
-                    env,
+                    runtime,
             }),
             clearDataset: createClearDatasetTool({
                     datasetId,
                     sandboxId,
-                    env,
+                    runtime,
                 }),
                 } as any
             })
             .shouldContinue(({ reactionEvent }: { reactionEvent: any }) => {
-                return !didToolExecute(reactionEvent as any, "completeDataset")
+                return !didCompleteDatasetSucceed(reactionEvent as any)
             })
 
     if (params.reactor) {
-        storyBuilder = storyBuilder.reactor(params.reactor as any)
+        contextBuilder = contextBuilder.reactor(params.reactor as any)
     } else {
-        storyBuilder = storyBuilder.model(model)
+        contextBuilder = contextBuilder.model(model)
     }
 
-    const story = storyBuilder.build()
+    const context = contextBuilder.build()
 
-    return { datasetId, story }
+    return { datasetId, context }
 }
 
-export function createTransformDatasetStory<Env extends { orgId: string }>(
+export function createTransformDatasetContext<Env extends { orgId: string }>(
     params: {
         sourceDatasetIds: string[]
         outputSchema: any
@@ -209,7 +222,7 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
         reactor?: ContextReactor<any, any>
     },
 ) {
-    const { datasetId, story } = createTransformDatasetStoryDefinition<Env>({
+    const { datasetId, context } = createTransformDatasetContextDefinition<Env>({
         sourceDatasetIds: params.sourceDatasetIds,
         outputSchema: params.outputSchema,
         instructions: params.instructions,
@@ -221,7 +234,7 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
 
     return {
         datasetId,
-        async transform(env: Env, prompt?: string): Promise<{ datasetId: string }> {
+        async transform(runtime: { env: Env }, options: TransformDatasetRunOptions = {}): Promise<{ datasetId: string }> {
             const datasetCountText =
                 params.sourceDatasetIds.length === 1
                     ? "the source dataset"
@@ -237,25 +250,24 @@ export function createTransformDatasetStory<Env extends { orgId: string }>(
                         {
                             type: "text",
                             text:
-                                prompt ??
+                                options.prompt ??
                                 `Transform ${datasetCountText} into a new dataset matching the provided output schema`,
                         },
                     ],
             },
         } as any
 
-        const runtime = createEventsReactRuntime(env)
-        const shell = await story.react(triggerEvent, {
-                runtime,
+        const shell = await context.react(triggerEvent, {
+                runtime: runtime as any,
                 context: { key: `dataset:${datasetId}` },
-                durable: false,
+                durable: options.durable ?? false,
             options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 20, maxModelSteps: 5 },
         })
-        await shell.run!
+        await awaitContextRun(shell.run)
 
             return { datasetId }
         },
-        story,
+        context,
     }
 }
 

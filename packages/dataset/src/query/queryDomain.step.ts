@@ -1,8 +1,8 @@
 import { id as newId } from "@instantdb/admin"
-import { getContextRuntime, getContextEnv } from "@ekairos/events/runtime"
 import { DatasetService } from "../service.js"
 
 export type QueryDomainStepInput = {
+  runtime: any
   query: Record<string, any>
   explanation: string
   title?: string
@@ -58,14 +58,21 @@ function inferSchema(rows: any[]) {
   return { schema }
 }
 
+async function getRuntimeDb(runtime: any) {
+  if (!runtime) {
+    throw new Error("Dataset query step requires runtime.")
+  }
+
+  const db = runtime.db
+  return typeof db === "function" ? await db.call(runtime) : db
+}
+
 export async function queryDomainStep(
   params: QueryDomainStepInput,
 ): Promise<QueryDomainStepResult> {
   "use step"
 
-  const env = await getContextEnv()
-  const runtime = await getContextRuntime(env)
-  const db = runtime.db as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new DatasetService(db)
 
   const datasetId = params.datasetId ?? newId()

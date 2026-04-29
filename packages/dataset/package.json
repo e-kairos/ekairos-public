@@ -35,6 +35,16 @@
       "import": "./dist/query/index.js",
       "default": "./dist/query/index.js"
     },
+    "./agents": {
+      "types": "./dist/agents.d.ts",
+      "import": "./dist/agents.js",
+      "default": "./dist/agents.js"
+    },
+    "./skill": {
+      "types": "./dist/skill.d.ts",
+      "import": "./dist/skill.js",
+      "default": "./dist/skill.js"
+    },
     "./file/scripts": {
       "default": "./dist/file/scripts"
     },
@@ -49,6 +59,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run -c vitest.config.mts",
+    "test:workflow": "vitest run -c vitest.workflow.config.mts",
     "test:direct": "vitest run -c vitest.config.mts src/tests/dataset.builder.instant.test.ts",
     "test:tool": "vitest run -c vitest.config.mts src/tests/materializeDataset.tool.instant.test.ts",
     "test:ai-sdk:instant": "vitest run -c vitest.codex.config.mts src/tests/materializeDataset.ai-sdk.instant.test.ts"
@@ -69,7 +80,10 @@
     "@ekairos/openai-reactor": "workspace:*",
     "@ekairos/tsconfig": "workspace:*",
     "@types/node": "^24.5.0",
+    "@workflow/serde": "5.0.0-beta.0",
+    "@workflow/vitest": "5.0.0-beta.1",
     "dotenv": "^17.2.3",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "workflow": "5.0.0-beta.1"
   }
 }

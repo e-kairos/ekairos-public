@@ -1,6 +1,6 @@
-import { getContextEnv } from "@ekairos/events/runtime"
 import { datasetPreviewRowsStep } from "../dataset/steps.js"
-import { createTransformDatasetStory } from "./transform-dataset.agent.js"
+import { createTransformDatasetContext } from "./transform-dataset.agent.js"
+import type { AnyDatasetRuntime } from "../builder/types.js"
 
 export type TransformDatasetInput = {
   datasets: Array<{ id: string; description?: string }>
@@ -38,13 +38,13 @@ function buildInstructions(input: TransformDatasetInput): string {
 
 /**
  * Workflow-compatible dataset transform.
- * Executes the transform story and returns datasetId + preview rows.
+ * Executes the transform context and returns datasetId + preview rows.
  */
 export async function transformDataset(
+  runtime: AnyDatasetRuntime,
   input: TransformDatasetInput,
 ): Promise<TransformDatasetResult> {
-  const env = await getContextEnv()
-  const { datasetId, story } = createTransformDatasetStory({
+  const transformContext = createTransformDatasetContext({
     sourceDatasetIds: input.datasets.map((d) => d.id),
     outputSchema: input.outputSchema,
     instructions: buildInstructions(input),
@@ -52,8 +52,11 @@ export async function transformDataset(
     model: input.model,
   })
 
-  await story.transform(env as any)
+  await transformContext.transform(runtime as any)
 
-  const preview = await datasetPreviewRowsStep({ datasetId })
-  return { datasetId, previewRows: preview.rows }
+  const preview = await datasetPreviewRowsStep({
+    runtime,
+    datasetId: transformContext.datasetId,
+  })
+  return { datasetId: transformContext.datasetId, previewRows: preview.rows }
 }

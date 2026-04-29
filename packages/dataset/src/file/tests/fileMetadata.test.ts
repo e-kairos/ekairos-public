@@ -18,7 +18,8 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
     it("extracts metadata for real client dataset file CSV", async () =>
     {
         const env = { orgId: process.env.EKAIROS_ORG_ID as string }
-        const created = await createDatasetSandboxStep({ env, runtime: "python3.13", timeoutMs: 2 * 60 * 1000 })
+        const runtime = { env, db: async () => ({}) }
+        const created = await createDatasetSandboxStep({ runtime, sandboxRuntime: "python3.13", timeoutMs: 2 * 60 * 1000 })
 
         try
         {
@@ -28,7 +29,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
             const csvBuffer = await readFile(localCsvPath)
 
             await writeDatasetSandboxFilesStep({
-                env,
+                runtime,
                 sandboxId: created.sandboxId,
                 files: [
                     {
@@ -38,7 +39,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
                 ],
             })
 
-            const preview = await generateFilePreview(env, created.sandboxId, sandboxPath, "dataset-real-client-test")
+            const preview = await generateFilePreview(runtime, created.sandboxId, sandboxPath, "dataset-real-client-test")
 
             expect(preview.metadata).toBeDefined()
             expect(preview.metadata?.stdout).toContain("row_count_estimate")
@@ -46,19 +47,20 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
         }
         finally
         {
-            await stopDatasetSandboxStep({ env, sandboxId: created.sandboxId })
+            await stopDatasetSandboxStep({ runtime, sandboxId: created.sandboxId })
         }
     }, 120_000)
 
     it("extracts metadata for real client dataset file XLSX", async () =>
     {
         const env = { orgId: process.env.EKAIROS_ORG_ID as string }
-        const created = await createDatasetSandboxStep({ env, runtime: "python3.13", timeoutMs: 2 * 60 * 1000 })
+        const runtime = { env, db: async () => ({}) }
+        const created = await createDatasetSandboxStep({ runtime, sandboxRuntime: "python3.13", timeoutMs: 2 * 60 * 1000 })
 
         try
         {
             await runDatasetSandboxCommandStep({
-                env,
+                runtime,
                 sandboxId: created.sandboxId,
                 cmd: "pip",
                 args: ["install", "openpyxl", "--quiet"],
@@ -70,7 +72,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
             const xlsxBuffer = await readFile(localXlsxPath)
 
             await writeDatasetSandboxFilesStep({
-                env,
+                runtime,
                 sandboxId: created.sandboxId,
                 files: [
                     {
@@ -80,7 +82,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
                 ],
             })
 
-            const preview = await generateFilePreview(env, created.sandboxId, sandboxPath, "dataset-real-client-xlsx-test")
+            const preview = await generateFilePreview(runtime, created.sandboxId, sandboxPath, "dataset-real-client-xlsx-test")
 
             expect(preview.metadata).toBeDefined()
             expect(preview.metadata?.stdout).toContain("row_count_estimate")
@@ -92,19 +94,20 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
         }
         finally
         {
-            await stopDatasetSandboxStep({ env, sandboxId: created.sandboxId })
+            await stopDatasetSandboxStep({ runtime, sandboxId: created.sandboxId })
         }
     }, 120_000)
 
     it("extracts metadata for real client complex table XLSX", async () =>
     {
         const env = { orgId: process.env.EKAIROS_ORG_ID as string }
-        const created = await createDatasetSandboxStep({ env, runtime: "python3.13", timeoutMs: 2 * 60 * 1000 })
+        const runtime = { env, db: async () => ({}) }
+        const created = await createDatasetSandboxStep({ runtime, sandboxRuntime: "python3.13", timeoutMs: 2 * 60 * 1000 })
 
         try
         {
             await runDatasetSandboxCommandStep({
-                env,
+                runtime,
                 sandboxId: created.sandboxId,
                 cmd: "pip",
                 args: ["install", "openpyxl", "--quiet"],
@@ -116,7 +119,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
             const xlsxBuffer = await readFile(localXlsxPath)
 
             await writeDatasetSandboxFilesStep({
-                env,
+                runtime,
                 sandboxId: created.sandboxId,
                 files: [
                     {
@@ -126,7 +129,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
                 ],
             })
 
-            const preview = await generateFilePreview(env, created.sandboxId, sandboxPath, "dataset-real-client-complex-xlsx-test")
+            const preview = await generateFilePreview(runtime, created.sandboxId, sandboxPath, "dataset-real-client-complex-xlsx-test")
 
             expect(preview.metadata).toBeDefined()
             expect(preview.metadata?.stdout).toContain("row_count_estimate")
@@ -140,7 +143,7 @@ describe.skip("File preview metadata (moved to src/tests)", () =>
         }
         finally
         {
-            await stopDatasetSandboxStep({ env, sandboxId: created.sandboxId })
+            await stopDatasetSandboxStep({ runtime, sandboxId: created.sandboxId })
         }
     }, 120_000)
 })

@@ -12,7 +12,7 @@ export async function configureDatasetTestRuntime() {
   const adminToken = process.env.INSTANT_APP_ADMIN_TOKEN as string
 
   // Single db for tests:
-  // - Story persistence (InstantStore): context_* + story_* + document_*
+  // - Context persistence (InstantStore): context_* + story_* + document_*
   // - Dataset persistence: dataset_*
   // - Sandbox persistence: sandbox_sandboxes
   const appDomain = domain("dataset-tests")

@@ -7,10 +7,10 @@ import { datasetClearStep } from "./dataset/steps.js"
 interface ClearDatasetToolParams {
     datasetId: string
     sandboxId: string
-    env?: any
+    runtime: any
 }
 
-export function createClearDatasetTool({ datasetId, sandboxId, env }: ClearDatasetToolParams) {
+export function createClearDatasetTool({ datasetId, sandboxId, runtime }: ClearDatasetToolParams) {
     return tool({
         description: "Clear all dataset records and output files. This will delete all generated data and reset the dataset to its initial state.",
         inputSchema: z.object({
@@ -27,7 +27,7 @@ export function createClearDatasetTool({ datasetId, sandboxId, env }: ClearDatas
             console.log(`[Dataset ${datasetId}] Step 1: Deleting output file`)
             try {
                 const result = await runDatasetSandboxCommandStep({
-                    env,
+                    runtime,
                     sandboxId,
                     cmd: "rm",
                     args: ["-f", outputPath],
@@ -46,7 +46,7 @@ export function createClearDatasetTool({ datasetId, sandboxId, env }: ClearDatas
             }
 
             console.log(`[Dataset ${datasetId}] Step 2: Clearing dataset records`)
-            const clearResult = await datasetClearStep({ env, datasetId })
+            const clearResult = await datasetClearStep({ runtime, datasetId })
 
             if (!clearResult.ok) {
                 console.error(`[Dataset ${datasetId}] Failed to clear dataset: ${clearResult.error}`)

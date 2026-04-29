@@ -4,11 +4,8 @@ import type { ContextReactor } from "@ekairos/events"
 import type { ValidQuery } from "@instantdb/core"
 
 import { buildObjectOutputInstructions } from "./builder/instructions.js"
-import {
-  materializeDerivedDataset,
-  materializeQuerySource,
-  materializeSingleFileLikeSource,
-} from "./builder/materialize.js"
+import { getDatasetAgentMaterializers } from "./builder/agentMaterializers.js"
+import { materializeQuerySource } from "./builder/materializeQuery.js"
 import { finalizeBuildResult } from "./builder/persistence.js"
 import type {
   AnyDatasetRuntime,
@@ -66,6 +63,7 @@ export function dataset<Runtime extends AnyDatasetRuntime>(
     sources: [],
     output: "rows",
     inferSchema: false,
+    durable: options.durable,
     first: false,
   }
 
@@ -179,14 +177,18 @@ export function dataset<Runtime extends AnyDatasetRuntime>(
       const targetDatasetId = options?.datasetId
         ? normalizeDatasetId(options.datasetId)
         : datasetId
+      const stateWithBuildOptions: DatasetBuilderState<Runtime> = {
+        ...state,
+        durable: options?.durable ?? state.durable,
+      }
       const effectiveState: DatasetBuilderState<Runtime> =
-        state.output === "object"
+        stateWithBuildOptions.output === "object"
           ? {
-              ...state,
+              ...stateWithBuildOptions,
               first: true,
-              instructions: buildObjectOutputInstructions(state.instructions),
+              instructions: buildObjectOutputInstructions(stateWithBuildOptions.instructions),
             }
-          : state
+          : stateWithBuildOptions
       const onlySource = effectiveState.sources[0]
       const isSingleSource = effectiveState.sources.length === 1
       const hasInstructions = Boolean(String(effectiveState.instructions ?? "").trim())
@@ -213,7 +215,11 @@ export function dataset<Runtime extends AnyDatasetRuntime>(
         if (!effectiveState.reactor) {
           throw new Error("dataset_reactor_required")
         }
-        await materializeSingleFileLikeSource(effectiveState, onlySource as any, targetDatasetId)
+        await getDatasetAgentMaterializers().materializeSingleFileLikeSource(
+          effectiveState,
+          onlySource as any,
+          targetDatasetId,
+        )
         return finalizeOutputResult(
           await finalizeBuildResult(effectiveState.runtime, targetDatasetId, effectiveState.first),
           effectiveState.output,
@@ -226,7 +232,7 @@ export function dataset<Runtime extends AnyDatasetRuntime>(
       if (!effectiveState.reactor) {
         throw new Error("dataset_reactor_required")
       }
-      await materializeDerivedDataset(effectiveState, targetDatasetId)
+      await getDatasetAgentMaterializers().materializeDerivedDataset(effectiveState, targetDatasetId)
       return finalizeOutputResult(
         await finalizeBuildResult(effectiveState.runtime, targetDatasetId, effectiveState.first),
         effectiveState.output,

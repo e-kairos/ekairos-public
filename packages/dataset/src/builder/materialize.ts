@@ -1,6 +1,10 @@
-import { createFileParseStory } from "../file/file-dataset.agent.js"
-import { DatasetService } from "../service.js"
-import { createTransformDatasetStory } from "../transform/transform-dataset.agent.js"
+import { createFileParseContext } from "../file/file-dataset.agent.js"
+import { createTransformDatasetContext } from "../transform/transform-dataset.agent.js"
+import {
+  datasetInferAndUpdateSchemaStep,
+  datasetReadOneStep,
+} from "../dataset/steps.js"
+import { registerDatasetAgentMaterializers } from "./agentMaterializers.js"
 import {
   buildFileDefaultInstructions,
   buildRawSourceInstructions,
@@ -8,12 +12,10 @@ import {
 } from "./instructions.js"
 import {
   createOrUpdateDatasetMetadata,
-  getDatasetDb,
-  materializeRowsToDataset,
   uploadInlineTextSource,
 } from "./persistence.js"
-import { inferDatasetSchema } from "./schemaInference.js"
-import { getDomainDescriptor, normalizeQueryRows } from "./sourceRows.js"
+import { getDomainDescriptor } from "./sourceRows.js"
+import { materializeQuerySource } from "./materializeQuery.js"
 import type {
   AnyDatasetRuntime,
   DatasetBuilderState,
@@ -23,50 +25,6 @@ import type {
 
 function makeIntermediateDatasetId(targetDatasetId: string, sourceKind: string, index: number) {
   return `${targetDatasetId}__${sourceKind}_${index}`
-}
-
-export async function materializeQuerySource<Runtime extends AnyDatasetRuntime>(
-  runtime: DatasetBuilderState<Runtime>["runtime"],
-  source: Extract<InternalSource, { kind: "query" }>,
-  params: {
-    datasetId: string
-    sandboxId?: string
-    schema?: DatasetSchemaInput
-    title?: string
-    instructions?: string
-    first?: boolean
-  },
-) {
-  const scoped = await (runtime as any).use(source.domain)
-  const result = await (scoped.db as any).query(source.query as any)
-  const rows = normalizeQueryRows(result)
-  const domainDescriptor = getDomainDescriptor(source.domain)
-
-  return await materializeRowsToDataset(runtime, {
-    datasetId: params.datasetId,
-    sandboxId: params.sandboxId,
-    title: params.title ?? source.title,
-    instructions: params.instructions,
-    sources: [
-      {
-        kind: "query",
-        query: source.query,
-        title: source.title,
-        explanation: source.explanation,
-        ...domainDescriptor,
-      },
-    ],
-    sourceKinds: ["query"],
-    analysis: {
-      query: source.query,
-      explanation: source.explanation,
-      ...domainDescriptor,
-    },
-    rows,
-    schema: params.schema,
-    inferSchema: !params.schema,
-    first: params.first,
-  })
 }
 
 export async function materializeSingleFileLikeSource<Runtime extends AnyDatasetRuntime>(
@@ -106,40 +64,26 @@ export async function materializeSingleFileLikeSource<Runtime extends AnyDataset
     status: "building",
   })
 
-  const parseStory = createFileParseStory<typeof state.env>(fileId, {
+  const parseContext = createFileParseContext<typeof state.env>(fileId, {
     datasetId: targetDatasetId,
     instructions: state.instructions ?? buildFileDefaultInstructions(state.outputSchema),
     reactor: state.reactor as any,
     sandboxId: state.sandboxId,
   })
 
-  await parseStory.parse(state.env)
+  await parseContext.parse(state.runtime as any, { durable: state.durable })
 
   if (!state.outputSchema) {
-    const db = await getDatasetDb(state.runtime)
-    const service = new DatasetService(db)
-    const readResult = await service.readRows({ datasetId: targetDatasetId, cursor: 0, limit: 1000 })
-    if (!readResult.ok) {
-      throw new Error(readResult.error)
-    }
-    const inferred = inferDatasetSchema(readResult.data.rows, `${targetDatasetId}Row`, "One dataset row")
-    const updateResult = await service.updateDatasetSchema({
+    await datasetInferAndUpdateSchemaStep({
+      runtime: state.runtime,
       datasetId: targetDatasetId,
-      schema: inferred,
-      status: "completed",
+      title: `${targetDatasetId}Row`,
+      description: "One dataset row",
     })
-    if (!updateResult.ok) {
-      throw new Error(updateResult.error)
-    }
   }
 
   if (state.first) {
-    const db = await getDatasetDb(state.runtime)
-    const service = new DatasetService(db)
-    const firstResult = await service.readOne(targetDatasetId)
-    if (!firstResult.ok) {
-      throw new Error(firstResult.error)
-    }
+    await datasetReadOneStep({ runtime: state.runtime, datasetId: targetDatasetId })
   }
 
   return targetDatasetId
@@ -229,7 +173,7 @@ export async function materializeDerivedDataset<Runtime extends AnyDatasetRuntim
     status: "building",
   })
 
-  const transformStory = createTransformDatasetStory<typeof state.env>({
+  const transformContext = createTransformDatasetContext<typeof state.env>({
     sourceDatasetIds: normalizedSources,
     outputSchema: transformSchema,
     instructions: buildTransformInstructions(normalizedSources.length, state.instructions, state.outputSchema),
@@ -238,32 +182,25 @@ export async function materializeDerivedDataset<Runtime extends AnyDatasetRuntim
     sandboxId: state.sandboxId,
   })
 
-  await transformStory.transform(state.env)
+  await transformContext.transform(state.runtime as any, { durable: state.durable })
 
-  const db = await getDatasetDb(state.runtime)
-  const service = new DatasetService(db)
   if (!state.outputSchema) {
-    const readResult = await service.readRows({ datasetId: targetDatasetId, cursor: 0, limit: 1000 })
-    if (!readResult.ok) {
-      throw new Error(readResult.error)
-    }
-    const inferred = inferDatasetSchema(readResult.data.rows, `${targetDatasetId}Row`, "One dataset row")
-    const updateResult = await service.updateDatasetSchema({
+    await datasetInferAndUpdateSchemaStep({
+      runtime: state.runtime,
       datasetId: targetDatasetId,
-      schema: inferred,
-      status: "completed",
+      title: `${targetDatasetId}Row`,
+      description: "One dataset row",
     })
-    if (!updateResult.ok) {
-      throw new Error(updateResult.error)
-    }
   }
 
   if (state.first) {
-    const firstResult = await service.readOne(targetDatasetId)
-    if (!firstResult.ok) {
-      throw new Error(firstResult.error)
-    }
+    await datasetReadOneStep({ runtime: state.runtime, datasetId: targetDatasetId })
   }
 
   return targetDatasetId
 }
+
+registerDatasetAgentMaterializers({
+  materializeSingleFileLikeSource,
+  materializeDerivedDataset,
+})

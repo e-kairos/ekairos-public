@@ -11,10 +11,10 @@ const MAX_STDERR_CHARS = 5000
 interface ExecuteCommandToolParams {
     datasetId: string
     sandboxId: string
-    env?: any
+    runtime: any
 }
 
-export function createExecuteCommandTool({ datasetId, sandboxId, env }: ExecuteCommandToolParams) {
+export function createExecuteCommandTool({ datasetId, sandboxId, runtime }: ExecuteCommandToolParams) {
     return tool({
         description: "Execute Python scripts in the sandbox. Always saves script to a file before executing. The tool's output is EXACTLY the script's stdout and includes the script file path for traceability. CRITICAL: Print concise, human-readable summaries only; do NOT print raw large data. For big results, write artifacts to files in the workstation and print their file paths. Always include progress/result prints (e.g., 'Processing file X...', 'Found Y records', 'Generated output.csv').",
         inputSchema: z.object({
@@ -35,7 +35,7 @@ export function createExecuteCommandTool({ datasetId, sandboxId, env }: ExecuteC
 
             try {
                 await writeDatasetSandboxFilesStep({
-                    env,
+                    runtime,
                     sandboxId,
                     files: [
                         {
@@ -49,7 +49,7 @@ export function createExecuteCommandTool({ datasetId, sandboxId, env }: ExecuteC
                 console.log(`[Dataset ${datasetId}] Executing: python ${scriptFile}`)
 
                 const result = await runDatasetSandboxCommandStep({
-                    env,
+                    runtime,
                     sandboxId,
                     cmd: "python",
                     args: [scriptFile],

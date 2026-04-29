@@ -1,7 +1,7 @@
-import { createContext, didToolExecute, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
+import { createContext, INPUT_TEXT_ITEM_TYPE, WEB_CHANNEL, type ContextReactor } from "@ekairos/events"
 import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
 import { createGenerateSchemaTool } from "./generateSchema.tool.js"
-import { createCompleteDatasetTool } from "../completeDataset.tool.js"
+import { createCompleteDatasetTool, didCompleteDatasetSucceed } from "../completeDataset.tool.js"
 import { createExecuteCommandTool } from "../executeCommand.tool.js"
 import { createClearDatasetTool } from "../clearDataset.tool.js"
 import { buildFileDatasetPrompt } from "./prompts.js"
@@ -10,9 +10,8 @@ import { id } from "@instantdb/admin"
 import { getDatasetWorkstation } from "../datasetFiles.js"
 import { readInstantFileStep } from "./steps.js"
 import { datasetGetByIdStep } from "../dataset/steps.js"
-import { createEventsReactRuntime } from "../eventsReactRuntime.js"
 
-export type FileParseStoryContext = {
+export type FileParseContext = {
     datasetId: string
     fileId: string
     instructions: string
@@ -28,13 +27,27 @@ export type FileParseStoryContext = {
     filePreview?: FilePreviewContext
 }
 
-export type FileParseStoryParams = {
+export type FileParseContextParams = {
     fileId: string
     instructions?: string
     sandboxId?: string
     datasetId?: string
     model?: string
     reactor?: ContextReactor<any, any>
+}
+
+export type FileParseRunOptions = {
+    prompt?: string
+    durable?: boolean
+}
+
+async function awaitContextRun(run: any) {
+    if (!run) return
+    if (run.returnValue) {
+        await run.returnValue
+        return
+    }
+    await run
 }
 
 // Sandbox initialization state (closure-based)
@@ -44,7 +57,7 @@ type SandboxState = {
 }
 
 async function initializeSandbox(
-    env: any,
+    runtime: any,
     sandboxId: string,
     datasetId: string,
     fileId: string,
@@ -54,14 +67,14 @@ async function initializeSandbox(
         return state.filePath
     }
 
-    console.log(`[FileParseStory ${datasetId}] Initializing sandbox...`)
+    console.log(`[FileParseContext ${datasetId}] Initializing sandbox...`)
 
-    await ensurePreviewScriptsAvailable(env, sandboxId)
+    await ensurePreviewScriptsAvailable(runtime, sandboxId)
 
-    console.log(`[FileParseStory ${datasetId}] Installing Python dependencies...`)
+    console.log(`[FileParseContext ${datasetId}] Installing Python dependencies...`)
 
     const pipInstall = await runDatasetSandboxCommandStep({
-        env,
+        runtime,
         sandboxId,
         cmd: "python",
         args: ["-m", "pip", "install", "pandas", "openpyxl", "--quiet", "--upgrade"],
@@ -72,14 +85,14 @@ async function initializeSandbox(
         throw new Error(`pip install failed: ${installStderr.substring(0, 300)}`)
     }
 
-    console.log(`[FileParseStory ${datasetId}] Fetching file from InstantDB...`)
-    const file = await readInstantFileStep({ env, fileId })
+    console.log(`[FileParseContext ${datasetId}] Fetching file from InstantDB...`)
+    const file = await readInstantFileStep({ runtime, fileId })
 
-    console.log(`[FileParseStory ${datasetId}] Creating dataset workstation...`)
+    console.log(`[FileParseContext ${datasetId}] Creating dataset workstation...`)
 
     const workstation = getDatasetWorkstation(datasetId)
     await runDatasetSandboxCommandStep({
-        env,
+        runtime,
         sandboxId,
         cmd: "mkdir",
         args: ["-p", workstation],
@@ -90,7 +103,7 @@ async function initializeSandbox(
     const sandboxFilePath = `${workstation}/${fileId}${fileExtension}`
 
     await writeDatasetSandboxFilesStep({
-        env,
+        runtime,
         sandboxId,
         files: [
         {
@@ -100,8 +113,8 @@ async function initializeSandbox(
         ],
     })
 
-    console.log(`[FileParseStory ${datasetId}] ✅ Workstation created: ${workstation}`)
-    console.log(`[FileParseStory ${datasetId}] ✅ File saved: ${sandboxFilePath}`)
+    console.log(`[FileParseContext ${datasetId}] ✅ Workstation created: ${workstation}`)
+    console.log(`[FileParseContext ${datasetId}] ✅ File saved: ${sandboxFilePath}`)
 
     state.filePath = sandboxFilePath
     state.initialized = true
@@ -109,9 +122,9 @@ async function initializeSandbox(
     return sandboxFilePath
 }
 
-export type FileParseStoryBuilder<Env extends { orgId: string }> = {
+export type FileParseContextBuilder<Env extends { orgId: string }> = {
     datasetId: string
-    story: ReturnType<ReturnType<typeof createContext<Env>>["context"]> extends any ? any : any
+    context: ReturnType<ReturnType<typeof createContext<Env>>["context"]> extends any ? any : any
 }
 
 export type DatasetResult = {
@@ -127,7 +140,7 @@ export type DatasetResult = {
 }
 
 /**
- * FileParseStory
+ * FileParseContext
  *
  * Uso:
  * - Crear una instancia con `fileId`, `instructions` y un `sandbox`
@@ -136,14 +149,14 @@ export type DatasetResult = {
  *
  * Internamente corre un Context (`createContext("file.parse")`) que itera hasta que se ejecuta el tool `completeDataset`.
  */
-function createFileParseStoryDefinition<Env extends { orgId: string }>(
-    params: FileParseStoryParams
-): { datasetId: string; story: any } {
+function createFileParseContextDefinition<Env extends { orgId: string }>(
+    params: FileParseContextParams
+): { datasetId: string; context: any } {
     const datasetId = params.datasetId ?? id()
     const model = params.model ?? "openai/gpt-5"
 
-    let storyBuilder = createContext<Env>("file.parse")
-        .context(async (stored: any, env: Env) => {
+    let contextBuilder = createContext<Env>("file.parse")
+        .context(async (stored: any, _env: Env, runtime: any) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: SandboxState = previous?.sandboxState ?? { initialized: false, filePath: "" }
             const sandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
@@ -152,7 +165,7 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
             }
 
         const sandboxFilePath = await initializeSandbox(
-                env,
+                runtime,
                 sandboxId,
             datasetId,
                 params.fileId,
@@ -161,16 +174,16 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
 
         let filePreview: FilePreviewContext | undefined = undefined
         try {
-                filePreview = await generateFilePreview(env, sandboxId, sandboxFilePath, datasetId)
+                filePreview = await generateFilePreview(runtime, sandboxId, sandboxFilePath, datasetId)
         } catch {
                 // optional
         }
 
         let schema: any | null = null
-            const datasetResult = await datasetGetByIdStep({ env, datasetId })
+            const datasetResult = await datasetGetByIdStep({ runtime, datasetId })
             if (datasetResult.ok && datasetResult.data.schema) schema = datasetResult.data.schema
 
-            const ctx: FileParseStoryContext = {
+            const ctx: FileParseContext = {
             datasetId,
                 fileId: params.fileId,
                 instructions: params.instructions ?? "",
@@ -195,7 +208,7 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
             }
         })
         .narrative(async (stored: any) => {
-            const ctx: FileParseStoryContext = stored?.content?.ctx
+            const ctx: FileParseContext = stored?.content?.ctx
             const base = buildFileDatasetPrompt(ctx)
             const userInstructions = String(ctx?.instructions ?? "").trim()
             if (!userInstructions) return base
@@ -209,23 +222,23 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
                 base,
             ].join("\n")
         })
-        .actions(async (_stored: any, env: Env) => {
+        .actions(async (_stored: any, _env: Env, runtime: any) => {
             const existingSchema = (_stored?.content?.ctx?.schema as any)?.schema
             const actions: Record<string, any> = {
                 executeCommand: createExecuteCommandTool({
                     datasetId,
                     sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
-                    env,
+                    runtime,
                 }),
                 completeDataset: createCompleteDatasetTool({
                     datasetId,
                     sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
-                    env,
+                    runtime,
                 }),
                 clearDataset: createClearDatasetTool({
                     datasetId,
                     sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
-                    env,
+                    runtime,
                 }),
             }
 
@@ -233,38 +246,38 @@ function createFileParseStoryDefinition<Env extends { orgId: string }>(
                 actions.generateSchema = createGenerateSchemaTool({
                     datasetId,
                     fileId: params.fileId,
-                    env,
+                    runtime,
                 })
             }
 
             return actions as any
         })
             .shouldContinue(({ reactionEvent }: { reactionEvent: any }) => {
-            return !didToolExecute(reactionEvent as any, "completeDataset")
+            return !didCompleteDatasetSucceed(reactionEvent as any)
         })
         
     if (params.reactor) {
-        storyBuilder = storyBuilder.reactor(params.reactor as any)
+        contextBuilder = contextBuilder.reactor(params.reactor as any)
     } else {
-        storyBuilder = storyBuilder.model(model)
+        contextBuilder = contextBuilder.model(model)
     }
 
-    const story = storyBuilder.build()
+    const context = contextBuilder.build()
 
-    return { datasetId, story }
+    return { datasetId, context }
 }
 
 /**
  * Factory (DX-first):
  *
  * Usage:
- *   const { datasetId } = await createFileParseStory(fileId, { instructions }).parse(env)
+ *   const { datasetId } = await createFileParseContext(fileId, { instructions }).parse(runtime)
  *
- * - No `db` is accepted/stored (workflow-safe).
- * - All I/O happens in `"use step"` functions via Ekairos runtime (`getContextRuntime(env).db`).
- * - `parse()` is the entrypoint; it calls `story.react(...)` internally.
+ * - Uses the caller runtime; no secondary runtime is created.
+ * - All I/O happens in `"use step"` functions via the provided Ekairos runtime.
+ * - `parse()` is the entrypoint; it calls `context.react(...)` internally.
  */
-export function createFileParseStory<Env extends { orgId: string }>(
+export function createFileParseContext<Env extends { orgId: string }>(
     fileId: string,
     opts?: {
         instructions?: string
@@ -274,7 +287,7 @@ export function createFileParseStory<Env extends { orgId: string }>(
         reactor?: ContextReactor<any, any>
     },
 ) {
-    const params: FileParseStoryParams = {
+    const params: FileParseContextParams = {
         fileId,
         instructions: opts?.instructions,
         sandboxId: opts?.sandboxId,
@@ -282,34 +295,33 @@ export function createFileParseStory<Env extends { orgId: string }>(
         model: opts?.model,
         reactor: opts?.reactor,
     }
-    const { datasetId, story } = createFileParseStoryDefinition<Env>(params)
+    const { datasetId, context } = createFileParseContextDefinition<Env>(params)
 
     return {
         datasetId,
-        async parse(env?: Env, prompt?: string): Promise<{ datasetId: string }> {
+        async parse(runtime: { env: Env }, options: FileParseRunOptions = {}): Promise<{ datasetId: string }> {
         const triggerEvent = {
             id: id(),
             type: INPUT_TEXT_ITEM_TYPE,
             channel: WEB_CHANNEL,
             createdAt: new Date().toISOString(),
             content: {
-                    parts: [{ type: "text", text: prompt ?? "generate a dataset for this file" }],
+                    parts: [{ type: "text", text: options.prompt ?? "generate a dataset for this file" }],
             },
         } as any
 
-        const runtime = createEventsReactRuntime((env ?? ({} as any)) as Env)
-        const shell = await story.react(triggerEvent, {
-                runtime,
+        const shell = await context.react(triggerEvent, {
+                runtime: runtime as any,
                 context: { key: `dataset:${datasetId}` },
-                durable: false,
+                durable: options.durable ?? false,
             options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 20, maxModelSteps: 5 },
         })
-        await shell.run!
+        await awaitContextRun(shell.run)
 
             return { datasetId }
         },
-        // Optional: expose the built story for advanced callers (not required for parse DX)
-        story,
+        // Optional: expose the built context for advanced callers (not required for parse DX)
+        context,
     }
 }
 

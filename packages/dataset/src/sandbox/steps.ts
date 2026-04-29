@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process"
 import { promises as fs } from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
-import { getContextRuntime } from "@ekairos/events/runtime"
+import { SandboxService } from "@ekairos/sandbox"
 
 const execFileAsync = promisify(execFile)
 const localSandboxRoots = new Map<string, string>()
@@ -11,7 +10,7 @@ const localSandboxRoots = new Map<string, string>()
 export type DatasetSandboxId = string
 
 export type CreateDatasetSandboxParams = {
-  runtime?: string
+  sandboxRuntime?: string
   timeoutMs?: number
   ports?: number[]
   resources?: { vcpus?: number }
@@ -27,6 +26,15 @@ export type DatasetSandboxRunCommandResult = {
 
 function isLocalDatasetSandboxMode() {
   return String(process.env.DATASET_TEST_LOCAL_SANDBOX ?? "").trim() === "1"
+}
+
+async function getRuntimeDb(runtime: any) {
+  if (!runtime) {
+    throw new Error("Dataset sandbox step requires runtime.")
+  }
+
+  const db = runtime.db
+  return typeof db === "function" ? await db.call(runtime) : db
 }
 
 function getLocalSandboxRoot(sandboxId: string) {
@@ -91,7 +99,7 @@ async function runLocalSandboxCommand(params: {
 }
 
 export async function createDatasetSandboxStep(
-  params: { env: any } & CreateDatasetSandboxParams,
+  params: { runtime: any } & CreateDatasetSandboxParams,
 ): Promise<{ sandboxId: DatasetSandboxId }> {
   "use step"
 
@@ -101,16 +109,17 @@ export async function createDatasetSandboxStep(
     return { sandboxId }
   }
 
-  const db = (await getContextRuntime(params.env) as any).db
-  const { SandboxService } = (await import("@ekairos/sandbox")) as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new SandboxService(db)
-  const created = await service.createSandbox(params)
+  const sandboxParams = { ...params, runtime: params.sandboxRuntime } as any
+  delete sandboxParams.sandboxRuntime
+  const created = await service.createSandbox(sandboxParams)
   if (!created.ok) throw new Error(created.error)
   return { sandboxId: created.data.sandboxId }
 }
 
 export async function runDatasetSandboxCommandStep(params: {
-  env: any
+  runtime: any
   sandboxId: DatasetSandboxId
   cmd: string
   args?: string[]
@@ -125,8 +134,7 @@ export async function runDatasetSandboxCommandStep(params: {
     })
   }
 
-  const db = (await getContextRuntime(params.env) as any).db
-  const { SandboxService } = (await import("@ekairos/sandbox")) as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new SandboxService(db)
   const result = await service.runCommand(params.sandboxId, params.cmd, params.args ?? [])
   if (!result.ok) throw new Error(result.error)
@@ -138,7 +146,7 @@ export async function runDatasetSandboxCommandStep(params: {
 }
 
 export async function writeDatasetSandboxFilesStep(params: {
-  env: any
+  runtime: any
   sandboxId: DatasetSandboxId
   files: Array<{ path: string; contentBase64: string }>
 }): Promise<void> {
@@ -152,15 +160,14 @@ export async function writeDatasetSandboxFilesStep(params: {
     return
   }
 
-  const db = (await getContextRuntime(params.env) as any).db
-  const { SandboxService } = (await import("@ekairos/sandbox")) as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new SandboxService(db)
   const result = await service.writeFiles(params.sandboxId, params.files)
   if (!result.ok) throw new Error(result.error)
 }
 
 export async function readDatasetSandboxFileStep(params: {
-  env: any
+  runtime: any
   sandboxId: DatasetSandboxId
   path: string
 }): Promise<{ contentBase64: string }> {
@@ -171,15 +178,14 @@ export async function readDatasetSandboxFileStep(params: {
     return { contentBase64: Buffer.from(content).toString("base64") }
   }
 
-  const db = (await getContextRuntime(params.env) as any).db
-  const { SandboxService } = (await import("@ekairos/sandbox")) as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new SandboxService(db)
   const result = await service.readFile(params.sandboxId, params.path)
   if (!result.ok) throw new Error(result.error)
   return result.data
 }
 
-export async function stopDatasetSandboxStep(params: { env: any; sandboxId: DatasetSandboxId }): Promise<void> {
+export async function stopDatasetSandboxStep(params: { runtime: any; sandboxId: DatasetSandboxId }): Promise<void> {
   "use step"
 
   if (isLocalDatasetSandboxMode()) {
@@ -189,8 +195,7 @@ export async function stopDatasetSandboxStep(params: { env: any; sandboxId: Data
     return
   }
 
-  const db = (await getContextRuntime(params.env) as any).db
-  const { SandboxService } = (await import("@ekairos/sandbox")) as any
+  const db = await getRuntimeDb(params.runtime)
   const service = new SandboxService(db)
   const result = await service.stopSandbox(params.sandboxId)
   if (!result.ok) throw new Error(result.error)
