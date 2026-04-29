@@ -1162,7 +1162,7 @@ export abstract class ContextEngine<
           returnValueHookPromise = Promise.resolve(hook)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
-          if (!message.includes("createHook() can only be called inside a workflow function")) {
+          if (!message.includes("can only be called inside a workflow function")) {
             throw error
           }
         }
