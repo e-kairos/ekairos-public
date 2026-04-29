@@ -191,6 +191,7 @@ export type ContextReactParams<
     execution: ContextExecution
     returnValueHookToken?: string | null
   }
+  __initialContent?: unknown
   __benchmark?: ContextBenchmarkRecorder
 }
 
@@ -494,6 +495,12 @@ function unwrapContextReturnValueHookPayload<Context>(
     error.stack = payload.error.stack
   }
   throw error
+}
+
+function isEmptyContextContent(content: unknown) {
+  if (content == null) return true
+  if (typeof content !== "object") return false
+  return Object.keys(content as Record<string, unknown>).length === 0
 }
 
 type ContextStepPatch = {
@@ -1120,6 +1127,17 @@ export abstract class ContextEngine<
     }
 
     const shell = await ContextEngine.prepareExecutionShell(story, triggerEvent, params)
+    if (
+      params.__initialContent !== undefined &&
+      isEmptyContextContent(shell.currentContext.content)
+    ) {
+      const ops = await getContextEngineOps<Context>(runtimeHandle as Runtime, params.__benchmark)
+      const initialContent = params.__initialContent as Context
+      shell.currentContext = await ops.updateContextContent(
+        shell.contextSelector,
+        initialContent,
+      )
+    }
 
     let run:
       | {

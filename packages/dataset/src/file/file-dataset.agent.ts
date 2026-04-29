@@ -28,7 +28,7 @@ export type FileParseContext = {
 }
 
 export type FileParseContextParams = {
-    fileId: string
+    fileId?: string
     instructions?: string
     sandboxId?: string
     datasetId?: string
@@ -63,6 +63,8 @@ async function initializeSandbox(
     fileId: string,
     state: SandboxState
 ): Promise<string> {
+    "use step"
+
     if (state.initialized) {
         return state.filePath
     }
@@ -152,14 +154,23 @@ export type DatasetResult = {
 function createFileParseContextDefinition<Env extends { orgId: string }>(
     params: FileParseContextParams
 ): { datasetId: string; context: any } {
-    const datasetId = params.datasetId ?? id()
+    const fallbackDatasetId = params.datasetId
     const model = params.model ?? "openai/gpt-5"
 
     let contextBuilder = createContext<Env>("file.parse")
         .context(async (stored: any, _env: Env, runtime: any) => {
             const previous = (stored?.content as any) ?? {}
             const sandboxState: SandboxState = previous?.sandboxState ?? { initialized: false, filePath: "" }
+            const datasetId: string = previous?.datasetId ?? fallbackDatasetId ?? ""
+            const fileId: string = previous?.fileId ?? params.fileId ?? ""
+            const instructions: string = previous?.instructions ?? params.instructions ?? ""
             const sandboxId: string = previous?.sandboxId ?? params.sandboxId ?? ""
+            if (!datasetId) {
+                throw new Error("dataset_id_required")
+            }
+            if (!fileId) {
+                throw new Error("dataset_file_id_required")
+            }
             if (!sandboxId) {
                 throw new Error("dataset_sandbox_required")
             }
@@ -168,7 +179,7 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
                 runtime,
                 sandboxId,
             datasetId,
-                params.fileId,
+                fileId,
                 sandboxState,
         )
 
@@ -185,8 +196,8 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
 
             const ctx: FileParseContext = {
             datasetId,
-                fileId: params.fileId,
-                instructions: params.instructions ?? "",
+                fileId,
+                instructions,
             sandboxConfig: { filePath: sandboxFilePath },
             analysis: [],
             schema,
@@ -200,8 +211,8 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
             return {
                 ...previous,
                 datasetId,
-                fileId: params.fileId,
-                instructions: params.instructions ?? "",
+                fileId,
+                instructions,
                 sandboxId,
                 sandboxState,
                 ctx,
@@ -224,20 +235,26 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
         })
         .actions(async (_stored: any, _env: Env, runtime: any) => {
             const existingSchema = (_stored?.content?.ctx?.schema as any)?.schema
+            const datasetId: string = _stored?.content?.datasetId ?? fallbackDatasetId ?? ""
+            const fileId: string = _stored?.content?.fileId ?? params.fileId ?? ""
+            const sandboxId: string = (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? ""
+            if (!datasetId) throw new Error("dataset_id_required")
+            if (!fileId) throw new Error("dataset_file_id_required")
+            if (!sandboxId) throw new Error("dataset_sandbox_required")
             const actions: Record<string, any> = {
                 executeCommand: createExecuteCommandTool({
                     datasetId,
-                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
+                    sandboxId,
                     runtime,
                 }),
                 completeDataset: createCompleteDatasetTool({
                     datasetId,
-                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
+                    sandboxId,
                     runtime,
                 }),
                 clearDataset: createClearDatasetTool({
                     datasetId,
-                    sandboxId: (_stored?.content?.sandboxId as string) ?? params.sandboxId ?? "",
+                    sandboxId,
                     runtime,
                 }),
             }
@@ -245,7 +262,7 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
             if (!existingSchema) {
                 actions.generateSchema = createGenerateSchemaTool({
                     datasetId,
-                    fileId: params.fileId,
+                    fileId,
                     runtime,
                 })
             }
@@ -264,7 +281,7 @@ function createFileParseContextDefinition<Env extends { orgId: string }>(
 
     const context = contextBuilder.build()
 
-    return { datasetId, context }
+    return { datasetId: fallbackDatasetId ?? "", context }
 }
 
 /**
@@ -287,15 +304,16 @@ export function createFileParseContext<Env extends { orgId: string }>(
         reactor?: ContextReactor<any, any>
     },
 ) {
+    const datasetId = opts?.datasetId ?? id()
     const params: FileParseContextParams = {
         fileId,
         instructions: opts?.instructions,
         sandboxId: opts?.sandboxId,
-        datasetId: opts?.datasetId,
+        datasetId,
         model: opts?.model,
         reactor: opts?.reactor,
     }
-    const { datasetId, context } = createFileParseContextDefinition<Env>(params)
+    const { context } = createFileParseContextDefinition<Env>(params)
 
     return {
         datasetId,
@@ -315,6 +333,13 @@ export function createFileParseContext<Env extends { orgId: string }>(
                 context: { key: `dataset:${datasetId}` },
                 durable: options.durable ?? false,
             options: { silent: true, preventClose: true, sendFinish: false, maxIterations: 20, maxModelSteps: 5 },
+            __initialContent: {
+                datasetId,
+                fileId,
+                instructions: opts?.instructions ?? "",
+                sandboxId: opts?.sandboxId ?? "",
+                sandboxState: { initialized: false, filePath: "" },
+            },
         })
         await awaitContextRun(shell.run)
 
@@ -325,3 +350,16 @@ export function createFileParseContext<Env extends { orgId: string }>(
     }
 }
 
+export function registerFileParseContext<Env extends { orgId: string }>(
+    opts?: {
+        model?: string
+        reactor?: ContextReactor<any, any>
+    },
+) {
+    createFileParseContextDefinition<Env>({
+        model: opts?.model,
+        reactor: opts?.reactor,
+    }).context
+}
+
+registerFileParseContext()
