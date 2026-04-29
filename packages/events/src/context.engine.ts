@@ -1144,21 +1144,28 @@ export abstract class ContextEngine<
       let returnValueHookPromise: Promise<ContextReturnValueHookPayload<Context>> | null = null
 
       if (parentWorkflowRunId) {
-        const { createHook } = await import("workflow")
-        const hook = createHook<ContextReturnValueHookPayload<Context>>({
-          token: `context:return:${shell.execution.id}`,
-          metadata: {
-            kind: "context.returnValue",
-            contextId: shell.currentContext.id,
-            executionId: shell.execution.id,
+        try {
+          const { createHook } = await import("workflow")
+          const hook = createHook<ContextReturnValueHookPayload<Context>>({
+            token: `context:return:${shell.execution.id}`,
+            metadata: {
+              kind: "context.returnValue",
+              contextId: shell.currentContext.id,
+              executionId: shell.execution.id,
+              parentWorkflowRunId,
+            },
+          })
+          returnValueHook = {
+            token: hook.token,
             parentWorkflowRunId,
-          },
-        })
-        returnValueHook = {
-          token: hook.token,
-          parentWorkflowRunId,
+          }
+          returnValueHookPromise = Promise.resolve(hook)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          if (!message.includes("createHook() can only be called inside a workflow function")) {
+            throw error
+          }
         }
-        returnValueHookPromise = Promise.resolve(hook)
       }
 
       const payload = {
