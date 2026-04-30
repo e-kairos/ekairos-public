@@ -65,3 +65,42 @@ const _hasProjects: HasProjects = true;
 const _hasTasks: HasTasks = true;
 const _hasProjectOrganizationLink: HasProjectOrganizationLink = true;
 const _hasTasksProjectLink: HasTasksProjectLink = true;
+
+// given: one included domain owns the public attrs for an entity and the local
+// schema adds backend-only attrs to the same entity.
+const publicSandboxDomain = domain("includes-public-sandbox").schema({
+  entities: {
+    sandboxes: i.entity({
+      sandboxUrl: i.string().optional(),
+      status: i.string().indexed(),
+    }),
+  },
+  links: {},
+  rooms: {},
+});
+
+const fullSandboxDomain = domain("includes-full-sandbox")
+  .includes(publicSandboxDomain)
+  .schema({
+    entities: {
+      sandboxes: i.entity({
+        externalSandboxId: i.string().optional().indexed(),
+        providerConfig: i.json().optional(),
+      }),
+    },
+    links: {},
+    rooms: {},
+  });
+
+// then: the merged schema type exposes attrs from both definitions.
+type FullSandboxSchema = DomainInstantSchema<typeof fullSandboxDomain>;
+type FullSandboxAttrs = FullSandboxSchema["entities"]["sandboxes"]["attrs"];
+type HasSandboxUrl = "sandboxUrl" extends keyof FullSandboxAttrs ? true : false;
+type HasSandboxStatus = "status" extends keyof FullSandboxAttrs ? true : false;
+type HasExternalSandboxId = "externalSandboxId" extends keyof FullSandboxAttrs ? true : false;
+type HasProviderConfig = "providerConfig" extends keyof FullSandboxAttrs ? true : false;
+
+const _hasSandboxUrl: HasSandboxUrl = true;
+const _hasSandboxStatus: HasSandboxStatus = true;
+const _hasExternalSandboxId: HasExternalSandboxId = true;
+const _hasProviderConfig: HasProviderConfig = true;

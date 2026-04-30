@@ -442,12 +442,42 @@ type StripEntityLinks<E extends EntitiesDef> = {
     : E[K];
 };
 
+type StripEntityLinksValue<E> =
+  E extends EntityDef<infer Attrs, any, infer AsType>
+    ? EntityDef<Attrs, {}, AsType>
+    : E;
+
+type DuplicateEntityAttrKeys<AttrsA, AttrsB> =
+  string extends keyof AttrsA
+    ? never
+    : string extends keyof AttrsB
+      ? never
+      : Extract<keyof AttrsA, keyof AttrsB>;
+
+type MergeEntityAsType<AsA, AsB> =
+  [AsA] extends [void]
+    ? AsB
+    : [AsB] extends [void]
+      ? AsA
+      : Simplify<AsA & AsB>;
+
+type MergeEntityDefs<A, B> =
+  A extends EntityDef<infer AttrsA, any, infer AsA>
+    ? B extends EntityDef<infer AttrsB, any, infer AsB>
+      ? [DuplicateEntityAttrKeys<AttrsA, AttrsB>] extends [never]
+        ? EntityDef<Simplify<AttrsA & AttrsB>, {}, MergeEntityAsType<AsA, AsB>>
+        : never
+      : StripEntityLinksValue<B>
+    : StripEntityLinksValue<B>;
+
 // Merge entities from multiple sources (flatten + strip nested links)
 type MergeEntities<A extends EntitiesDef, B extends EntitiesDef> = Simplify<{
-  [K in keyof A | keyof B]: K extends keyof B
-    ? StripEntityLinks<B>[K]
-    : K extends keyof A
-      ? StripEntityLinks<A>[K]
+  [K in keyof A | keyof B]: K extends keyof A
+    ? K extends keyof B
+      ? MergeEntityDefs<StripEntityLinks<A>[K], StripEntityLinks<B>[K]>
+      : StripEntityLinks<A>[K]
+    : K extends keyof B
+      ? StripEntityLinks<B>[K]
       : never;
 }>;
 
@@ -1223,6 +1253,56 @@ function resolveIncludeNames(meta: DomainMeta | null): string[] {
   return Array.from(names);
 }
 
+function isRuntimeEntityDef(value: unknown): value is { attrs: Record<string, any> } {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "attrs" in value &&
+      (value as { attrs?: unknown }).attrs &&
+      typeof (value as { attrs?: unknown }).attrs === "object",
+  );
+}
+
+function stripRuntimeEntityLinks(entity: unknown) {
+  if (!isRuntimeEntityDef(entity)) return entity;
+  return i.entity({ ...entity.attrs } as any);
+}
+
+function mergeRuntimeEntityDefs(entityName: string, baseEntity: unknown, nextEntity: unknown) {
+  if (!isRuntimeEntityDef(baseEntity) || !isRuntimeEntityDef(nextEntity)) {
+    return stripRuntimeEntityLinks(nextEntity);
+  }
+
+  const duplicateAttrs = Object.keys(nextEntity.attrs).filter((attr) =>
+    Object.prototype.hasOwnProperty.call(baseEntity.attrs, attr),
+  );
+  if (duplicateAttrs.length > 0) {
+    throw new Error(`domain_duplicate_entity_attr:${entityName}.${duplicateAttrs.join(",")}`);
+  }
+
+  return i.entity({
+    ...baseEntity.attrs,
+    ...nextEntity.attrs,
+  } as any);
+}
+
+function mergeRuntimeEntities<A extends EntitiesDef, B extends EntitiesDef>(
+  baseEntities: A,
+  nextEntities: B,
+): MergeEntities<A, B> {
+  const merged: Record<string, unknown> = {};
+  for (const [entityName, entity] of Object.entries(baseEntities)) {
+    merged[entityName] = stripRuntimeEntityLinks(entity);
+  }
+  for (const [entityName, entity] of Object.entries(nextEntities)) {
+    merged[entityName] =
+      entityName in merged
+        ? mergeRuntimeEntityDefs(entityName, merged[entityName], entity)
+        : stripRuntimeEntityLinks(entity);
+  }
+  return merged as MergeEntities<A, B>;
+}
+
 function makeInstance<E extends EntitiesDef, L extends LinksDef<E>, R extends RoomsDef>(
   def: DomainDefinition<E, L, R>,
   metaIncludes: DomainIncludeRef[] = [],
@@ -1252,7 +1332,7 @@ function makeInstance<E extends EntitiesDef, L extends LinksDef<E>, R extends Ro
         ? { entities: other.entities, links: other.links, rooms: other.rooms }
         : other;
 
-    const mergedEntities = { ...def.entities, ...otherDef.entities } as E & E2;
+    const mergedEntities = mergeRuntimeEntities(def.entities, otherDef.entities) as E & E2;
     const mergedLinks = { ...(def.links as object), ...(otherDef.links as object) } as LinksDef<E & E2>;
     const mergedRooms = { ...def.rooms, ...otherDef.rooms } as R & R2;
 
@@ -1396,7 +1476,7 @@ export function domain(arg?: unknown): any {
           }
           
           const links = (other as any).links as L2 | undefined;
-          const mergedEntities = { ...deps, ...entities } as MergeEntities<AE, E2>;
+          const mergedEntities = mergeRuntimeEntities(deps, entities) as MergeEntities<AE, E2>;
           // Preserve literal link keys by merging directly (not casting to LinksDef)
           const mergedLinks = (links ? { ...linkDeps, ...links } : { ...linkDeps }) as MergeLinks<AL, L2>;
           const includeRef = () => other as any;
@@ -1422,7 +1502,8 @@ export function domain(arg?: unknown): any {
       }): DomainSchemaResult<MergeEntities<AE, LE>, MergeLinks<AL, LL>, RoomsDef, {}, Name, IncludedNames> {
         // Resolve lazy includes at schema() time (when all domains should be initialized)
         // This handles circular dependencies by deferring entity resolution
-        let resolvedDeps = { ...deps };
+        let resolvedDeps: EntitiesDef = { ...deps };
+        const pendingLazyIncludes: typeof lazyIncludes = [];
         // Preserve literal link keys from accumulated links
         let resolvedLinks: AL = { ...linkDeps } as AL;
         for (const lazyGetter of lazyIncludes) {
@@ -1431,22 +1512,25 @@ export function domain(arg?: unknown): any {
             if (other) {
               const entities = (other as any).entities as EntitiesDef;
               if (entities) {
-                resolvedDeps = { ...resolvedDeps, ...entities };
+                resolvedDeps = mergeRuntimeEntities(resolvedDeps, entities) as EntitiesDef;
               }
               const links = (other as any).links as LinksDef<any>;
               if (links) {
                 // Merge links preserving literal keys
                 resolvedLinks = { ...resolvedLinks, ...links } as AL;
               }
+            } else {
+              pendingLazyIncludes.push(lazyGetter);
             }
           } catch (e) {
             // If lazy resolution fails, continue - entities might be available via string references
             // This is expected for circular dependencies that will be resolved when all domains are composed
+            pendingLazyIncludes.push(lazyGetter);
           }
         }
         
         // Runtime merge for output; compile-time validation handled by types above
-        const allEntities = { ...resolvedDeps, ...def.entities } as MergeEntities<AE, LE>;
+        const allEntities = mergeRuntimeEntities(resolvedDeps as AE, def.entities) as MergeEntities<AE, LE>;
         // allLinks contains merged links from included domains + current domain
         // Preserve literal link keys (owner, related, parent, etc.) by using MergeLinks
         const allLinks = { ...resolvedLinks, ...def.links } as MergeLinks<AL, LL>;
@@ -1474,18 +1558,18 @@ export function domain(arg?: unknown): any {
               return cachedInstantSchema;
             }
 
-            let finalEntities = { ...capturedEntities };
+            let finalEntities: EntitiesDef = { ...capturedEntities } as EntitiesDef;
             let finalLinks = cloneLinksDef(capturedLinks);
             let hasUnresolvedIncludes = false;
 
             // Try to resolve lazy includes one more time (domains should be initialized by now)
-            for (const lazyGetter of lazyIncludes) {
+            for (const lazyGetter of pendingLazyIncludes) {
               try {
                 const other = lazyGetter();
                 if (other) {
                   const entities = (other as any).entities as EntitiesDef;
                   if (entities) {
-                    finalEntities = { ...finalEntities, ...entities };
+                    finalEntities = mergeRuntimeEntities(finalEntities, entities) as EntitiesDef;
                   }
                   const links = (other as any).links as LinksDef<any>;
                   if (links) {

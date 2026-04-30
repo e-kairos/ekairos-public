@@ -5,9 +5,6 @@ import { domain } from "@ekairos/domain"
 export const sandboxSchemaDomain = domain("sandbox").withSchema({
   entities: {
     sandbox_sandboxes: i.entity({
-      externalSandboxId: i.string().optional().indexed(),
-      sandboxUserId: i.string().optional().indexed(),
-      provider: i.string().indexed(),
       sandboxUrl: i.string().optional(),
       status: i.string().indexed(),
       timeout: i.number().optional(),
@@ -15,7 +12,6 @@ export const sandboxSchemaDomain = domain("sandbox").withSchema({
       vcpus: i.number().optional(),
       ports: i.json().optional(),
       purpose: i.string().optional().indexed(),
-      params: i.json().optional(),
       createdAt: i.number().indexed(),
       updatedAt: i.number().optional().indexed(),
       shutdownAt: i.number().optional().indexed(),

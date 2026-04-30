@@ -7,6 +7,13 @@ export const sandboxSchemaDomain = domain("sandbox")
   .includes(publicSandboxDomain)
   .withSchema({
     entities: {
+      sandbox_sandboxes: i.entity({
+        externalSandboxId: i.string().optional().indexed(),
+        sandboxUserId: i.string().optional().indexed(),
+        provider: i.string().indexed(),
+        providerConfig: i.json().optional(),
+        params: i.json().optional(),
+      }),
       sandbox_processes: i.entity({
         kind: i.string().indexed(),
         mode: i.string().indexed(),
