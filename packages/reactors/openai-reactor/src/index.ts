@@ -14,3 +14,14 @@ export {
   type CodexStreamTrace,
   type CreateCodexReactorOptions,
 } from "./codex.reactor.js"
+
+export {
+  createOpenAIResponsesReactor,
+  executeOpenAIResponsesReactionStep,
+  resolveOpenAIResponsesWebSocketUrl,
+  type CreateOpenAIResponsesReactorOptions,
+  type OpenAIResponsesConfig,
+  type OpenAIResponsesMappedChunk,
+  type OpenAIResponsesReactionStepArgs,
+  type OpenAIResponsesStreamTrace,
+} from "./responses.reactor.js"
