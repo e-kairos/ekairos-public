@@ -45,6 +45,31 @@ function resolveScriptPath(scriptName: string): string {
 const preparedSandboxIds = new Set<string>()
 const sandboxSetupPromises = new Map<string, Promise<void>>()
 
+type PreviewKind = "excel" | "text"
+
+function sanitizePreviewText(value: unknown): string {
+    return String(value ?? "")
+        .replace(/\u0000/g, "")
+        .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+}
+
+function getPreviewKind(extension: string): PreviewKind | null {
+    const normalized = extension.toLowerCase()
+    if (normalized === ".xlsx" || normalized === ".xls") return "excel"
+    if (
+        normalized === ".csv" ||
+        normalized === ".tsv" ||
+        normalized === ".txt" ||
+        normalized === ".log" ||
+        normalized === ".json" ||
+        normalized === ".jsonl" ||
+        normalized === ".md"
+    ) {
+        return "text"
+    }
+    return null
+}
+
 function validateScriptResult(result: { stderr: string; stdout: string }, context: string): void
 {
     if (!result.stderr)
@@ -149,13 +174,13 @@ export async function generateFilePreview(
         )
         context.metadata = metadataResult
 
-        let isExcel = false
+        let previewKind: PreviewKind | null = null
         if (metadataResult.stdout) {
             try {
                 const metadataJson = JSON.parse(metadataResult.stdout)
                 context.totalRows = metadataJson.row_count_estimate || 0
                 const extension = metadataJson.extension || ""
-                isExcel = extension === ".xlsx" || extension === ".xls"
+                previewKind = getPreviewKind(extension)
             }
             catch {
                 console.warn(`[Dataset ${datasetId}] Failed to parse metadata JSON`)
@@ -171,9 +196,14 @@ export async function generateFilePreview(
             return context
         }
 
-        const headScript = isExcel ? "preview_head_excel.py" : "preview_head_csv.py"
-        const tailScript = isExcel ? "preview_tail_excel.py" : "preview_tail_csv.py"
-        const midScript = isExcel ? "preview_mid_excel.py" : "preview_mid_csv.py"
+        if (!previewKind) {
+            console.log(`[Dataset ${datasetId}] Binary or unsupported preview format, keeping metadata only`)
+            return context
+        }
+
+        const headScript = previewKind === "excel" ? "preview_head_excel.py" : "preview_head_csv.py"
+        const tailScript = previewKind === "excel" ? "preview_tail_excel.py" : "preview_tail_csv.py"
+        const midScript = previewKind === "excel" ? "preview_mid_excel.py" : "preview_mid_csv.py"
 
         if (totalRows <= headLines) {
             console.log(`[Dataset ${datasetId}] File has ${totalRows} rows, reading all with head only`)
@@ -288,8 +318,8 @@ async function runScript(
             description,
             script: scriptContent,
             command,
-            stdout: result.stdout || "",
-            stderr: result.stderr || "",
+            stdout: sanitizePreviewText(result.stdout),
+            stderr: sanitizePreviewText(result.stderr),
         }
     }
     catch (error) {
@@ -298,7 +328,7 @@ async function runScript(
             script: scriptContent,
             command,
             stdout: "",
-            stderr: error instanceof Error ? error.message : String(error),
+            stderr: sanitizePreviewText(error instanceof Error ? error.message : String(error)),
         }
     }
 }
