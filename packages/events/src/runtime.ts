@@ -22,6 +22,16 @@ if (typeof (globalThis as any).Event === "undefined") {
   ;(globalThis as any).Event = NodeEvent
 }
 
+// Workflow bundles only register `use step` functions that are reachable from a
+// workflow/runtime entrypoint. Keep the internal context steps reachable whenever
+// apps import `@ekairos/events/runtime` to configure durable context execution.
+import "./reactors/ai-sdk.step.js"
+import "./runtime.step.js"
+import "./steps/durable.steps.js"
+import "./steps/store.steps.js"
+import "./steps/stream.steps.js"
+import "./steps/trace.steps.js"
+
 export {
   getContextRuntime,
 } from "./runtime.step.js"
