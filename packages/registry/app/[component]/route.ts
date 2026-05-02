@@ -77,7 +77,7 @@ const localAiElementSources = new Set([
 ]);
 const packageVersionOverrides: Record<string, string> = {
   "@ekairos/events":
-    process.env.EKAIROS_EVENTS_PACKAGE_VERSION ?? "1.22.69-beta.development.0",
+    process.env.EKAIROS_EVENTS_PACKAGE_VERSION ?? "beta",
   ai: "^5.0.102",
   streamdown: "^1.3.0",
 };
