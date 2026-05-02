@@ -154,13 +154,16 @@ const codexShowcaseContext = createContext<CodexShowcaseEnv>("registry.examples.
       includeReasoningPart: true,
       includeStreamTraceInOutput: true,
       includeRawProviderChunksInOutput: false,
-      resolveConfig: async ({ env }) => ({
-        appServerUrl: env.appServerUrl,
-        repoPath: env.repoPath,
-        providerContextId: env.providerContextId,
-        model: env.model,
-        approvalPolicy: env.approvalPolicy as CodexConfig["approvalPolicy"],
-      }),
+      resolveConfig: async (params: any) => {
+        const env = params.env as CodexShowcaseEnv;
+        return {
+          appServerUrl: env.appServerUrl,
+          repoPath: env.repoPath,
+          providerContextId: env.providerContextId,
+          model: env.model,
+          approvalPolicy: env.approvalPolicy as CodexConfig["approvalPolicy"],
+        };
+      },
       executeTurn: async ({ config, instruction, emitChunk }) =>
         await runCodexTurn({ config, instruction, emitChunk }),
     }),

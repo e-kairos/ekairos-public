@@ -8,7 +8,7 @@ import {
   getGitHubClientSecret,
   getGitHubRedirectUri,
 } from "../constant";
-import { getOrgAdminDb } from "@/lib/admin-org-db";
+import { getUntypedAdminDb } from "../service";
 
 type ServiceResult<T = any> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -100,7 +100,7 @@ export class GitHubOAuthService {
       if (!accessToken) return { ok: false, error: "No access token received" };
 
       // Persist token in InstantDB (simplified: one active token per org)
-      const db = await getOrgAdminDb(orgId);
+      const db = await getUntypedAdminDb(orgId);
       const now = Date.now();
       await db.transact([
         db.tx.integration_secrets[id()].update({

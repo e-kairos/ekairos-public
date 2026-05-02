@@ -256,7 +256,7 @@ export function useScriptedAiSdkContext(
 } {
   const data = fixture as FixtureData;
   const [events, setEvents] = useState<ContextEventForUI[]>([]);
-  const [contextStatus, setContextStatus] = useState<"open" | "streaming" | "closed">("open");
+  const [contextStatus, setContextStatus] = useState<"open_idle" | "open_streaming" | "closed">("open_idle");
   const [sendStatus, setSendStatus] = useState<"idle" | "submitting" | "error">("idle");
   const [sendError, setSendError] = useState<string | null>(null);
   const [turnSubstateKey, setTurnSubstateKey] = useState<string | null>(null);
@@ -266,7 +266,7 @@ export function useScriptedAiSdkContext(
   const stop = useCallback(() => {
     const currentRunId = currentRunIdRef.current;
     currentRunRef.current += 1;
-    setContextStatus("open");
+    setContextStatus("open_idle");
     setSendStatus("idle");
     setTurnSubstateKey(null);
     currentRunIdRef.current = null;
@@ -301,7 +301,7 @@ export function useScriptedAiSdkContext(
 
     setSendError(null);
     setSendStatus("submitting");
-    setContextStatus("streaming");
+    setContextStatus("open_streaming");
     setTurnSubstateKey("context.loop.running");
     const userEvent = createUserEvent(promptText);
     setEvents((prev) => [...prev, userEvent]);
@@ -354,7 +354,7 @@ export function useScriptedAiSdkContext(
         contextId: data.source.contextId,
         fixture: data,
       });
-      setContextStatus("open");
+      setContextStatus("open_idle");
       setSendStatus("idle");
       setTurnSubstateKey(null);
       currentRunIdRef.current = null;
@@ -367,7 +367,7 @@ export function useScriptedAiSdkContext(
     } catch (error) {
       if (currentRunRef.current !== runToken) return;
       setSendStatus("error");
-      setContextStatus("open");
+      setContextStatus("open_idle");
       setTurnSubstateKey(null);
       currentRunIdRef.current = null;
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -401,8 +401,19 @@ export function useScriptedAiSdkContext(
   >(
     () => ({
       apiUrl: "/api/code/agent",
+      context: {
+        id: data.source.contextId,
+        status: contextStatus,
+        content: { source: "registry.ai-sdk.fixture" },
+        currentExecution:
+          contextStatus === "open_streaming"
+            ? { id: data.source.executionId, status: "executing" }
+            : null,
+      },
       contextId: data.source.contextId,
       contextStatus,
+      activeExecutionId:
+        contextStatus === "open_streaming" ? data.source.executionId : null,
       turnSubstateKey,
       events,
       sendStatus,

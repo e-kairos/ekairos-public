@@ -14,7 +14,7 @@ function CodexReactorShowcaseReadyPage() {
   const [prompt, setPrompt] = useState(context.definition.initialPrompt);
 
   const isRunning =
-    context.contextStatus === "streaming" || context.sendStatus === "submitting";
+    context.contextStatus === "open_streaming" || context.sendStatus === "submitting";
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 px-4 py-5 md:px-6">

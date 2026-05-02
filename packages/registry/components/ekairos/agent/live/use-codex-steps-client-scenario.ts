@@ -239,7 +239,6 @@ async function persistScenarioResult(params: {
 
   const txs: any[] = [
     params.db.tx.event_items[params.ids.reactionEventId].update({
-      id: params.ids.reactionEventId,
       type: ASSISTANT_MESSAGE_TYPE,
       channel: "web",
       createdAt: nowIso(),
@@ -250,7 +249,6 @@ async function persistScenarioResult(params: {
     }),
     params.db.tx.event_steps[params.ids.stepId].update({
       status: params.status === "completed" ? "completed" : "failed",
-      kind: "message",
       updatedAt: new Date(),
       streamFinishedAt: new Date(),
       streamAbortReason: params.abortReason,
@@ -324,6 +322,8 @@ export function useCodexStepsClientScenario(
 
     const triggerEvent = buildTriggerEvent(idsBase.triggerEventId, scenario.request.prompt);
     const reactionEvent = buildPendingReactionEvent(idsBase.reactionEventId);
+    const { id: _triggerEventId, ...triggerEventAttrs } = triggerEvent;
+    const { id: _reactionEventId, ...reactionEventAttrs } = reactionEvent;
 
     try {
       await db.transact([
@@ -338,15 +338,13 @@ export function useCodexStepsClientScenario(
         }),
         db.tx.event_items[idsBase.triggerEventId]
           .update({
-            ...triggerEvent,
-            id: idsBase.triggerEventId,
+            ...triggerEventAttrs,
             status: "stored",
           })
           .link({ context: idsBase.contextId }),
         db.tx.event_items[idsBase.reactionEventId]
           .update({
-            ...reactionEvent,
-            id: idsBase.reactionEventId,
+            ...reactionEventAttrs,
           })
           .link({ context: idsBase.contextId }),
         db.tx.event_executions[idsBase.executionId]
@@ -372,7 +370,6 @@ export function useCodexStepsClientScenario(
             updatedAt: new Date(),
             status: "running",
             iteration: 0,
-            kind: "message",
           })
           .link({ execution: idsBase.executionId }),
       ] as any);

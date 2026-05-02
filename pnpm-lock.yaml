@@ -492,6 +492,9 @@ importers:
       llamaindex:
         specifier: ^0.12.0
         version: 0.12.0(@modelcontextprotocol/sdk@1.25.3(hono@4.10.4)(zod@4.3.6))(hono@4.10.4)(next@15.5.7(@opentelemetry/api@1.9.0)(@playwright/test@1.56.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1))(p-retry@6.2.1)(rxjs@7.8.2)(tree-sitter@0.22.4)(web-tree-sitter@0.24.7)(zod@4.3.6)
+      partial-json:
+        specifier: ^0.1.7
+        version: 0.1.7
       react:
         specifier: 19.2.1
         version: 19.2.1
@@ -756,6 +759,12 @@ importers:
       '@vercel/analytics':
         specifier: ^1.5.0
         version: 1.5.0(@sveltejs/kit@2.48.4(@opentelemetry/api@1.9.0)(@sveltejs/vite-plugin-svelte@6.2.1(svelte@5.43.3)(vite@7.1.12(@types/node@24.5.0)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.51.0)(terser@5.44.0)(tsx@4.20.6)(yaml@2.8.2)))(svelte@5.43.3)(vite@7.1.12(@types/node@24.5.0)(jiti@2.6.1)(lightningcss@1.30.2)(sass@1.51.0)(terser@5.44.0)(tsx@4.20.6)(yaml@2.8.2)))(next@16.0.7(@opentelemetry/api@1.9.0)(@playwright/test@1.56.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.51.0))(react@19.2.1)(svelte@5.43.3)
+      '@visual-json/core':
+        specifier: 0.4.0
+        version: 0.4.0
+      '@visual-json/react':
+        specifier: 0.4.0
+        version: 0.4.0(react@19.2.1)
       '@workflow/ai':
         specifier: 5.0.0-beta.1
         version: 5.0.0-beta.1(@opentelemetry/api@1.9.0)(ai@6.0.158(zod@4.3.6))(workflow@5.0.0-beta.1(@nestjs/common@11.1.13(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.13(@nestjs/common@11.1.13(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.0(@swc/core@1.15.3)(chokidar@5.0.0))(@swc/core@1.15.3)(next@16.0.7(@opentelemetry/api@1.9.0)(@playwright/test@1.56.1)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.51.0))(typescript@5.9.3))
@@ -5226,6 +5235,14 @@ packages:
 
   '@vercel/sandbox@2.0.0-beta.13':
     resolution: {integrity: sha512-p05ShlOrrL4C2OnR68AEksP3HUaXsvgIlwAOu8NQjsk2qNoXaq4gCKQscHOb44/TdLQGT0EkdADxQIzPY8Eoug==}
+
+  '@visual-json/core@0.4.0':
+    resolution: {integrity: sha512-T/HvRIp7r6SehxVnO+akV72NLv2OMBEoQdYTFbpwMi6uU2TaXQOpIOHBG4r9XBz7OqC2e8aedOwal/NtqtzyCg==}
+
+  '@visual-json/react@0.4.0':
+    resolution: {integrity: sha512-qiDrXI7wu9VoTE0TaLoJp7kwRj8SQTpkS/wkts5sBPA8078zdrIKc+0u0Y8wAXGYd3udw9dNfD4kmpO48OEwXQ==}
+    peerDependencies:
+      react: 19.2.1
 
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
@@ -15524,6 +15541,13 @@ snapshots:
     transitivePeerDependencies:
       - bare-abort-controller
       - react-native-b4a
+
+  '@visual-json/core@0.4.0': {}
+
+  '@visual-json/react@0.4.0(react@19.2.1)':
+    dependencies:
+      '@visual-json/core': 0.4.0
+      react: 19.2.1
 
   '@vitest/expect@3.2.4':
     dependencies:

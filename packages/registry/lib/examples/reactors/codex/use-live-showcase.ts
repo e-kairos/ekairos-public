@@ -57,11 +57,11 @@ function isUserEvent(event: ContextEventForUI | null | undefined) {
   return type === INPUT_TEXT_ITEM_TYPE || type === "input" || type.startsWith("user.");
 }
 
-function mapPersistedContextStatus(value: unknown): "open" | "streaming" | "closed" {
+function mapPersistedContextStatus(value: unknown): "open_idle" | "open_streaming" | "closed" {
   const status = asString(value);
-  if (status === "open_streaming" || status === "streaming") return "streaming";
+  if (status === "open_streaming" || status === "streaming") return "open_streaming";
   if (status === "closed") return "closed";
-  return "open";
+  return "open_idle";
 }
 
 function pickEntity(row: Record<string, unknown>, fields: string[]) {
@@ -992,8 +992,37 @@ export function useLiveCodexShowcase(): CodexShowcaseContextValue {
 
   const contextStatus = useMemo(() => {
     const persisted = mapPersistedContextStatus(persistedContext?.status);
-    return sendStatus === "submitting" ? "streaming" : persisted;
+    return sendStatus === "submitting" ? "open_streaming" : persisted;
   }, [persistedContext?.status, sendStatus]);
+
+  const activeExecutionId = useMemo(() => {
+    const currentExecutionId = asString(asRecord(persistedContext?.currentExecution).id);
+    if (currentExecutionId) return currentExecutionId;
+    const runningExecution = persistedExecutions.find(
+      (row) => asString(row.status) === "executing",
+    );
+    return runningExecution ? asString(runningExecution.id) || null : null;
+  }, [persistedContext, persistedExecutions]);
+
+  const context = useMemo(() => {
+    if (!contextId && !persistedContext) return null;
+    const persistedCurrentExecution = asRecord(persistedContext?.currentExecution);
+    const currentExecutionId = asString(persistedCurrentExecution.id);
+
+    return {
+      id: asString(persistedContext?.id) || contextId || "",
+      key: asString(persistedContext?.key) || null,
+      name: asString(persistedContext?.name) || null,
+      status: contextStatus,
+      content: persistedContext?.content,
+      currentExecution: currentExecutionId
+        ? {
+            id: currentExecutionId,
+            status: asString(persistedCurrentExecution.status) || null,
+          }
+        : null,
+    };
+  }, [contextId, contextStatus, persistedContext]);
 
   const incomingStreamText = useMemo(
     () => formatIncomingStreamText(trace?.chunks ?? []),
@@ -1003,8 +1032,10 @@ export function useLiveCodexShowcase(): CodexShowcaseContextValue {
   return useMemo(
     () => ({
       apiUrl: codexReactorShowcase.api.runPath,
+      context,
       contextId,
       contextStatus,
+      activeExecutionId,
       turnSubstateKey,
       events: mergedEvents,
       sendStatus,
@@ -1049,7 +1080,9 @@ export function useLiveCodexShowcase(): CodexShowcaseContextValue {
     [
       append,
       audit,
+      activeExecutionId,
       commandExecutions,
+      context,
       contextId,
       contextStatus,
       entities,

@@ -71,9 +71,8 @@ function wait(delayMs: number, signal: AbortSignal) {
   });
 }
 
-function buildTriggerEvent(id: string, prompt: string) {
+function buildTriggerEvent(_id: string, prompt: string) {
   return {
-    id,
     type: "input",
     channel: "web",
     createdAt: nowIso(),
@@ -82,9 +81,8 @@ function buildTriggerEvent(id: string, prompt: string) {
   };
 }
 
-function buildPendingReactionEvent(id: string) {
+function buildPendingReactionEvent(_id: string) {
   return {
-    id,
     type: "output",
     channel: "web",
     createdAt: nowIso(),
@@ -333,20 +331,18 @@ async function persistScenarioResult(params: {
 
   const txs: any[] = [
     params.db.tx.event_items[params.ids.reactionEventId].update({
-      id: params.ids.reactionEventId,
       type: "output",
       channel: "web",
       createdAt: nowIso(),
       status: params.status === "completed" ? "completed" : "error",
       content: { parts: persistedParts },
-    }),
+    } as any),
     params.db.tx.event_steps[params.ids.stepId].update({
       status: params.status === "completed" ? "completed" : "failed",
-      kind: "message",
       updatedAt: new Date(),
       streamFinishedAt: new Date(),
       streamAbortReason: params.abortReason,
-    }),
+    } as any),
     params.db.tx.event_executions[params.ids.executionId].update({
       status: params.status,
       activeStreamId: null,
@@ -420,13 +416,11 @@ export function useEventDemoScenario(params: {
         params.db.tx.event_items[ids.triggerEventId]
           .update({
             ...buildTriggerEvent(ids.triggerEventId, params.scenario.prompt),
-            id: ids.triggerEventId,
           })
           .link({ context: ids.contextId }),
         params.db.tx.event_items[ids.reactionEventId]
           .update({
             ...buildPendingReactionEvent(ids.reactionEventId),
-            id: ids.reactionEventId,
           })
           .link({ context: ids.contextId }),
         params.db.tx.event_executions[ids.executionId]
@@ -449,7 +443,6 @@ export function useEventDemoScenario(params: {
             updatedAt: new Date(),
             status: "running",
             iteration: 0,
-            kind: "message",
           })
           .link({ execution: ids.executionId }),
       ] as any);

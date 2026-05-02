@@ -1,6 +1,5 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
   CollapsibleContent,
@@ -8,22 +7,17 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import type { ToolUIPart } from "ai";
-import {
-  CheckCircleIcon,
-  ChevronDownIcon,
-  CircleIcon,
-  ClockIcon,
-  WrenchIcon,
-  XCircleIcon,
-} from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
-import { CodeBlock } from "@/components/ai-elements/code-block";
+import type { ComponentProps } from "react";
+import { VisualJsonValue } from "./visual-json-value";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("not-prose mb-4 w-full rounded-md border", className)}
+    className={cn(
+      "not-prose mb-2 w-full overflow-hidden rounded-md border border-border/70 bg-background transition-colors hover:border-border",
+      className,
+    )}
     {...props}
   />
 );
@@ -33,35 +27,24 @@ export type ToolHeaderProps = {
   state: ToolUIPart["state"];
   className?: string;
   label?: string;
+  summary?: string;
 };
 
-const getStatusBadge = (status: ToolUIPart["state"]) => {
-  const labels = {
-    "input-streaming": "Pending",
-    "input-available": "Running",
-    "approval-requested": "Approval requested",
-    "approval-responded": "Approval responded",
-    "output-available": "Completed",
+const getStatusLabel = (status: ToolUIPart["state"]) => {
+  const labels: Record<string, string> = {
+    "input-streaming": "Pendiente",
+    "input-available": "Ejecutando",
+    "output-available": "Completado",
     "output-error": "Error",
-    "output-denied": "Denied",
-  } as const satisfies Record<ToolUIPart["state"], string>;
+  } as const;
 
-  const icons = {
-    "input-streaming": <CircleIcon className="size-4" />,
-    "input-available": <ClockIcon className="size-4 animate-pulse" />,
-    "approval-requested": <ClockIcon className="size-4 text-amber-600" />,
-    "approval-responded": <CheckCircleIcon className="size-4 text-blue-600" />,
-    "output-available": <CheckCircleIcon className="size-4 text-green-600" />,
-    "output-error": <XCircleIcon className="size-4 text-red-600" />,
-    "output-denied": <XCircleIcon className="size-4 text-amber-700" />,
-  } as const satisfies Record<ToolUIPart["state"], ReactNode>;
+  return labels[status] ?? "";
+};
 
-  return (
-    <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
-      {icons[status]}
-      {labels[status]}
-    </Badge>
-  );
+const getStatusClassName = (status: ToolUIPart["state"]) => {
+  if (status === "output-error") return "bg-destructive/10 text-destructive";
+  if (status === "output-available") return "bg-emerald-50 text-emerald-700";
+  return "bg-muted text-muted-foreground";
 };
 
 export const ToolHeader = ({
@@ -69,21 +52,34 @@ export const ToolHeader = ({
   type,
   state,
   label,
+  summary,
   ...props
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
     className={cn(
-      "flex w-full items-center justify-between gap-4 p-3",
-      className
+      "flex min-h-10 w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/30",
+      className,
     )}
     {...props}
   >
-    <div className="flex items-center gap-2">
-      <WrenchIcon className="size-4 text-muted-foreground" />
-      <span className="font-medium text-sm">{label || (type as string)}</span>
-      {getStatusBadge(state)}
+    <div className="min-w-0">
+      <div className="truncate text-sm font-medium leading-5">
+        {label || (type as string)}
+      </div>
+      {summary && summary.trim().length > 0 && (
+        <div className="truncate text-xs leading-4 text-muted-foreground">
+          {summary}
+        </div>
+      )}
     </div>
-    <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+    <span
+      className={cn(
+        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4",
+        getStatusClassName(state),
+      )}
+    >
+      {getStatusLabel(state)}
+    </span>
   </CollapsibleTrigger>
 );
 
@@ -92,8 +88,8 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-      className
+      "border-t border-border/60 text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2",
+      className,
     )}
     {...props}
   />
@@ -104,13 +100,11 @@ export type ToolInputProps = ComponentProps<"div"> & {
 };
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-2 overflow-hidden p-4", className)} {...props}>
-    <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-      Parameters
+  <div className={cn("space-y-2 overflow-hidden p-3", className)} {...props}>
+    <h4 className="text-xs font-medium uppercase text-muted-foreground">
+      Detalles tecnicos (parametros)
     </h4>
-    <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
-    </div>
+    <VisualJsonValue value={input} height={220} />
   </div>
 );
 
@@ -125,39 +119,22 @@ export const ToolOutput = ({
   errorText,
   ...props
 }: ToolOutputProps) => {
-  if (!(output || errorText)) {
+  if (output === undefined && !errorText) {
     return null;
   }
 
-  let Output = <div>{output as ReactNode}</div>;
-
-  if (typeof output === "object") {
-    Output = (
-      <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />
-    );
-  } else if (typeof output === "string") {
-    Output = <CodeBlock code={output} language="json" />;
-  }
-
   return (
-    <div className={cn("space-y-2 p-4", className)} {...props}>
-      <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? "Error" : "Result"}
+    <div className={cn("space-y-2 p-3", className)} {...props}>
+      <h4 className="text-xs font-medium uppercase text-muted-foreground">
+        {errorText ? "Error" : "Detalles tecnicos (resultado)"}
       </h4>
-      <div
-        className={cn(
-          "overflow-x-auto rounded-md text-xs [&_table]:w-full",
-          errorText
-            ? "bg-destructive/10 text-destructive"
-            : "bg-muted/50 text-foreground"
-        )}
-      >
-        {errorText && <div>{errorText}</div>}
-        {Output}
-      </div>
+      {errorText ? (
+        <div className="rounded bg-destructive/10 p-3 text-xs text-destructive">
+          {errorText}
+        </div>
+      ) : (
+        <VisualJsonValue value={output} height={260} />
+      )}
     </div>
   );
 };
-
-
-

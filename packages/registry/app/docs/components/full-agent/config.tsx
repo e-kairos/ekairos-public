@@ -14,7 +14,7 @@ function ScriptedCodexAgentDemo() {
   );
 
   const isRunning =
-    context.contextStatus === "streaming" || context.sendStatus === "submitting";
+    context.contextStatus === "open_streaming" || context.sendStatus === "submitting";
 
   return (
     <div className="relative mx-auto flex h-[680px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl ring-1 ring-border">
@@ -101,7 +101,7 @@ import { Button } from "@/components/ui/button"
 export function FullAgentCodexReplay() {
   const context = useScriptedCodexContext()
   const [prompt, setPrompt] = useState("Inspect README.md and reply with a short summary.")
-  const isRunning = context.contextStatus === "streaming" || context.sendStatus === "submitting"
+  const isRunning = context.contextStatus === "open_streaming" || context.sendStatus === "submitting"
 
   return (
     <div className="h-[680px] w-full max-w-4xl rounded-2xl border bg-background overflow-hidden flex flex-col">

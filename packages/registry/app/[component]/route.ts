@@ -63,10 +63,42 @@ const homepage = registryOrigin
   ? new URL("/registry", registryOrigin).toString()
   : "http://localhost:3001/registry";
 
-const componentsRoot = join(process.cwd(), "components");
+const registryRoot = process.cwd();
+const componentsRoot = join(registryRoot, "components");
 const defaultAiElementsRegistry = "https://registry.ai-sdk.dev/";
 const aiElementsRegistryBase =
   process.env.AI_ELEMENTS_REGISTRY_URL ?? defaultAiElementsRegistry;
+const runtimeProvidedDependencies = new Set(["next", "react", "react-dom"]);
+const versionlessDependencies = new Set(["ai", "streamdown"]);
+const localAiElementSources = new Set([
+  "ai-elements/conversation",
+  "ai-elements/message",
+  "ai-elements/sources",
+]);
+const packageVersionOverrides: Record<string, string> = {
+  "@ekairos/events":
+    process.env.EKAIROS_EVENTS_PACKAGE_VERSION ?? "1.22.68-beta.development.0",
+  ai: "^5.0.102",
+  streamdown: "^1.3.0",
+};
+
+const toRegistryDependency = (pkg: string, version?: string) => {
+  const override = packageVersionOverrides[pkg];
+  if (override) {
+    return `${pkg}@${override}`;
+  }
+
+  if (
+    !version ||
+    versionlessDependencies.has(pkg) ||
+    version.startsWith("workspace:") ||
+    version.startsWith("catalog:")
+  ) {
+    return pkg;
+  }
+
+  return `${pkg}@${version}`;
+};
 
 const buildAiElementsRegistryUrl = (componentName: string) => {
   const trimmedBase = aiElementsRegistryBase.endsWith("/")
@@ -82,6 +114,8 @@ type RegistrySource = {
   content: string;
 };
 
+type RegistryFile = NonNullable<RegistryItem["files"]>[number];
+
 const normalizePath = (value: string) => value.replace(/\\/g, "/");
 
 const stripExtension = (value: string) =>
@@ -96,6 +130,40 @@ const capitalize = (value: string) => {
 
 const toComponentName = (relativePath: string) =>
   stripExtension(relativePath).split("/").join("-").toLowerCase();
+
+const PUBLISHED_EKAIROS_NAMES: Record<string, string> = {
+  "ekairos/events/context-agent/Agent": "agent",
+  "ekairos/events/context/index": "use-context",
+  "ekairos/events/prompt/prompt": "prompt",
+};
+
+function shouldPublishSource(relativePath: string) {
+  const basePath = stripExtension(relativePath);
+
+  if (basePath.startsWith("ai-elements/")) {
+    return localAiElementSources.has(basePath);
+  }
+
+  if (basePath in PUBLISHED_EKAIROS_NAMES) return true;
+
+  if (
+    basePath.startsWith("ekairos/agent/") ||
+    basePath.startsWith("ekairos/prompt/") ||
+    basePath.startsWith("ekairos/context/context/") ||
+    basePath === "ekairos/use-context"
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function getRegistryName(relativePath: string) {
+  const basePath = stripExtension(relativePath);
+  const publishedName = PUBLISHED_EKAIROS_NAMES[basePath];
+  if (publishedName) return publishedName;
+  return toComponentName(relativePath);
+}
 
 const toTitle = (relativePath: string) =>
   stripExtension(relativePath)
@@ -114,6 +182,12 @@ const toDescription = (relativePath: string) => {
   const fileName = segments[segments.length - 1] ?? basePath;
 
   switch (basePath) {
+    case "ekairos/events/context-agent/Agent":
+      return "Full Ekairos context agent shell from the Esolbay production surface.";
+    case "ekairos/events/prompt/prompt":
+      return "Ekairos prompt input from the Esolbay production surface, with streaming state and file attachments.";
+    case "ekairos/events/context/index":
+      return "React hook bridge for the canonical @ekairos/events context client runtime.";
     case "ekairos/agent":
       return "Full Ekairos chat agent shell that wires together prompt, messages, responses and tools.";
     case "ekairos/prompt":
@@ -166,13 +240,22 @@ async function collectSources(
       const isRootLevel = prefix === "";
       const isInsideEkairosTree = prefix.startsWith("ekairos");
 
-      // At the root level we only expose the ekairos folder to avoid leaking ui/ai-elements.
-      if (isRootLevel && entry.name !== "ekairos") {
+      // At the root level we expose Ekairos plus the AI Elements files vendored
+      // from Esolbay that the Ekairos agent depends on.
+      if (
+        isRootLevel &&
+        entry.name !== "ekairos" &&
+        entry.name !== "ai-elements"
+      ) {
         continue;
       }
 
-      // Once we are inside components/ekairos/** we should keep recursing so nested building blocks are exposed.
-      if (!isRootLevel && !isInsideEkairosTree) {
+      // Once we are inside an exposed tree we should keep recursing so nested building blocks are exposed.
+      if (
+        !isRootLevel &&
+        !isInsideEkairosTree &&
+        !prefix.startsWith("ai-elements")
+      ) {
         continue;
       }
 
@@ -194,6 +277,10 @@ async function collectSources(
       const content = await fs.readFile(absolutePath, "utf-8");
       const normalizedRelativePath = normalizePath(relativePath);
 
+      if (!shouldPublishSource(normalizedRelativePath)) {
+        continue;
+      }
+
       // Special handling for Ekairos components:
       // - Top-level files under components/ekairos (e.g. ekairos/agent.tsx)
       //   are exposed with simplified names like "agent" => @ekairos/agent
@@ -203,6 +290,17 @@ async function collectSources(
       //   keep the default toComponentName naming so they can be used as dependencies.
       if (normalizedRelativePath.startsWith("ekairos/")) {
         const segments = normalizedRelativePath.split("/");
+        const canonicalName = PUBLISHED_EKAIROS_NAMES[stripExtension(normalizedRelativePath)];
+
+        if (canonicalName) {
+          list.push({
+            name: canonicalName,
+            relativePath: normalizedRelativePath,
+            absolutePath,
+            content,
+          });
+          continue;
+        }
 
         if (segments.length === 2) {
           // ekairos/agent.tsx -> agent
@@ -242,7 +340,7 @@ async function collectSources(
 
         // Nested ekairos sub-components: use default naming
         list.push({
-          name: toComponentName(normalizedRelativePath),
+          name: getRegistryName(normalizedRelativePath),
           relativePath: normalizedRelativePath,
           absolutePath,
           content,
@@ -252,7 +350,7 @@ async function collectSources(
 
       // Default behavior for all other components (including ai-elements/*)
       list.push({
-        name: toComponentName(normalizedRelativePath),
+        name: getRegistryName(normalizedRelativePath),
         relativePath: normalizedRelativePath,
         absolutePath,
         content,
@@ -351,10 +449,10 @@ const getRegistryDependencyReference = (componentName: string | null) => {
   }
 
   if (registryOrigin) {
-    return new URL(`/${componentName}.json`, registryOrigin).toString();
+    return new URL(`/r/${componentName}.json`, registryOrigin).toString();
   }
 
-  return `/${componentName}.json`;
+  return `/r/${componentName}.json`;
 };
 
 const getBasePackageName = (specifier: string) => {
@@ -373,7 +471,7 @@ const resolveRelativeDependency = async (
   const resolved = stripExtension(
     normalizePath(join(dirname(from.relativePath), specifier))
   );
-  const match = sourceByPath.get(resolved);
+  const match = sourceByPath.get(resolved) ?? sourceByPath.get(`${resolved}/index`);
   return match ? match.name : null;
 };
 
@@ -386,13 +484,49 @@ const resolveAliasedDependency = async (specifier: string): Promise<string | nul
   const relative = stripExtension(
     normalizePath(specifier.replace("@/components/", ""))
   );
-  const match = sourceByPath.get(relative);
+  const match = sourceByPath.get(relative) ?? sourceByPath.get(`${relative}/index`);
   return match ? match.name : null;
 };
+
+const LOCAL_UI_REGISTRY_FILES = new Set(["dotm-square-10", "tooltip"]);
+
+async function readAdditionalRegistryFile(
+  relativePath: string,
+  type: RegistryFile["type"],
+): Promise<RegistryFile> {
+  const normalizedPath = normalizePath(relativePath);
+  const absolutePath = join(registryRoot, normalizedPath);
+  const content = await fs.readFile(absolutePath, "utf-8");
+
+  return {
+    path: `registry/default/${normalizedPath}`,
+    type,
+    content,
+    target: normalizedPath,
+  } as RegistryFile;
+}
+
+async function addAdditionalFile(
+  files: Map<string, RegistryFile>,
+  relativePath: string,
+  type: RegistryFile["type"],
+) {
+  const normalizedPath = normalizePath(relativePath);
+  if (files.has(normalizedPath)) return;
+  files.set(normalizedPath, await readAdditionalRegistryFile(normalizedPath, type));
+}
+
+async function addDotMatrixFiles(files: Map<string, RegistryFile>) {
+  await addAdditionalFile(files, "components/ui/dotm-square-10.tsx", "registry:ui" as RegistryFile["type"]);
+  await addAdditionalFile(files, "components/dotmatrix-loader.css", "registry:file" as RegistryFile["type"]);
+  await addAdditionalFile(files, "lib/dotmatrix-core.tsx", "registry:lib" as RegistryFile["type"]);
+  await addAdditionalFile(files, "lib/dotmatrix-hooks.ts", "registry:lib" as RegistryFile["type"]);
+}
 
 const analyzeSource = async (source: RegistrySource) => {
   const dependencies = new Set<string>();
   const registryDependencies = new Set<string>();
+  const additionalFiles = new Map<string, RegistryFile>();
 
   try {
     const imports = extractModuleSpecifiers(source.content);
@@ -406,6 +540,18 @@ const analyzeSource = async (source: RegistrySource) => {
       if (specifier.startsWith("@/components/ui/")) {
         const componentName = specifier.split("/").pop();
         if (componentName) {
+          if (LOCAL_UI_REGISTRY_FILES.has(componentName)) {
+            await addAdditionalFile(
+              additionalFiles,
+              `components/ui/${componentName}.tsx`,
+              "registry:ui" as RegistryFile["type"],
+            );
+            if (componentName === "dotm-square-10") {
+              await addDotMatrixFiles(additionalFiles);
+            }
+            continue;
+          }
+
           // Reference to official shadcn registry (assuming default style)
           registryDependencies.add(`https://ui.shadcn.com/r/styles/default/${componentName}.json`);
         }
@@ -413,13 +559,19 @@ const analyzeSource = async (source: RegistrySource) => {
       }
 
       if (specifier.startsWith("@/components/ai-elements/")) {
-        // AI Elements live in their own registry. Reference their remote URL
-        // so shadcn CLI can fetch them automatically.
-        const componentName = specifier.split("/").pop();
-        if (componentName) {
-          registryDependencies.add(
-            buildAiElementsRegistryUrl(componentName),
-          );
+        const targetName = await resolveAliasedDependency(specifier);
+        if (targetName) {
+          const ref = getRegistryDependencyReference(targetName);
+          if (ref) {
+            registryDependencies.add(ref);
+          }
+        } else {
+          const componentName = specifier.split("/").pop();
+          if (componentName) {
+            registryDependencies.add(
+              buildAiElementsRegistryUrl(componentName),
+            );
+          }
         }
         continue;
       }
@@ -445,6 +597,11 @@ const analyzeSource = async (source: RegistrySource) => {
 
       // Other @/components/ paths
       if (specifier.startsWith("@/components/")) {
+        if (specifier === "@/components/dotmatrix-loader.css") {
+          await addDotMatrixFiles(additionalFiles);
+          continue;
+        }
+
         const targetName = await resolveAliasedDependency(specifier);
         if (targetName) {
           const ref = getRegistryDependencyReference(targetName);
@@ -466,19 +623,25 @@ const analyzeSource = async (source: RegistrySource) => {
 
       // Skip path aliases
       if (specifier.startsWith("@/")) {
+        if (
+          specifier === "@/lib/dotmatrix-core" ||
+          specifier === "@/lib/dotmatrix-hooks"
+        ) {
+          await addDotMatrixFiles(additionalFiles);
+        }
         continue;
       }
 
       const pkg = getBasePackageName(specifier);
       if (pkg && !pkg.startsWith(".") && !pkg.startsWith("/")) {
+        if (runtimeProvidedDependencies.has(pkg)) {
+          continue;
+        }
+
         // Try to get version from registry package.json
         const packageJson = await getRegistryPackageJson();
         const version = packageJson?.dependencies?.[pkg] || packageJson?.devDependencies?.[pkg];
-        if (version) {
-          dependencies.add(`${pkg}@${version}`);
-        } else {
-          dependencies.add(pkg);
-        }
+        dependencies.add(toRegistryDependency(pkg, version));
       }
     }
   } catch (error) {
@@ -488,6 +651,7 @@ const analyzeSource = async (source: RegistrySource) => {
   return {
     dependencies,
     registryDependencies,
+    additionalFiles: Array.from(additionalFiles.values()),
   };
 };
 
@@ -550,6 +714,7 @@ export const GET = async (_request: NextRequest, { params }: RequestProps) => {
       analysis = {
         dependencies: new Set<string>(),
         registryDependencies: new Set<string>(),
+        additionalFiles: [],
       };
   }
 
@@ -566,6 +731,7 @@ export const GET = async (_request: NextRequest, { params }: RequestProps) => {
           content: source.content,
           target: `components/${source.relativePath}`,
       },
+      ...analysis.additionalFiles,
     ],
       dependencies: Array.from(analysis.dependencies),
       devDependencies: [],

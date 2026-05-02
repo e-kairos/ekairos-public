@@ -49,6 +49,8 @@
         "@streamdown/mermaid": "^1.0.2",
         "@tailwindcss/postcss": "^4.1.17",
         "@vercel/analytics": "^1.5.0",
+        "@visual-json/core": "0.4.0",
+        "@visual-json/react": "0.4.0",
         "@workflow/ai": "5.0.0-beta.1",
         "@workflow/serde": "5.0.0-beta.0",
         "@xyflow/react": "^12.9.3",

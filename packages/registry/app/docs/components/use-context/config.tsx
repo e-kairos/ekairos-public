@@ -1,8 +1,14 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import type { ContextStreamChunk } from "@ekairos/events";
 import type { RegistryItem } from "@/lib/registry-types";
+
+type ContextStreamChunk = {
+  type: string;
+  data?: Record<string, unknown>;
+  id?: string;
+  transient?: boolean;
+};
 
 function UseContextDemo() {
   const [contextId, setContextId] = useState<string | null>("ctx_demo_01");
@@ -109,7 +115,7 @@ export const useContextRegistryItem: RegistryItem = {
   registryName: "use-context",
   title: "useContext hook",
   subtitle:
-    "Client hook from @ekairos/events to load snapshots, process chunks, and keep context state synchronized.",
+    "Client hook from @ekairos/events/react to drive the Esolbay context agent surface.",
   category: "core",
   props: [
     {
@@ -145,28 +151,25 @@ export const useContextRegistryItem: RegistryItem = {
   ],
   code: `"use client"
 
-import { useContext } from "@ekairos/events"
+import { useContext } from "@ekairos/events/react"
+import { useOrgDb } from "@/lib/org-db-context"
 
 export function ContextStatePanel() {
+  const { db } = useOrgDb()
   const {
-    data,
-    isLoading,
-    error,
     contextId,
-    applyChunk,
-    refresh,
-  } = useContext({
+    contextStatus,
+    events,
+  } = useContext(db, {
+    apiUrl: "/api/agent/context",
     contextKey: "support.agent.session.42",
-    orgId: "org_123",
-    endpoint: "/api/context",
-    ensure: true,
-    refreshMs: 5000,
   })
 
   return (
     <div>
       <p>contextId: {contextId}</p>
-      <button onClick={refresh}>refresh</button>
+      <p>status: {contextStatus}</p>
+      <p>events: {events.length}</p>
     </div>
   )
 }
