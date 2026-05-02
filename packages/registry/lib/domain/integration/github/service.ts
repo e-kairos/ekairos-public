@@ -11,7 +11,7 @@ export type ServiceResult<T = any> = { ok: true; data: T } | { ok: false; error:
  * Get an untyped admin DB for querying integration entities
  * (which are not in Registry's schema but exist in the shared DB)
  */
-async function getUntypedAdminDb(clerkOrgId: string) {
+export async function getUntypedAdminDb(clerkOrgId: string) {
   const creds = await getOrgCredentials(clerkOrgId);
   if (!creds) {
     throw new Error(`InstantDB credentials not found for organization ${clerkOrgId}.`);
