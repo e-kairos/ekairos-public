@@ -13,6 +13,12 @@ import {
 
 const execFileAsync = promisify(execFile)
 
+type ResolvedVercelCredentials = {
+  teamId?: string
+  projectId?: string
+  token?: string
+}
+
 function formatSandboxError(err: any): string {
   const base = err instanceof Error ? err.message : String(err)
   const text = typeof err?.text === "string" ? err.text.trim() : ""
@@ -113,17 +119,53 @@ export async function pullVercelOidcToken(config: SandboxConfig): Promise<string
   }
 }
 
-export async function resolveVercelCredentials(config: SandboxConfig) {
+function isVercelRuntime(): boolean {
+  return (
+    process.env.VERCEL === "1" ||
+    Boolean(process.env.VERCEL_ENV) ||
+    Boolean(process.env.VERCEL_URL)
+  )
+}
+
+function hasCompleteVercelCredentials(
+  creds: ResolvedVercelCredentials,
+): creds is Required<ResolvedVercelCredentials> {
+  return Boolean(creds.teamId && creds.projectId && creds.token)
+}
+
+export function withResolvedVercelCredentials<T extends Record<string, unknown>>(
+  params: T,
+  creds: ResolvedVercelCredentials,
+): T & Partial<Required<ResolvedVercelCredentials>> {
+  if (!hasCompleteVercelCredentials(creds)) return params
+  return {
+    ...params,
+    teamId: creds.teamId,
+    projectId: creds.projectId,
+    token: creds.token,
+  }
+}
+
+export async function resolveVercelCredentials(
+  config: SandboxConfig,
+): Promise<ResolvedVercelCredentials> {
   const explicitTeamId = String(
-    config.vercel?.orgId ?? process.env.SANDBOX_VERCEL_TEAM_ID ?? "",
+    config.vercel?.orgId ??
+      process.env.SANDBOX_VERCEL_TEAM_ID ??
+      process.env.VERCEL_TEAM_ID ??
+      "",
   ).trim()
   const explicitProjectId = String(
-    config.vercel?.projectId ?? process.env.SANDBOX_VERCEL_PROJECT_ID ?? "",
+    config.vercel?.projectId ??
+      process.env.SANDBOX_VERCEL_PROJECT_ID ??
+      process.env.VERCEL_PROJECT_ID ??
+      "",
   ).trim()
   const explicitToken = String(
     config.vercel?.token ??
       process.env.SANDBOX_VERCEL_TOKEN ??
       process.env.VERCEL_OIDC_TOKEN ??
+      process.env.VERCEL_TOKEN ??
       "",
   ).trim()
   if (explicitTeamId && explicitProjectId && explicitToken) {
@@ -133,6 +175,11 @@ export async function resolveVercelCredentials(config: SandboxConfig) {
   const linked = await readLinkedVercelProject(config)
   const teamId = explicitTeamId || String(linked.orgId ?? "").trim()
   const projectId = explicitProjectId || String(linked.projectId ?? "").trim()
+
+  if (isVercelRuntime()) {
+    return {}
+  }
+
   let token = explicitToken
   if (!token) {
     token = await pullVercelOidcToken(config)
@@ -160,13 +207,15 @@ export async function provisionVercelSandbox(
 
   if (resolved.reuse && resolved.name) {
     try {
-      return await VercelSandbox.get({
-        name: resolved.name,
-        teamId: creds.teamId,
-        projectId: creds.projectId,
-        token: creds.token,
-        resume: true,
-      } as any)
+      return await VercelSandbox.get(
+        withResolvedVercelCredentials(
+          {
+            name: resolved.name,
+            resume: true,
+          },
+          creds,
+        ) as any,
+      )
     } catch (error: any) {
       const status = Number(error?.response?.status ?? 0)
       const message = formatSandboxError(error).toLowerCase()
@@ -176,21 +225,23 @@ export async function provisionVercelSandbox(
     }
   }
 
-  return await VercelSandbox.create({
-    teamId: creds.teamId,
-    projectId: creds.projectId,
-    token: creds.token,
-    ...(resolved.name ? { name: resolved.name } : {}),
-    timeout: resolved.timeoutMs,
-    ports: resolved.ports,
-    runtime: resolved.runtime as any,
-    resources: { vcpus: resolved.vcpus },
-    persistent: resolved.persistent,
-    ...(resolved.snapshotExpirationMs !== undefined
-      ? { snapshotExpiration: resolved.snapshotExpirationMs }
-      : {}),
-    ...(resolved.tags ? { tags: resolved.tags } : {}),
-    networkPolicy: extra?.networkPolicy,
-    env: extra?.env,
-  } as any)
+  return await VercelSandbox.create(
+    withResolvedVercelCredentials(
+      {
+        ...(resolved.name ? { name: resolved.name } : {}),
+        timeout: resolved.timeoutMs,
+        ports: resolved.ports,
+        runtime: resolved.runtime as any,
+        resources: { vcpus: resolved.vcpus },
+        persistent: resolved.persistent,
+        ...(resolved.snapshotExpirationMs !== undefined
+          ? { snapshotExpiration: resolved.snapshotExpirationMs }
+          : {}),
+        ...(resolved.tags ? { tags: resolved.tags } : {}),
+        networkPolicy: extra?.networkPolicy,
+        env: extra?.env,
+      },
+      creds,
+    ) as any,
+  )
 }
