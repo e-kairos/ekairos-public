@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
 import type { FilePreviewContext } from "./filepreview.types.js"
+import { PYTHON_SCRIPT_BASE64_BY_NAME } from "./scripts.generated.js"
 
 export type { FilePreviewContext } from "./filepreview.types.js"
 
@@ -50,6 +51,41 @@ export function resolveFilePreviewScriptPath(scriptName: string): string {
     throw new Error(
         `dataset_preview_script_not_found:${scriptName}; searched=${candidates.join(",")}`,
     )
+}
+
+export function getEmbeddedFilePreviewScriptBase64(scriptName: string): string {
+    const embedded = PYTHON_SCRIPT_BASE64_BY_NAME[scriptName]
+
+    if (!embedded) {
+        throw new Error(`dataset_preview_script_not_embedded:${scriptName}`)
+    }
+
+    return embedded
+}
+
+function readFilePreviewScriptBase64(scriptName: string): string {
+    try {
+        const scriptPath = resolveFilePreviewScriptPath(scriptName)
+        return Buffer.from(readFileSync(scriptPath)).toString("base64")
+    }
+    catch (error) {
+        try {
+            return getEmbeddedFilePreviewScriptBase64(scriptName)
+        }
+        catch {
+            throw error
+        }
+    }
+}
+
+function readFilePreviewScriptText(scriptName: string): string {
+    try {
+        const scriptPath = resolveFilePreviewScriptPath(scriptName)
+        return readFileSync(scriptPath, "utf-8")
+    }
+    catch {
+        return Buffer.from(getEmbeddedFilePreviewScriptBase64(scriptName), "base64").toString("utf-8")
+    }
 }
 
 const preparedSandboxIds = new Set<string>()
@@ -127,11 +163,9 @@ export async function ensurePreviewScriptsAvailable(runtime: any, sandboxId: str
 
         for (const scriptName of PYTHON_SCRIPT_FILES) {
             try {
-                const scriptPath = resolveFilePreviewScriptPath(scriptName)
-                const fileBuffer = readFileSync(scriptPath)
                 filesToWrite.push({
                     path: `${SANDBOX_SCRIPT_DIRECTORY}/${scriptName}`,
-                    contentBase64: Buffer.from(fileBuffer).toString("base64"),
+                    contentBase64: readFilePreviewScriptBase64(scriptName),
                 })
             }
             catch (error) {
@@ -309,8 +343,7 @@ async function runScript(
     let scriptContent = ""
 
     try {
-        const localScriptPath = resolveFilePreviewScriptPath(scriptName)
-        scriptContent = readFileSync(localScriptPath, 'utf-8')
+        scriptContent = readFilePreviewScriptText(scriptName)
     }
     catch (error) {
         console.warn(`Failed to read script ${scriptName}:`, error)
