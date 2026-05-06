@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs"
-import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runDatasetSandboxCommandStep, writeDatasetSandboxFilesStep } from "../sandbox/steps.js"
@@ -29,18 +28,28 @@ const PYTHON_SCRIPT_FILES = [
     "preview_tail_excel.py",
 ]
 
-const require = createRequire(import.meta.url)
+export function resolveFilePreviewScriptPath(scriptName: string): string {
+    const currentDir = dirname(fileURLToPath(import.meta.url))
+    const taskRoot = String(process.env.LAMBDA_TASK_ROOT ?? "").trim()
+    const candidates = [
+        join(currentDir, "scripts", scriptName),
+        join(process.cwd(), "node_modules", "@ekairos", "dataset", "dist", "file", "scripts", scriptName),
+        taskRoot
+            ? join(taskRoot, "node_modules", "@ekairos", "dataset", "dist", "file", "scripts", scriptName)
+            : "",
+        join(process.cwd(), "packages", "dataset", "dist", "file", "scripts", scriptName),
+        join(process.cwd(), "packages", "dataset", "src", "file", "scripts", scriptName),
+    ].filter(Boolean)
 
-function resolveScriptPath(scriptName: string): string {
-    const moduleLocalScriptPath = join(dirname(fileURLToPath(import.meta.url)), "scripts", scriptName)
-    if (existsSync(moduleLocalScriptPath)) {
-        return moduleLocalScriptPath
+    for (const candidate of candidates) {
+        if (existsSync(candidate)) {
+            return candidate
+        }
     }
 
-    // Workflow bundlers can move this module away from the package dist directory. Resolve
-    // the package JS entrypoint, then address scripts as plain filesystem paths under dist.
-    const packageEntryPath = require.resolve("@ekairos/dataset")
-    return join(dirname(packageEntryPath), "file", "scripts", scriptName)
+    throw new Error(
+        `dataset_preview_script_not_found:${scriptName}; searched=${candidates.join(",")}`,
+    )
 }
 
 const preparedSandboxIds = new Set<string>()
@@ -118,7 +127,7 @@ export async function ensurePreviewScriptsAvailable(runtime: any, sandboxId: str
 
         for (const scriptName of PYTHON_SCRIPT_FILES) {
             try {
-                const scriptPath = resolveScriptPath(scriptName)
+                const scriptPath = resolveFilePreviewScriptPath(scriptName)
                 const fileBuffer = readFileSync(scriptPath)
                 filesToWrite.push({
                     path: `${SANDBOX_SCRIPT_DIRECTORY}/${scriptName}`,
@@ -300,7 +309,7 @@ async function runScript(
     let scriptContent = ""
 
     try {
-        const localScriptPath = resolveScriptPath(scriptName)
+        const localScriptPath = resolveFilePreviewScriptPath(scriptName)
         scriptContent = readFileSync(localScriptPath, 'utf-8')
     }
     catch (error) {
